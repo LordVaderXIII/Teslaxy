@@ -10,7 +10,7 @@ interface Scene3DProps {
   backSrc: string;
 }
 
-const VideoMesh = ({ src, position, rotation, size }: any) => {
+const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength }: any) => {
     const [video] = useState(() => {
         const vid = document.createElement('video');
         vid.crossOrigin = 'Anonymous';
@@ -34,9 +34,13 @@ const VideoMesh = ({ src, position, rotation, size }: any) => {
         }
     }, [video]);
 
+    if (!src) return null;
+
     return (
-        <mesh position={position} rotation={rotation}>
-            <planeGeometry args={size} />
+        <mesh>
+            {/* CylinderGeometry: radiusTop, radiusBottom, height, radialSegments, heightSegments, openEnded, thetaStart, thetaLength */}
+            <cylinderGeometry args={[radius, radius, height, 32, 1, true, thetaStart, thetaLength]} />
+            {/* side={THREE.DoubleSide} ensures it's visible from inside and outside */}
             <meshBasicMaterial side={THREE.DoubleSide} toneMapped={false}>
                 <videoTexture attach="map" args={[video]} />
             </meshBasicMaterial>
@@ -46,10 +50,20 @@ const VideoMesh = ({ src, position, rotation, size }: any) => {
 
 
 const Scene3D: React.FC<Scene3DProps> = ({ frontSrc, leftRepeaterSrc, rightRepeaterSrc, backSrc }) => {
+  const radius = 8;
+  const height = 5;
+  const segmentAngle = Math.PI / 2; // 90 degrees per camera
+
+  // Mapping:
+  // Back: Centered at 0 (Z+). Start = -Pi/4.
+  // Right: Centered at Pi/2 (X+). Start = Pi/4.
+  // Front: Centered at Pi (Z-). Start = 3Pi/4.
+  // Left: Centered at 3Pi/2 (X-). Start = 5Pi/4.
+
   return (
     <div className="w-full h-full bg-gray-900">
       <Canvas>
-        <PerspectiveCamera makeDefault position={[0, 5, 10]} />
+        <PerspectiveCamera makeDefault position={[0, 10, 15]} />
         <OrbitControls enablePan={true} enableZoom={true} enableRotate={true} />
 
         <ambientLight intensity={0.5} />
@@ -60,24 +74,45 @@ const Scene3D: React.FC<Scene3DProps> = ({ frontSrc, leftRepeaterSrc, rightRepea
             <meshStandardMaterial color="gray" wireframe />
         </mesh>
 
-        {/*
-            Mapping based on Tesla camera positions roughly:
-            We place them "around" the car facing OUTWARDS.
-        */}
+        {/* Curved Screens */}
 
-        {/* Front - Large */}
-        {frontSrc && <VideoMesh src={frontSrc} position={[0, 1.5, -4]} rotation={[0, 0, 0]} size={[8, 4.5]} />}
+        {/* Back Camera (Rear) */}
+        <CurvedScreen
+            src={backSrc}
+            radius={radius}
+            height={height}
+            thetaStart={-segmentAngle / 2}
+            thetaLength={segmentAngle}
+        />
 
-        {/* Left Repeater - Side facing back/left */}
-        {leftRepeaterSrc && <VideoMesh src={leftRepeaterSrc} position={[-4, 1.5, 0]} rotation={[0, Math.PI / 2, 0]} size={[6, 4]} />}
+        {/* Right Repeater (Right Side) */}
+        <CurvedScreen
+            src={rightRepeaterSrc}
+            radius={radius}
+            height={height}
+            thetaStart={Math.PI / 2 - segmentAngle / 2}
+            thetaLength={segmentAngle}
+        />
 
-        {/* Right Repeater */}
-        {rightRepeaterSrc && <VideoMesh src={rightRepeaterSrc} position={[4, 1.5, 0]} rotation={[0, -Math.PI / 2, 0]} size={[6, 4]} />}
+        {/* Front Camera (Front) */}
+        <CurvedScreen
+            src={frontSrc}
+            radius={radius}
+            height={height}
+            thetaStart={Math.PI - segmentAngle / 2}
+            thetaLength={segmentAngle}
+        />
 
-        {/* Back */}
-        {backSrc && <VideoMesh src={backSrc} position={[0, 1.5, 4]} rotation={[0, Math.PI, 0]} size={[6, 4]} />}
+        {/* Left Repeater (Left Side) */}
+        <CurvedScreen
+            src={leftRepeaterSrc}
+            radius={radius}
+            height={height}
+            thetaStart={(3 * Math.PI / 2) - segmentAngle / 2}
+            thetaLength={segmentAngle}
+        />
 
-        <gridHelper args={[20, 20]} />
+        <gridHelper args={[30, 30]} />
       </Canvas>
     </div>
   );
