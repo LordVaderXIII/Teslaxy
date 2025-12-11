@@ -6,12 +6,12 @@ import Timeline from './Timeline';
 import { Box, Layers } from 'lucide-react';
 
 interface Clip {
-  id: number;
-  video_files: {
+  ID: number;
+  video_files?: {
     camera: string;
     file_path: string;
   }[];
-  telemetry: any;
+  telemetry?: any;
   event: string;
   timestamp: string;
 }
@@ -36,7 +36,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   useEffect(() => {
       setCurrentTime(0);
       setIsPlaying(false);
-  }, [clip?.id]);
+  }, [clip?.ID]);
 
   const handlePlayerReady = (camera: string, player: any) => {
     playersRef.current[camera] = player;
