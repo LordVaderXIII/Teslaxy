@@ -1,0 +1,18 @@
+Database connection established and migrated
+[GIN-debug] [WARNING] Creating an Engine instance with the Logger and Recovery middleware already attached.
+
+[GIN-debug] [WARNING] Running in "debug" mode. Switch to "release" mode in production.
+ - using env:	export GIN_MODE=release
+ - using code:	gin.SetMode(gin.ReleaseMode)
+
+Starting full scan of /app/backend/test_api_root
+[GIN-debug] GET    /api/clips                --> teslaxy/api.getClips (4 handlers)
+[GIN-debug] GET    /api/clips/:id            --> teslaxy/api.getClipDetails (4 handlers)
+[GIN-debug] GET    /api/video/*path          --> teslaxy/api.serveVideo (4 handlers)
+[GIN-debug] GET    /ping                     --> main.main.func2 (4 handlers)
+[GIN-debug] [WARNING] You trusted all proxies, this is NOT safe. We recommend you to set a value.
+Please check https://github.com/gin-gonic/gin/blob/master/docs/doc.md#dont-trust-all-proxies for details.
+[GIN-debug] Listening and serving HTTP on :8080
+Scan complete in 145.756µs. Processed 0 clips.
+[GIN] 2025/12/11 - 04:05:44 | 200 |      47.336µs |             ::1 | GET      "/ping"
+signal: terminated
