@@ -29,6 +29,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
         ...options,
         controls: false,
         autoplay: false,
+        muted: true,
         playsinline: true, // video.js option
         preload: 'auto',
         sources: [{
