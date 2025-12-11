@@ -133,13 +133,11 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                      {/* Thumbnail Placeholder or Icon */}
                      <div className="w-12 h-12 rounded flex-shrink-0 overflow-hidden bg-gray-800 relative">
                         {frontVideo ? (
-                           <video
-                              src={`/api/video${frontVideo.file_path}#t=0.1`}
+                           <img
+                              src={`/api/thumbnail${frontVideo.file_path}`}
+                              alt="Thumbnail"
                               className="w-full h-full object-cover"
-                              preload="metadata"
-                              muted
-                              playsInline
-                              tabIndex={-1}
+                              loading="lazy"
                            />
                         ) : (
                             <div className={`
