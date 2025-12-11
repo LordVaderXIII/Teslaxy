@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -86,12 +87,30 @@ func main() {
 		// Open checks if file exists
 		f, err := distFS.Open(cleanPath)
 		if err == nil {
-			f.Close()
+			defer f.Close()
+			// Manually serve index.html to avoid 301 redirect loop
+			if cleanPath == "index.html" {
+				if rs, ok := f.(io.ReadSeeker); ok {
+					stat, _ := f.Stat()
+					http.ServeContent(c.Writer, c.Request, "index.html", stat.ModTime(), rs)
+					return
+				}
+			}
 			c.FileFromFS(cleanPath, httpFS)
 			return
 		}
 
 		// Fallback to index.html for SPA
+		f, err = distFS.Open("index.html")
+		if err == nil {
+			defer f.Close()
+			if rs, ok := f.(io.ReadSeeker); ok {
+				stat, _ := f.Stat()
+				http.ServeContent(c.Writer, c.Request, "index.html", stat.ModTime(), rs)
+				return
+			}
+		}
+
 		c.FileFromFS("index.html", httpFS)
 	})
 
