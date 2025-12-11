@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Filter, RefreshCw } from 'lucide-react';
+import { Filter, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
 import Calendar from './Calendar';
 
 interface VideoFile {
@@ -21,11 +21,13 @@ interface SidebarProps {
   selectedClipId: number | null;
   onClipSelect: (clip: Clip) => void;
   loading: boolean;
+  className?: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, loading }) => {
+const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, loading, className }) => {
   const [filterType, setFilterType] = useState<string>('All');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   // Filter Logic
   const filteredClips = clips.filter(clip => {
@@ -43,26 +45,45 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   const eventTypes = ['All', ...Array.from(new Set(clips.map(c => c.event)))];
 
   return (
-    <div className="w-96 flex flex-col h-full bg-black border-l border-gray-800 flex-shrink-0">
+    <div className={`flex flex-col bg-black border-gray-800 w-full md:w-96 md:h-full md:flex-shrink-0 border-t md:border-l md:border-t-0 ${className || ''}`}>
        {/* Header */}
        <div className="p-4 border-b border-gray-800 flex flex-col gap-4">
           <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-white">Library</h2>
-              <button
-                aria-label="Refresh library"
-                className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                title="Sync"
-              >
-                 <RefreshCw size={18} />
-              </button>
+              <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+                    className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white md:hidden"
+                    title="Toggle Calendar"
+                  >
+                     <CalendarIcon size={18} />
+                  </button>
+                  <button
+                    aria-label="Refresh library"
+                    className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    title="Sync"
+                  >
+                     <RefreshCw size={18} />
+                  </button>
+              </div>
           </div>
 
-          {/* Calendar */}
-          <Calendar
-            currentDate={selectedDate}
-            onDateSelect={setSelectedDate}
-            clips={clips}
-          />
+          {/* Calendar (Collapsible on Mobile, always visible on Desktop?)
+              Actually, making it collapsible everywhere is cleaner, or just auto-open on desktop.
+              For now, let's make it toggleable but open by default on desktop if we wanted,
+              but user said "can be opened", implying it might be closed.
+          */}
+          <div className={`${isCalendarOpen ? 'block' : 'hidden'} md:block transition-all duration-300 ease-in-out`}>
+            <Calendar
+                currentDate={selectedDate}
+                onDateSelect={(date) => {
+                    setSelectedDate(date);
+                    // Optional: Close calendar on selection on mobile?
+                    // setIsCalendarOpen(false);
+                }}
+                clips={clips}
+            />
+          </div>
 
           {/* Filter */}
           <div className="relative">
@@ -112,13 +133,11 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                      {/* Thumbnail Placeholder or Icon */}
                      <div className="w-12 h-12 rounded flex-shrink-0 overflow-hidden bg-gray-800 relative">
                         {frontVideo ? (
-                           <video
-                              src={`/api/video${frontVideo.file_path}#t=0.1`}
+                           <img
+                              src={`/api/thumbnail${frontVideo.file_path}`}
+                              alt="Thumbnail"
                               className="w-full h-full object-cover"
-                              preload="metadata"
-                              muted
-                              playsInline
-                              tabIndex={-1}
+                              loading="lazy"
                            />
                         ) : (
                             <div className={`
