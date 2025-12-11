@@ -48,7 +48,11 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
        <div className="p-4 border-b border-gray-800 flex flex-col gap-4">
           <div className="flex justify-between items-center">
               <h2 className="text-xl font-bold text-white">Library</h2>
-              <button className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white" title="Sync">
+              <button
+                aria-label="Refresh library"
+                className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                title="Sync"
+              >
                  <RefreshCw size={18} />
               </button>
           </div>
@@ -66,7 +70,8 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                 <Filter size={14} className="text-gray-500" />
              </div>
              <select
-               className="w-full bg-gray-900 border border-gray-800 text-gray-300 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5"
+               aria-label="Filter events by type"
+               className="bg-gray-900 border border-gray-800 text-gray-300 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5 outline-none focus-visible:ring-2"
                value={filterType}
                onChange={(e) => setFilterType(e.target.value)}
              >
@@ -78,9 +83,12 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
        </div>
 
        {/* Clip List */}
-       <div className="flex-1 overflow-y-auto custom-scrollbar">
+       <div className="flex-1 overflow-y-auto custom-scrollbar" aria-live="polite">
           {loading ? (
-             <div className="p-8 text-center text-gray-500 animate-pulse">Loading footage...</div>
+             <div className="p-8 text-center text-gray-500 animate-pulse flex flex-col items-center gap-2">
+                <RefreshCw className="animate-spin" size={24} />
+                <span>Loading footage...</span>
+             </div>
           ) : filteredClips.length === 0 ? (
              <div className="p-8 text-center text-gray-600">
                 No clips found for {selectedDate.toLocaleDateString()}
@@ -91,11 +99,13 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                   const frontVideo = clip.video_files?.find(v => v.camera === 'Front');
 
                   return (
-                  <div
+                  <button
                     key={clip.ID}
                     onClick={() => onClipSelect(clip)}
+                    aria-current={selectedClipId === clip.ID ? 'true' : undefined}
                     className={`
-                       p-4 cursor-pointer hover:bg-gray-900 transition flex gap-3
+                       w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset
+                       p-4 hover:bg-gray-900 transition flex gap-3
                        ${selectedClipId === clip.ID ? 'bg-gray-900 border-l-4 border-blue-500' : 'border-l-4 border-transparent'}
                     `}
                   >
@@ -108,6 +118,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                               preload="metadata"
                               muted
                               playsInline
+                              tabIndex={-1}
                            />
                         ) : (
                             <div className={`
@@ -129,7 +140,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                            {clip.event} Event • {new Date(clip.timestamp).toLocaleDateString()}
                         </div>
                      </div>
-                  </div>
+                  </button>
                   );
                })}
             </div>
