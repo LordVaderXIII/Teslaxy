@@ -48,10 +48,10 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen bg-black text-white overflow-hidden font-sans">
+    <div className="flex flex-col md:flex-row h-screen w-screen bg-black text-white overflow-hidden font-sans">
 
-      {/* Main Content (Left) */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+      {/* Main Content (Top on mobile, Left on Desktop) */}
+      <div className="w-full h-[40vh] md:h-full md:flex-1 flex flex-col overflow-hidden relative order-1">
         <div className="absolute top-4 left-4 z-10 pointer-events-none">
           <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600 drop-shadow-md">
             Teslaxy
@@ -70,12 +70,13 @@ function App() {
         )}
       </div>
 
-      {/* Sidebar (Right) */}
+      {/* Sidebar (Bottom on mobile, Right on Desktop) */}
       <Sidebar
          clips={clips}
          selectedClipId={selectedClip?.ID || null}
          onClipSelect={handleClipSelect}
          loading={loading}
+         className="order-2 flex-1 md:h-full md:flex-none"
       />
 
     </div>

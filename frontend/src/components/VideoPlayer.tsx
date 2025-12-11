@@ -19,12 +19,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
       videoElement.classList.add('vjs-big-play-centered');
       videoElement.classList.add('w-full');
       videoElement.classList.add('h-full');
+      // Prevent Apple Video Player takeover
+      videoElement.setAttribute('playsinline', 'true');
+      videoElement.setAttribute('webkit-playsinline', 'true');
+
       videoRef.current?.appendChild(videoElement);
 
       const player = playerRef.current = videojs(videoElement, {
         ...options,
         controls: false,
         autoplay: false,
+        playsinline: true, // video.js option
         preload: 'auto',
         sources: [{
           src: src,

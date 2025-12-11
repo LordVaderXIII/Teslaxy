@@ -3,7 +3,7 @@ import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Scene3D from './Scene3D';
 import Timeline from './Timeline';
-import { Box, Layers } from 'lucide-react';
+import { Box, Layers, Video } from 'lucide-react';
 
 interface Clip {
   ID: number;
@@ -21,6 +21,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [is3D, setIs3D] = useState(false);
+  const [activeCamera, setActiveCamera] = useState<string>('Front');
+  const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
 
   const playersRef = useRef<{ [key: string]: any }>({});
   const mainPlayerRef = useRef<any>(null);
@@ -40,6 +42,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       setDuration(0);
       mainPlayerRef.current = null;
       playersRef.current = {};
+      setActiveCamera('Front');
   }, [clip?.ID]);
 
   const handlePlayerReady = (camera: string, player: any) => {
@@ -135,11 +138,40 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       }
   }
 
+  const cameras = ['Front', 'Left Repeater', 'Right Repeater', 'Back', 'Left Pillar', 'Right Pillar'];
+
   return (
     <div className="flex flex-col h-full bg-black text-white relative group">
 
-      {/* 3D/2D Toggle Overlay */}
+      {/* Overlays (3D Toggle & Camera Switcher) */}
       <div className="absolute top-4 right-4 z-20 flex gap-2">
+            {/* Camera Switcher (Mobile) */}
+            <div className="relative md:hidden">
+                <button
+                    onClick={() => setIsCameraMenuOpen(!isCameraMenuOpen)}
+                    className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white"
+                    title="Switch Camera"
+                >
+                    <Video size={20} />
+                </button>
+                {isCameraMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-30">
+                        {cameras.map(cam => (
+                            <button
+                                key={cam}
+                                onClick={() => {
+                                    setActiveCamera(cam);
+                                    setIsCameraMenuOpen(false);
+                                }}
+                                className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-800 transition ${activeCamera === cam ? 'text-blue-400 font-bold bg-gray-800' : 'text-gray-300'}`}
+                            >
+                                {cam}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
             <button
                 onClick={() => setIs3D(!is3D)}
                 className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white"
@@ -165,9 +197,9 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
              </div>
           </div>
       ) : (
-          <div className="flex-1 overflow-hidden grid grid-cols-3 grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
-              {/* Front Camera (Top, Spans 3) */}
-              <div className="relative bg-gray-900 group/cam col-span-3">
+          <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3 md:grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
+              {/* Front Camera (Top, Spans 3 on desktop) */}
+              <div className={`relative bg-gray-900 group/cam md:col-span-3 ${activeCamera === 'Front' ? 'block h-full' : 'hidden md:block'}`}>
                   {frontVideo ? (
                       <VideoPlayer
                           src={getUrl(frontVideo.file_path)}
@@ -190,7 +222,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                {/* Row 2: Left Repeater, Back, Right Repeater */}
 
                {/* Left Repeater */}
-               <div className="relative bg-gray-900 group/cam">
+               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Left Repeater' ? 'block h-full' : 'hidden md:block'}`}>
                    {leftVideo ? (
                       <VideoPlayer
                           src={getUrl(leftVideo.file_path)}
@@ -204,7 +236,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                </div>
 
                {/* Back Camera */}
-               <div className="relative bg-gray-900 group/cam">
+               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Back' ? 'block h-full' : 'hidden md:block'}`}>
                    {backVideo ? (
                       <VideoPlayer
                           src={getUrl(backVideo.file_path)}
@@ -218,7 +250,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                </div>
 
                {/* Right Repeater */}
-               <div className="relative bg-gray-900 group/cam">
+               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Right Repeater' ? 'block h-full' : 'hidden md:block'}`}>
                    {rightVideo ? (
                       <VideoPlayer
                           src={getUrl(rightVideo.file_path)}
@@ -234,7 +266,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                {/* Row 3: Left Pillar, Empty, Right Pillar */}
 
                {/* Left Pillar */}
-               <div className="relative bg-gray-900 group/cam">
+               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Left Pillar' ? 'block h-full' : 'hidden md:block'}`}>
                    {leftPillarVideo ? (
                       <VideoPlayer
                           src={getUrl(leftPillarVideo.file_path)}
@@ -247,11 +279,11 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   </div>
                </div>
 
-               {/* Empty */}
-               <div className="relative bg-black"></div>
+               {/* Empty (Only visible on desktop) */}
+               <div className="relative bg-black hidden md:block"></div>
 
                {/* Right Pillar */}
-               <div className="relative bg-gray-900 group/cam">
+               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Right Pillar' ? 'block h-full' : 'hidden md:block'}`}>
                    {rightPillarVideo ? (
                       <VideoPlayer
                           src={getUrl(rightPillarVideo.file_path)}
