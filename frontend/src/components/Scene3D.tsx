@@ -8,6 +8,8 @@ interface Scene3DProps {
   leftRepeaterSrc: string;
   rightRepeaterSrc: string;
   backSrc: string;
+  leftPillarSrc?: string;
+  rightPillarSrc?: string;
 }
 
 const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength }: any) => {
@@ -49,16 +51,21 @@ const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength }: any) => 
 }
 
 
-const Scene3D: React.FC<Scene3DProps> = ({ frontSrc, leftRepeaterSrc, rightRepeaterSrc, backSrc }) => {
+const Scene3D: React.FC<Scene3DProps> = ({
+  frontSrc, leftRepeaterSrc, rightRepeaterSrc, backSrc,
+  leftPillarSrc, rightPillarSrc
+}) => {
   const radius = 8;
   const height = 5;
-  const segmentAngle = Math.PI / 2; // 90 degrees per camera
+  const segmentAngle = Math.PI / 3; // 60 degrees
 
-  // Mapping:
-  // Back: Centered at 0 (Z+). Start = -Pi/4.
-  // Right: Centered at Pi/2 (X+). Start = Pi/4.
-  // Front: Centered at Pi (Z-). Start = 3Pi/4.
-  // Left: Centered at 3Pi/2 (X-). Start = 5Pi/4.
+  // Layout (Counter-Clockwise from +Z=0):
+  // Back: 0. Range [-30, 30] -> Start -Pi/6
+  // Right Rep: 60 (Pi/3). Range [30, 90] -> Start Pi/6
+  // Right Pillar: 120 (2Pi/3). Range [90, 150] -> Start Pi/2
+  // Front: 180 (Pi). Range [150, 210] -> Start 5Pi/6
+  // Left Pillar: 240 (4Pi/3). Range [210, 270] -> Start 7Pi/6
+  // Left Rep: 300 (5Pi/3). Range [270, 330] -> Start 9Pi/6 (3Pi/2)
 
   return (
     <div className="w-full h-full bg-gray-900">
@@ -76,7 +83,7 @@ const Scene3D: React.FC<Scene3DProps> = ({ frontSrc, leftRepeaterSrc, rightRepea
 
         {/* Curved Screens */}
 
-        {/* Back Camera (Rear) */}
+        {/* Back Camera (Rear) - Center 0 */}
         <CurvedScreen
             src={backSrc}
             radius={radius}
@@ -85,16 +92,25 @@ const Scene3D: React.FC<Scene3DProps> = ({ frontSrc, leftRepeaterSrc, rightRepea
             thetaLength={segmentAngle}
         />
 
-        {/* Right Repeater (Right Side) */}
+        {/* Right Repeater - Center 60 deg */}
         <CurvedScreen
             src={rightRepeaterSrc}
             radius={radius}
             height={height}
-            thetaStart={Math.PI / 2 - segmentAngle / 2}
+            thetaStart={Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
         />
 
-        {/* Front Camera (Front) */}
+        {/* Right Pillar - Center 120 deg */}
+        <CurvedScreen
+            src={rightPillarSrc}
+            radius={radius}
+            height={height}
+            thetaStart={2 * Math.PI / 3 - segmentAngle / 2}
+            thetaLength={segmentAngle}
+        />
+
+        {/* Front Camera - Center 180 deg */}
         <CurvedScreen
             src={frontSrc}
             radius={radius}
@@ -103,12 +119,21 @@ const Scene3D: React.FC<Scene3DProps> = ({ frontSrc, leftRepeaterSrc, rightRepea
             thetaLength={segmentAngle}
         />
 
-        {/* Left Repeater (Left Side) */}
+        {/* Left Pillar - Center 240 deg */}
+        <CurvedScreen
+            src={leftPillarSrc}
+            radius={radius}
+            height={height}
+            thetaStart={4 * Math.PI / 3 - segmentAngle / 2}
+            thetaLength={segmentAngle}
+        />
+
+        {/* Left Repeater - Center 300 deg */}
         <CurvedScreen
             src={leftRepeaterSrc}
             radius={radius}
             height={height}
-            thetaStart={(3 * Math.PI / 2) - segmentAngle / 2}
+            thetaStart={5 * Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
         />
 

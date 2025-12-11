@@ -107,6 +107,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const leftVideo = clip.video_files.find(v => v.camera === 'Left Repeater');
   const rightVideo = clip.video_files.find(v => v.camera === 'Right Repeater');
   const backVideo = clip.video_files.find(v => v.camera === 'Back');
+  const leftPillarVideo = clip.video_files.find(v => v.camera === 'Left Pillar');
+  const rightPillarVideo = clip.video_files.find(v => v.camera === 'Right Pillar');
 
   // Determine Incident Marker
   const markers = [];
@@ -139,12 +141,14 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                         leftRepeaterSrc={leftVideo ? getUrl(leftVideo.file_path) : ''}
                         rightRepeaterSrc={rightVideo ? getUrl(rightVideo.file_path) : ''}
                         backSrc={backVideo ? getUrl(backVideo.file_path) : ''}
+                        leftPillarSrc={leftPillarVideo ? getUrl(leftPillarVideo.file_path) : ''}
+                        rightPillarSrc={rightPillarVideo ? getUrl(rightPillarVideo.file_path) : ''}
                      />
                  )}
              </div>
           </div>
       ) : (
-          <div className="flex-1 overflow-hidden grid grid-cols-3 grid-rows-[3fr_1fr] gap-1 bg-black">
+          <div className="flex-1 overflow-hidden grid grid-cols-3 grid-rows-[3fr_1fr_1fr] gap-1 bg-black">
               {/* Front Camera (Top, Spans 3) */}
               <div className="relative bg-gray-900 group/cam col-span-3">
                   {frontVideo ? (
@@ -166,6 +170,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                    )}
               </div>
 
+               {/* Row 2: Left Repeater, Back, Right Repeater */}
+
                {/* Left Repeater */}
                <div className="relative bg-gray-900 group/cam">
                    {leftVideo ? (
@@ -177,6 +183,20 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   ) : <div className="flex items-center justify-center h-full text-gray-600">No Left Repeater</div>}
                    <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                       Left Repeater
+                  </div>
+               </div>
+
+               {/* Back Camera */}
+               <div className="relative bg-gray-900 group/cam">
+                   {backVideo ? (
+                      <VideoPlayer
+                          src={getUrl(backVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Back', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Back Camera</div>}
+                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Back
                   </div>
                </div>
 
@@ -194,17 +214,36 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   </div>
                </div>
 
-               {/* Back Camera */}
+               {/* Row 3: Left Pillar, Empty, Right Pillar */}
+
+               {/* Left Pillar */}
                <div className="relative bg-gray-900 group/cam">
-                   {backVideo ? (
+                   {leftPillarVideo ? (
                       <VideoPlayer
-                          src={getUrl(backVideo.file_path)}
+                          src={getUrl(leftPillarVideo.file_path)}
                           className="w-full h-full object-contain"
-                          onReady={(p) => handlePlayerReady('Back', p)}
+                          onReady={(p) => handlePlayerReady('Left Pillar', p)}
                       />
-                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Back Camera</div>}
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Left Pillar</div>}
                    <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
-                      Back
+                      Left Pillar
+                  </div>
+               </div>
+
+               {/* Empty */}
+               <div className="relative bg-black"></div>
+
+               {/* Right Pillar */}
+               <div className="relative bg-gray-900 group/cam">
+                   {rightPillarVideo ? (
+                      <VideoPlayer
+                          src={getUrl(rightPillarVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Right Pillar', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Right Pillar</div>}
+                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Right Pillar
                   </div>
                </div>
           </div>
