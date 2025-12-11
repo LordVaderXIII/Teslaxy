@@ -4,6 +4,8 @@ import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
 import { Box, Layers, Video } from 'lucide-react';
 
+const Scene3D = React.lazy(() => import('./Scene3D'));
+
 interface Clip {
   ID: number;
   video_files?: {
