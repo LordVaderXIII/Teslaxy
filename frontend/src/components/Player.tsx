@@ -39,6 +39,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   }, [clip?.ID]);
 
   const handlePlayerReady = (camera: string, player: any) => {
+    if (!player) return;
     playersRef.current[camera] = player;
 
     if (camera === 'Front') {
@@ -54,23 +55,28 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       player.on('play', () => {
         setIsPlaying(true);
         Object.values(playersRef.current).forEach(p => {
-          if (p !== player) p.play();
+          if (p && p !== player) p.play();
         });
       });
 
       player.on('pause', () => {
         setIsPlaying(false);
         Object.values(playersRef.current).forEach(p => {
-          if (p !== player) p.pause();
+          if (p && p !== player) p.pause();
         });
       });
 
       player.on('seeking', () => {
         const time = player.currentTime();
         Object.values(playersRef.current).forEach(p => {
-          if (p !== player) p.currentTime(time);
+          if (p && p !== player) p.currentTime(time);
         });
       });
+    } else {
+        // Mute other players by default to avoid echo
+        if (typeof player.muted === 'function') {
+             player.muted(true);
+        }
     }
   };
 
@@ -98,11 +104,11 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   if (!clip.video_files) return <div className="flex items-center justify-center h-full text-gray-500">No video files available</div>;
 
   const frontVideo = clip.video_files.find(v => v.camera === 'Front');
-  const otherVideos = clip.video_files.filter(v => v.camera !== 'Front');
-
-  // Sort: Left Repeater, Right Repeater, Back
-  const sortOrder = ['Left Repeater', 'Right Repeater', 'Back'];
-  otherVideos.sort((a, b) => sortOrder.indexOf(a.camera) - sortOrder.indexOf(b.camera));
+  const leftVideo = clip.video_files.find(v => v.camera === 'Left Repeater');
+  const rightVideo = clip.video_files.find(v => v.camera === 'Right Repeater');
+  const backVideo = clip.video_files.find(v => v.camera === 'Back');
+  const leftPillarVideo = clip.video_files.find(v => v.camera === 'Left Pillar');
+  const rightPillarVideo = clip.video_files.find(v => v.camera === 'Right Pillar');
 
   // Determine Incident Marker
   const markers = [];
@@ -127,91 +133,140 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       </div>
 
       {is3D ? (
-          <div className="flex-1 bg-gray-900 overflow-hidden relative">
-             {clip && (
-                 <Scene3D
-                    frontSrc={getUrl(clip.video_files.find(v => v.camera === 'Front')?.file_path || '')}
-                    leftRepeaterSrc={getUrl(clip.video_files.find(v => v.camera === 'Left Repeater')?.file_path || '')}
-                    rightRepeaterSrc={getUrl(clip.video_files.find(v => v.camera === 'Right Repeater')?.file_path || '')}
-                    backSrc={getUrl(clip.video_files.find(v => v.camera === 'Back')?.file_path || '')}
-                 />
-             )}
-              {/* Timeline Overlay for 3D */}
-              <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 to-transparent">
-                  <Timeline
-                    currentTime={currentTime}
-                    duration={duration}
-                    onSeek={handleSeek}
-                    markers={markers}
-                  />
-                  <div className="flex justify-center mt-2">
-                       <button onClick={togglePlay} className="px-6 py-1 bg-white/10 hover:bg-white/20 rounded-full text-sm font-medium transition">
-                          {isPlaying ? 'Pause' : 'Play'}
-                       </button>
-                  </div>
-              </div>
+          <div className="flex-1 bg-gray-900 overflow-hidden relative flex flex-col">
+             <div className="flex-1 relative">
+                 {clip && (
+                     <Scene3D
+                        frontSrc={frontVideo ? getUrl(frontVideo.file_path) : ''}
+                        leftRepeaterSrc={leftVideo ? getUrl(leftVideo.file_path) : ''}
+                        rightRepeaterSrc={rightVideo ? getUrl(rightVideo.file_path) : ''}
+                        backSrc={backVideo ? getUrl(backVideo.file_path) : ''}
+                        leftPillarSrc={leftPillarVideo ? getUrl(leftPillarVideo.file_path) : ''}
+                        rightPillarSrc={rightPillarVideo ? getUrl(rightPillarVideo.file_path) : ''}
+                     />
+                 )}
+             </div>
           </div>
       ) : (
-          <div className="flex flex-col h-full overflow-hidden">
-              {/* Main View (Front) */}
-              <div className="flex-grow relative bg-black overflow-hidden flex flex-col">
-                  <div className="flex-grow relative">
-                      {frontVideo && (
-                          <VideoPlayer
-                              src={getUrl(frontVideo.file_path)}
-                              className="w-full h-full object-contain"
-                              onReady={(p) => handlePlayerReady('Front', p)}
-                          />
-                      )}
-                      {/* Telemetry Overlay */}
-                      {clip.telemetry && clip.telemetry.full_data_json && (
+          <div className="flex-1 overflow-hidden grid grid-cols-3 grid-rows-[3fr_1fr_1fr] gap-1 bg-black">
+              {/* Front Camera (Top, Spans 3) */}
+              <div className="relative bg-gray-900 group/cam col-span-3">
+                  {frontVideo ? (
+                      <VideoPlayer
+                          src={getUrl(frontVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Front', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Front Camera</div>}
+                  <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Front
+                  </div>
+                   {/* Telemetry Overlay on Front Camera */}
+                   {clip.telemetry && clip.telemetry.full_data_json && (
                         <TelemetryOverlay
                             dataJson={clip.telemetry.full_data_json}
                             currentTime={currentTime}
                         />
-                      )}
-                       <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10">
-                          Front Camera
-                      </div>
-                  </div>
+                   )}
+              </div>
 
-                  {/* Controls Area */}
-                   <div className="p-4 bg-black border-t border-gray-900">
-                      <Timeline
-                        currentTime={currentTime}
-                        duration={duration}
-                        onSeek={handleSeek}
-                        markers={markers}
+               {/* Row 2: Left Repeater, Back, Right Repeater */}
+
+               {/* Left Repeater */}
+               <div className="relative bg-gray-900 group/cam">
+                   {leftVideo ? (
+                      <VideoPlayer
+                          src={getUrl(leftVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Left Repeater', p)}
                       />
-                      <div className="flex items-center justify-center gap-4 mt-2">
-                          <button onClick={togglePlay} className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition">
-                              {isPlaying ? (
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
-                              ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                              )}
-                          </button>
-                      </div>
-                   </div>
-              </div>
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Left Repeater</div>}
+                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Left Repeater
+                  </div>
+               </div>
 
-              {/* Grid of other cameras (Bottom Strip) */}
-              <div className="h-32 grid grid-cols-3 gap-1 bg-black border-t border-gray-900">
-                  {otherVideos.map(v => (
-                      <div key={v.camera} className="relative bg-gray-900 group/cam cursor-pointer hover:opacity-100 opacity-80 transition-opacity">
-                          <VideoPlayer
-                              src={getUrl(v.file_path)}
-                              className="w-full h-full object-cover"
-                              onReady={(p) => handlePlayerReady(v.camera, p)}
-                          />
-                           <div className="absolute bottom-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] font-mono border border-white/10">
-                              {v.camera}
-                          </div>
-                      </div>
-                  ))}
-              </div>
+               {/* Back Camera */}
+               <div className="relative bg-gray-900 group/cam">
+                   {backVideo ? (
+                      <VideoPlayer
+                          src={getUrl(backVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Back', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Back Camera</div>}
+                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Back
+                  </div>
+               </div>
+
+               {/* Right Repeater */}
+               <div className="relative bg-gray-900 group/cam">
+                   {rightVideo ? (
+                      <VideoPlayer
+                          src={getUrl(rightVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Right Repeater', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Right Repeater</div>}
+                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Right Repeater
+                  </div>
+               </div>
+
+               {/* Row 3: Left Pillar, Empty, Right Pillar */}
+
+               {/* Left Pillar */}
+               <div className="relative bg-gray-900 group/cam">
+                   {leftPillarVideo ? (
+                      <VideoPlayer
+                          src={getUrl(leftPillarVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Left Pillar', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Left Pillar</div>}
+                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Left Pillar
+                  </div>
+               </div>
+
+               {/* Empty */}
+               <div className="relative bg-black"></div>
+
+               {/* Right Pillar */}
+               <div className="relative bg-gray-900 group/cam">
+                   {rightPillarVideo ? (
+                      <VideoPlayer
+                          src={getUrl(rightPillarVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Right Pillar', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Right Pillar</div>}
+                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Right Pillar
+                  </div>
+               </div>
           </div>
       )}
+
+      {/* Unified Controls Bar */}
+       <div className="p-4 bg-black border-t border-gray-900 flex-shrink-0 z-30">
+          <Timeline
+            currentTime={currentTime}
+            duration={duration}
+            onSeek={handleSeek}
+            markers={markers}
+          />
+          <div className="flex items-center justify-center gap-4 mt-2">
+              <button onClick={togglePlay} className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition">
+                  {isPlaying ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  )}
+              </button>
+          </div>
+       </div>
     </div>
   );
 };

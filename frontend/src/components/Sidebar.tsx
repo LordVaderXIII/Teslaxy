@@ -2,12 +2,17 @@ import React, { useState } from 'react';
 import { Filter, RefreshCw } from 'lucide-react';
 import Calendar from './Calendar';
 
+interface VideoFile {
+  camera: string;
+  file_path: string;
+}
+
 interface Clip {
   ID: number;
   timestamp: string;
   event: string;
   city: string;
-  video_files?: any[];
+  video_files?: VideoFile[];
   telemetry?: any;
 }
 
@@ -82,7 +87,10 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
              </div>
           ) : (
             <div className="grid grid-cols-1 divide-y divide-gray-900">
-               {filteredClips.map(clip => (
+               {filteredClips.map(clip => {
+                  const frontVideo = clip.video_files?.find(v => v.camera === 'Front');
+
+                  return (
                   <div
                     key={clip.ID}
                     onClick={() => onClipSelect(clip)}
@@ -92,12 +100,23 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                     `}
                   >
                      {/* Thumbnail Placeholder or Icon */}
-                     <div className={`
-                        w-12 h-12 rounded flex items-center justify-center flex-shrink-0
-                        ${clip.event === 'Sentry' ? 'bg-red-900/20 text-red-500' :
-                          clip.event === 'Saved' ? 'bg-green-900/20 text-green-500' : 'bg-gray-800 text-gray-400'}
-                     `}>
-                        <div className="text-xs font-bold uppercase">{clip.event.substring(0,2)}</div>
+                     <div className="w-12 h-12 rounded flex-shrink-0 overflow-hidden bg-gray-800 relative">
+                        {frontVideo ? (
+                           <video
+                              src={`/api/video${frontVideo.file_path}#t=0.1`}
+                              className="w-full h-full object-cover"
+                              preload="metadata"
+                              muted
+                           />
+                        ) : (
+                            <div className={`
+                                w-full h-full flex items-center justify-center
+                                ${clip.event === 'Sentry' ? 'bg-red-900/20 text-red-500' :
+                                clip.event === 'Saved' ? 'bg-green-900/20 text-green-500' : 'bg-gray-800 text-gray-400'}
+                            `}>
+                                <div className="text-xs font-bold uppercase">{clip.event.substring(0,2)}</div>
+                            </div>
+                        )}
                      </div>
 
                      <div className="flex-1 min-w-0">
@@ -110,7 +129,8 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                         </div>
                      </div>
                   </div>
-               ))}
+                  );
+               })}
             </div>
           )}
        </div>
