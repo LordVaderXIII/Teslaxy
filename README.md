@@ -1,2 +1,2 @@
 # Teslaxy
-Tesla Camera Player rewritten in a modfern language.
+Tesla Camera Player rewritten in a modern language.
