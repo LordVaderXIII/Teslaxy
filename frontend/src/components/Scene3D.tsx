@@ -1,7 +1,28 @@
 import React, { useEffect, useState } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
+
+const ZoomHandler = () => {
+  const { camera, gl } = useThree();
+
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if (camera instanceof THREE.PerspectiveCamera) {
+        const zoomSpeed = 0.05;
+        const newFov = camera.fov + e.deltaY * zoomSpeed;
+        camera.fov = THREE.MathUtils.clamp(newFov, 10, 120);
+        camera.updateProjectionMatrix();
+      }
+    };
+
+    const element = gl.domElement;
+    element.addEventListener('wheel', handleWheel, { passive: true });
+    return () => element.removeEventListener('wheel', handleWheel);
+  }, [camera, gl]);
+
+  return null;
+};
 
 interface Scene3DProps {
   frontSrc: string;
@@ -70,16 +91,19 @@ const Scene3D: React.FC<Scene3DProps> = ({
   return (
     <div className="w-full h-full bg-gray-900">
       <Canvas>
-        <PerspectiveCamera makeDefault position={[0, 10, 15]} />
-        <OrbitControls enablePan={true} enableZoom={true} enableRotate={true} />
+        <ZoomHandler />
+        {/* Camera inside the "car" */}
+        <PerspectiveCamera makeDefault position={[0, 1.2, 0.1]} />
+        {/* Controls to look around (rotateSpeed negative for "drag to look") */}
+        <OrbitControls
+            enablePan={false}
+            enableZoom={false}
+            enableRotate={true}
+            target={[0, 1.2, 0]}
+            rotateSpeed={-0.5}
+        />
 
         <ambientLight intensity={0.5} />
-
-        {/* Car Model Placeholder (Just a box for reference) */}
-        <mesh position={[0, 0, 0]}>
-            <boxGeometry args={[1.8, 1, 4.5]} />
-            <meshStandardMaterial color="gray" wireframe />
-        </mesh>
 
         {/* Curved Screens */}
 
@@ -136,8 +160,6 @@ const Scene3D: React.FC<Scene3DProps> = ({
             thetaStart={5 * Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
         />
-
-        <gridHelper args={[30, 30]} />
       </Canvas>
     </div>
   );

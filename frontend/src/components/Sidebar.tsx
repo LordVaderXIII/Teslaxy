@@ -107,6 +107,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                               className="w-full h-full object-cover"
                               preload="metadata"
                               muted
+                              playsInline
                            />
                         ) : (
                             <div className={`

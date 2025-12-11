@@ -29,6 +29,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     // Cleanup
     return () => {
       playersRef.current = {};
+      mainPlayerRef.current = null;
     };
   }, [clip]);
 
@@ -36,14 +37,22 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   useEffect(() => {
       setCurrentTime(0);
       setIsPlaying(false);
+      setDuration(0);
+      mainPlayerRef.current = null;
+      playersRef.current = {};
   }, [clip?.ID]);
 
   const handlePlayerReady = (camera: string, player: any) => {
     if (!player) return;
     playersRef.current[camera] = player;
 
-    if (camera === 'Front') {
+    const frontExists = clip?.video_files?.some(v => v.camera === 'Front');
+    // Set as main if it's Front, OR if Front doesn't exist and we don't have a main player yet.
+    const isMain = camera === 'Front' || (!frontExists && !mainPlayerRef.current);
+
+    if (isMain) {
       mainPlayerRef.current = player;
+
       player.on('timeupdate', () => {
         setCurrentTime(player.currentTime());
       });
@@ -81,18 +90,26 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   };
 
   const togglePlay = () => {
-      if (mainPlayerRef.current) {
-          if (mainPlayerRef.current.paused()) {
-              mainPlayerRef.current.play();
+      // Try main player, or fallback to any available player
+      const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
+      if (player) {
+          if (player.paused()) {
+              player.play();
           } else {
-              mainPlayerRef.current.pause();
+              player.pause();
           }
       }
   };
 
   const handleSeek = (time: number) => {
-      if (mainPlayerRef.current) {
-          mainPlayerRef.current.currentTime(time);
+      // Try main player, or fallback
+      const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
+      if (player) {
+          player.currentTime(time);
+          // Sync others immediately just in case
+          Object.values(playersRef.current).forEach(p => {
+              if (p && p !== player) p.currentTime(time);
+          });
       }
   };
 
@@ -148,7 +165,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
              </div>
           </div>
       ) : (
-          <div className="flex-1 overflow-hidden grid grid-cols-3 grid-rows-[3fr_1fr_1fr] gap-1 bg-black">
+          <div className="flex-1 overflow-hidden grid grid-cols-3 grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
               {/* Front Camera (Top, Spans 3) */}
               <div className="relative bg-gray-900 group/cam col-span-3">
                   {frontVideo ? (
@@ -158,7 +175,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                           onReady={(p) => handlePlayerReady('Front', p)}
                       />
                   ) : <div className="flex items-center justify-center h-full text-gray-600">No Front Camera</div>}
-                  <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                  <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                       Front
                   </div>
                    {/* Telemetry Overlay on Front Camera */}
@@ -181,7 +198,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                           onReady={(p) => handlePlayerReady('Left Repeater', p)}
                       />
                   ) : <div className="flex items-center justify-center h-full text-gray-600">No Left Repeater</div>}
-                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                       Left Repeater
                   </div>
                </div>
@@ -195,7 +212,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                           onReady={(p) => handlePlayerReady('Back', p)}
                       />
                   ) : <div className="flex items-center justify-center h-full text-gray-600">No Back Camera</div>}
-                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                       Back
                   </div>
                </div>
@@ -209,7 +226,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                           onReady={(p) => handlePlayerReady('Right Repeater', p)}
                       />
                   ) : <div className="flex items-center justify-center h-full text-gray-600">No Right Repeater</div>}
-                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                       Right Repeater
                   </div>
                </div>
@@ -225,7 +242,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                           onReady={(p) => handlePlayerReady('Left Pillar', p)}
                       />
                   ) : <div className="flex items-center justify-center h-full text-gray-600">No Left Pillar</div>}
-                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                       Left Pillar
                   </div>
                </div>
@@ -242,7 +259,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                           onReady={(p) => handlePlayerReady('Right Pillar', p)}
                       />
                   ) : <div className="flex items-center justify-center h-full text-gray-600">No Right Pillar</div>}
-                   <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                       Right Pillar
                   </div>
                </div>
