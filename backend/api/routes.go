@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -55,13 +56,26 @@ func getClipDetails(c *gin.Context) {
 func serveVideo(c *gin.Context) {
 	videoPath := c.Param("path")
 
-	// Security check
-	if strings.Contains(videoPath, "..") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid path"})
+	// Security check: Prevent path traversal
+	// Clean the path to resolve ".." and "."
+	cleanPath := filepath.Clean(videoPath)
+
+	// Get allowed footage path
+	footagePath := os.Getenv("FOOTAGE_PATH")
+	if footagePath == "" {
+		footagePath = "/footage"
+	}
+	cleanFootagePath := filepath.Clean(footagePath)
+
+	// Check if the request path is within the allowed footage directory
+	// We use Rel to determine if the path is relative to footagePath
+	rel, err := filepath.Rel(cleanFootagePath, cleanPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
-	c.File(videoPath)
+	c.File(cleanPath)
 }
 
 func createExportJob(c *gin.Context) {
