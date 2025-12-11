@@ -8,7 +8,7 @@ import (
 
 type Clip struct {
 	gorm.Model
-	Timestamp   time.Time   `json:"timestamp"`
+	Timestamp   time.Time   `json:"timestamp" gorm:"index"`
 	Event       string      `json:"event"` // e.g., "Sentry", "Saved", "Recent"
 	City        string      `json:"city"`
 	VideoFiles  []VideoFile `json:"video_files"`
@@ -18,14 +18,14 @@ type Clip struct {
 
 type VideoFile struct {
 	gorm.Model
-	ClipID   uint   `json:"clip_id"`
+	ClipID   uint   `json:"clip_id" gorm:"index"`
 	Camera   string `json:"camera"` // "Front", "Left Repeater", etc.
 	FilePath string `json:"file_path"`
 }
 
 type Telemetry struct {
 	gorm.Model
-	ClipID          uint    `json:"clip_id"`
+	ClipID          uint    `json:"clip_id" gorm:"index"`
 	Speed           float32 `json:"speed"`
 	Gear            string  `json:"gear"`
 	Latitude        float64 `json:"latitude"`
