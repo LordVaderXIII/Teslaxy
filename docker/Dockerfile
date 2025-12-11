@@ -1,5 +1,5 @@
 # Stage 1: Build Frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
@@ -7,7 +7,7 @@ COPY frontend/ .
 RUN npm run build
 
 # Stage 2: Build Backend
-FROM golang:1.23-alpine AS backend-builder
+FROM golang:1.24-alpine AS backend-builder
 WORKDIR /app/backend
 # Install build dependencies for CGO (SQLite)
 RUN apk add --no-cache gcc musl-dev
@@ -24,7 +24,7 @@ COPY --from=frontend-builder /app/frontend/dist ./public
 RUN CGO_ENABLED=1 GOOS=linux go build -o teslaxy .
 
 # Stage 3: Runtime
-FROM alpine:3.19
+FROM alpine:3.21
 WORKDIR /app
 
 # Install Runtime Dependencies
