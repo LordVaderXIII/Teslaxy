@@ -83,6 +83,13 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           if (p && p !== player) p.currentTime(time);
         });
       });
+
+      // Attempt to autoplay
+      player.play().catch((e: any) => {
+          console.warn("Autoplay prevented:", e);
+          setIsPlaying(false);
+      });
+
     } else {
         // Mute other players by default to avoid echo
         if (typeof player.muted === 'function') {
@@ -203,6 +210,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <div className={`relative bg-gray-900 group/cam md:col-span-3 ${activeCamera === 'Front' ? 'block h-full' : 'hidden md:block'}`}>
                   {frontVideo ? (
                       <VideoPlayer
+                          key={`${clip.ID}-Front`}
                           src={getUrl(frontVideo.file_path)}
                           className="w-full h-full object-contain"
                           onReady={(p) => handlePlayerReady('Front', p)}
@@ -226,6 +234,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Left Repeater' ? 'block h-full' : 'hidden md:block'}`}>
                    {leftVideo ? (
                       <VideoPlayer
+                          key={`${clip.ID}-LeftRepeater`}
                           src={getUrl(leftVideo.file_path)}
                           className="w-full h-full object-contain"
                           onReady={(p) => handlePlayerReady('Left Repeater', p)}
@@ -240,6 +249,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Back' ? 'block h-full' : 'hidden md:block'}`}>
                    {backVideo ? (
                       <VideoPlayer
+                          key={`${clip.ID}-Back`}
                           src={getUrl(backVideo.file_path)}
                           className="w-full h-full object-contain"
                           onReady={(p) => handlePlayerReady('Back', p)}
@@ -254,6 +264,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Right Repeater' ? 'block h-full' : 'hidden md:block'}`}>
                    {rightVideo ? (
                       <VideoPlayer
+                          key={`${clip.ID}-RightRepeater`}
                           src={getUrl(rightVideo.file_path)}
                           className="w-full h-full object-contain"
                           onReady={(p) => handlePlayerReady('Right Repeater', p)}
@@ -270,6 +281,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Left Pillar' ? 'block h-full' : 'hidden md:block'}`}>
                    {leftPillarVideo ? (
                       <VideoPlayer
+                          key={`${clip.ID}-LeftPillar`}
                           src={getUrl(leftPillarVideo.file_path)}
                           className="w-full h-full object-contain"
                           onReady={(p) => handlePlayerReady('Left Pillar', p)}
@@ -287,6 +299,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Right Pillar' ? 'block h-full' : 'hidden md:block'}`}>
                    {rightPillarVideo ? (
                       <VideoPlayer
+                          key={`${clip.ID}-RightPillar`}
                           src={getUrl(rightPillarVideo.file_path)}
                           className="w-full h-full object-contain"
                           onReady={(p) => handlePlayerReady('Right Pillar', p)}
