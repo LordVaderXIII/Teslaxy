@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Scene3D from './Scene3D';
+import Timeline from './Timeline';
+import { Box, Layers } from 'lucide-react';
 
 interface Clip {
   id: number;
@@ -10,6 +12,8 @@ interface Clip {
     file_path: string;
   }[];
   telemetry: any;
+  event: string;
+  timestamp: string;
 }
 
 const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
@@ -27,6 +31,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       playersRef.current = {};
     };
   }, [clip]);
+
+  // Reset state when clip changes
+  useEffect(() => {
+      setCurrentTime(0);
+      setIsPlaying(false);
+  }, [clip?.id]);
 
   const handlePlayerReady = (camera: string, player: any) => {
     playersRef.current[camera] = player;
@@ -64,14 +74,28 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     }
   };
 
+  const togglePlay = () => {
+      if (mainPlayerRef.current) {
+          if (mainPlayerRef.current.paused()) {
+              mainPlayerRef.current.play();
+          } else {
+              mainPlayerRef.current.pause();
+          }
+      }
+  };
+
+  const handleSeek = (time: number) => {
+      if (mainPlayerRef.current) {
+          mainPlayerRef.current.currentTime(time);
+      }
+  };
+
   const getUrl = (path: string) => {
-    // Basic path handling - in real app use API
-    // path is absolute in DB: /footage/SavedClips/...
-    // API endpoint: /api/video/footage/SavedClips/...
     return `/api/video${path}`;
   };
 
   if (!clip) return <div className="flex items-center justify-center h-full text-gray-500">Select a clip to play</div>;
+  if (!clip.video_files) return <div className="flex items-center justify-center h-full text-gray-500">No video files available</div>;
 
   const frontVideo = clip.video_files.find(v => v.camera === 'Front');
   const otherVideos = clip.video_files.filter(v => v.camera !== 'Front');
@@ -80,23 +104,30 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const sortOrder = ['Left Repeater', 'Right Repeater', 'Back'];
   otherVideos.sort((a, b) => sortOrder.indexOf(a.camera) - sortOrder.indexOf(b.camera));
 
+  // Determine Incident Marker
+  const markers = [];
+  if (clip.event === 'Sentry') {
+      if (duration > 0) {
+          markers.push({ time: duration * 0.8, color: '#ef4444', label: 'Sentry Event' });
+      }
+  }
+
   return (
-    <div className="flex flex-col h-full bg-black text-white p-4 gap-4">
-      {/* Header / Controls */}
-      <div className="flex justify-between items-center px-4 py-2 glass rounded-lg">
-         <h2 className="text-xl font-semibold">TeslaCam Player</h2>
-         <div className="flex gap-2">
+    <div className="flex flex-col h-full bg-black text-white relative group">
+
+      {/* 3D/2D Toggle Overlay */}
+      <div className="absolute top-4 right-4 z-20 flex gap-2">
             <button
                 onClick={() => setIs3D(!is3D)}
-                className="px-3 py-1 bg-blue-500 rounded hover:bg-blue-600 transition"
+                className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white"
+                title={is3D ? 'Switch to 2D' : 'Switch to 3D'}
             >
-                {is3D ? '2D View' : '3D View'}
+                {is3D ? <Layers size={20} /> : <Box size={20} />}
             </button>
-         </div>
       </div>
 
       {is3D ? (
-          <div className="flex-1 bg-gray-900 rounded-lg overflow-hidden">
+          <div className="flex-1 bg-gray-900 overflow-hidden relative">
              {clip && (
                  <Scene3D
                     frontSrc={getUrl(clip.video_files.find(v => v.camera === 'Front')?.file_path || '')}
@@ -105,60 +136,75 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                     backSrc={getUrl(clip.video_files.find(v => v.camera === 'Back')?.file_path || '')}
                  />
              )}
+              {/* Timeline Overlay for 3D */}
+              <div className="absolute bottom-0 inset-x-0 p-4 bg-gradient-to-t from-black/90 to-transparent">
+                  <Timeline
+                    currentTime={currentTime}
+                    duration={duration}
+                    onSeek={handleSeek}
+                    markers={markers}
+                  />
+                  <div className="flex justify-center mt-2">
+                       <button onClick={togglePlay} className="px-6 py-1 bg-white/10 hover:bg-white/20 rounded-full text-sm font-medium transition">
+                          {isPlaying ? 'Pause' : 'Play'}
+                       </button>
+                  </div>
+              </div>
           </div>
       ) : (
-          <div className="flex flex-col gap-4 h-full overflow-hidden">
+          <div className="flex flex-col h-full overflow-hidden">
               {/* Main View (Front) */}
-              <div className="flex-grow relative rounded-lg overflow-hidden bg-black shadow-2xl border border-gray-800">
-                  {frontVideo && (
-                      <VideoPlayer
-                          src={getUrl(frontVideo.file_path)}
-                          className="w-full h-full object-contain"
-                          onReady={(p) => handlePlayerReady('Front', p)}
-                      />
-                  )}
-                  {/* Telemetry Overlay */}
-                  {clip.telemetry && clip.telemetry.full_data_json && (
-                    <TelemetryOverlay
-                        dataJson={clip.telemetry.full_data_json}
-                        currentTime={currentTime}
-                    />
-                  )}
-
-                  {/* Camera Name Overlay */}
-                  <div className="absolute bottom-4 left-4 bg-black bg-opacity-50 px-2 py-1 rounded text-sm font-mono">
-                      Front
+              <div className="flex-grow relative bg-black overflow-hidden flex flex-col">
+                  <div className="flex-grow relative">
+                      {frontVideo && (
+                          <VideoPlayer
+                              src={getUrl(frontVideo.file_path)}
+                              className="w-full h-full object-contain"
+                              onReady={(p) => handlePlayerReady('Front', p)}
+                          />
+                      )}
+                      {/* Telemetry Overlay */}
+                      {clip.telemetry && clip.telemetry.full_data_json && (
+                        <TelemetryOverlay
+                            dataJson={clip.telemetry.full_data_json}
+                            currentTime={currentTime}
+                        />
+                      )}
+                       <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10">
+                          Front Camera
+                      </div>
                   </div>
 
-                  {/* Master Controls Overlay */}
-                   <div className="absolute bottom-0 w-full p-4 bg-gradient-to-t from-black to-transparent opacity-0 hover:opacity-100 transition-opacity">
-                      <div className="flex gap-4 items-center">
-                          <button onClick={() => mainPlayerRef.current?.paused() ? mainPlayerRef.current.play() : mainPlayerRef.current.pause()}>
-                              {isPlaying ? 'Pause' : 'Play'}
+                  {/* Controls Area */}
+                   <div className="p-4 bg-black border-t border-gray-900">
+                      <Timeline
+                        currentTime={currentTime}
+                        duration={duration}
+                        onSeek={handleSeek}
+                        markers={markers}
+                      />
+                      <div className="flex items-center justify-center gap-4 mt-2">
+                          <button onClick={togglePlay} className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition">
+                              {isPlaying ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                              )}
                           </button>
-                          <input
-                              type="range"
-                              min="0"
-                              max={duration || 100}
-                              value={currentTime}
-                              onChange={(e) => mainPlayerRef.current.currentTime(parseFloat(e.target.value))}
-                              className="flex-grow"
-                          />
-                          <span>{Math.round(currentTime)} / {Math.round(duration)}</span>
                       </div>
                    </div>
               </div>
 
-              {/* Grid of other cameras */}
-              <div className="grid grid-cols-3 gap-4 h-48">
+              {/* Grid of other cameras (Bottom Strip) */}
+              <div className="h-32 grid grid-cols-3 gap-1 bg-black border-t border-gray-900">
                   {otherVideos.map(v => (
-                      <div key={v.camera} className="relative rounded-lg overflow-hidden bg-black border border-gray-800">
+                      <div key={v.camera} className="relative bg-gray-900 group/cam cursor-pointer hover:opacity-100 opacity-80 transition-opacity">
                           <VideoPlayer
                               src={getUrl(v.file_path)}
                               className="w-full h-full object-cover"
                               onReady={(p) => handlePlayerReady(v.camera, p)}
                           />
-                           <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 px-2 py-1 rounded text-xs font-mono">
+                           <div className="absolute bottom-1 left-1 bg-black/70 px-1.5 py-0.5 rounded text-[10px] font-mono border border-white/10">
                               {v.camera}
                           </div>
                       </div>

@@ -1,0 +1,72 @@
+
+> frontend@0.0.0 dev
+> vite --port 5174
+
+
+  VITE v7.2.7  ready in 475 ms
+
+  ➜  Local:   http://localhost:5174/
+  ➜  Network: use --host to expose
+8:52:30 AM [vite] (client) hmr update /src/App.css
+8:52:35 AM [vite] (client) hmr update /src/App.tsx
+8:54:22 AM [vite] (client) hmr update /src/App.tsx
+8:54:32 AM [vite] (client) Pre-transform error: Failed to resolve import "./components/Sidebar" from "src/App.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /app/frontend/src/App.tsx:3:20
+  3  |  import { useState, useEffect } from "react";
+  4  |  import Player from "./components/Player";
+  5  |  import Sidebar from "./components/Sidebar";
+     |                       ^
+  6  |  function App() {
+  7  |    _s();
+8:54:32 AM [vite] Internal server error: Failed to resolve import "./components/Sidebar" from "src/App.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /app/frontend/src/App.tsx:3:20
+  3  |  import { useState, useEffect } from "react";
+  4  |  import Player from "./components/Player";
+  5  |  import Sidebar from "./components/Sidebar";
+     |                       ^
+  6  |  function App() {
+  7  |    _s();
+      at TransformPluginContext._formatLog (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:28998:43)
+      at TransformPluginContext.error (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:28995:14)
+      at normalizeUrl (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:27118:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:27176:32
+      at async Promise.all (index 3)
+      at async TransformPluginContext.transform (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:27144:4)
+      at async EnvironmentPluginContainer.transform (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:28796:14)
+      at async loadAndTransform (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:22669:26)
+      at async viteTransformMiddleware (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:24541:20)
+8:55:52 AM [vite] (client) page reload src/components/Sidebar.tsx
+8:59:02 AM [vite] (client) hmr update /src/index.css
+8:59:29 AM [vite] (client) hmr update /src/components/Player.tsx
+8:59:39 AM [vite] (client) Pre-transform error: Failed to resolve import "./Timeline" from "src/components/Player.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /app/frontend/src/components/Player.tsx:5:21
+  5  |  import TelemetryOverlay from "./TelemetryOverlay";
+  6  |  import Scene3D from "./Scene3D";
+  7  |  import Timeline from "./Timeline";
+     |                        ^
+  8  |  import { Box, Layers } from "lucide-react";
+  9  |  const Player = ({ clip }) => {
+8:59:39 AM [vite] Internal server error: Failed to resolve import "./Timeline" from "src/components/Player.tsx". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /app/frontend/src/components/Player.tsx:5:21
+  5  |  import TelemetryOverlay from "./TelemetryOverlay";
+  6  |  import Scene3D from "./Scene3D";
+  7  |  import Timeline from "./Timeline";
+     |                        ^
+  8  |  import { Box, Layers } from "lucide-react";
+  9  |  const Player = ({ clip }) => {
+      at TransformPluginContext._formatLog (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:28998:43)
+      at TransformPluginContext.error (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:28995:14)
+      at normalizeUrl (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:27118:18)
+      at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at async file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:27176:32
+      at async Promise.all (index 5)
+      at async TransformPluginContext.transform (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:27144:4)
+      at async EnvironmentPluginContainer.transform (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:28796:14)
+      at async loadAndTransform (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:22669:26)
+      at async viteTransformMiddleware (file:///app/frontend/node_modules/vite/dist/node/chunks/config.js:24541:20)
+9:00:56 AM [vite] (client) hmr update /src/App.tsx
