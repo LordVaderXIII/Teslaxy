@@ -36,6 +36,7 @@ func SetupRoutes(r *gin.Engine) {
 func getClips(c *gin.Context) {
 	var clips []models.Clip
 	// Pagination? For now, fetch latest 100
+	// Optimized: Added index on Timestamp for faster sorting
 	if err := database.DB.Preload("VideoFiles").Order("timestamp desc").Limit(100).Find(&clips).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
