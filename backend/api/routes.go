@@ -25,6 +25,7 @@ func SetupRoutes(r *gin.Engine) {
 		api.GET("/clips", getClips)
 		api.GET("/clips/:id", getClipDetails)
 		api.GET("/video/*path", serveVideo)
+		api.GET("/thumbnail/*path", getThumbnail)
 
 		// Export Routes
 		api.POST("/export", createExportJob)
@@ -57,26 +58,31 @@ func getClipDetails(c *gin.Context) {
 func serveVideo(c *gin.Context) {
 	videoPath := c.Param("path")
 
-	// Security check: Prevent path traversal
-	// Clean the path to resolve ".." and "."
-	cleanPath := filepath.Clean(videoPath)
-
-	// Get allowed footage path
 	footagePath := os.Getenv("FOOTAGE_PATH")
 	if footagePath == "" {
 		footagePath = "/footage"
 	}
 	cleanFootagePath := filepath.Clean(footagePath)
+	cleanRequestPath := filepath.Clean(videoPath)
 
-	// Check if the request path is within the allowed footage directory
-	// We use Rel to determine if the path is relative to footagePath
-	rel, err := filepath.Rel(cleanFootagePath, cleanPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	// Determine full path
+	// If the request path already starts with the footage path, assume it's absolute
+	// Otherwise, join it with the footage path
+	var fullPath string
+	if strings.HasPrefix(cleanRequestPath, cleanFootagePath) {
+		fullPath = cleanRequestPath
+	} else {
+		fullPath = filepath.Join(cleanFootagePath, cleanRequestPath)
+	}
+
+	// Security Check
+	// Ensure the resolved full path is strictly inside the footage path
+	if fullPath != cleanFootagePath && !strings.HasPrefix(fullPath, cleanFootagePath+string(os.PathSeparator)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
-	c.File(cleanPath)
+	c.File(fullPath)
 }
 
 func createExportJob(c *gin.Context) {
