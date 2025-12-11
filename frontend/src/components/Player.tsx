@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
-import Scene3D from './Scene3D';
 import Timeline from './Timeline';
 import { Box, Layers, Video } from 'lucide-react';
 
@@ -185,14 +184,16 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           <div className="flex-1 bg-gray-900 overflow-hidden relative flex flex-col">
              <div className="flex-1 relative">
                  {clip && (
-                     <Scene3D
-                        frontSrc={frontVideo ? getUrl(frontVideo.file_path) : ''}
-                        leftRepeaterSrc={leftVideo ? getUrl(leftVideo.file_path) : ''}
-                        rightRepeaterSrc={rightVideo ? getUrl(rightVideo.file_path) : ''}
-                        backSrc={backVideo ? getUrl(backVideo.file_path) : ''}
-                        leftPillarSrc={leftPillarVideo ? getUrl(leftPillarVideo.file_path) : ''}
-                        rightPillarSrc={rightPillarVideo ? getUrl(rightPillarVideo.file_path) : ''}
-                     />
+                     <Suspense fallback={<div className="flex items-center justify-center h-full text-white">Loading 3D Engine...</div>}>
+                         <Scene3D
+                            frontSrc={frontVideo ? getUrl(frontVideo.file_path) : ''}
+                            leftRepeaterSrc={leftVideo ? getUrl(leftVideo.file_path) : ''}
+                            rightRepeaterSrc={rightVideo ? getUrl(rightVideo.file_path) : ''}
+                            backSrc={backVideo ? getUrl(backVideo.file_path) : ''}
+                            leftPillarSrc={leftPillarVideo ? getUrl(leftPillarVideo.file_path) : ''}
+                            rightPillarSrc={rightPillarVideo ? getUrl(rightPillarVideo.file_path) : ''}
+                         />
+                     </Suspense>
                  )}
              </div>
           </div>
