@@ -22,3 +22,8 @@ body {
   height: 100vh;
   overflow: hidden;
 }
+
+/* Fix for VideoJS zooming/cropping issue */
+.vjs-tech {
+  object-fit: contain !important;
+}
