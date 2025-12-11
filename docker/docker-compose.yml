@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  teslaxy:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: teslaxy:latest
+    container_name: teslaxy
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      # Mount your TeslaCam drive (RecentClips, SavedClips, SentryClips) here
+      - /mnt/user/isos/TeslaCam:/footage:ro
+      # Config storage (DB, Exports, Logs)
+      - ./config:/config
+    environment:
+      - AUTH_ENABLED=false
+      - GIN_MODE=release
+    # GPU Support for FFmpeg hardware acceleration
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, video, compute, utility]
+    runtime: nvidia
