@@ -17,6 +17,7 @@ func SetupRoutes(r *gin.Engine) {
 
 	// Login endpoint (public)
 	api.POST("/login", Login)
+	api.GET("/version", GetVersion)
 
 	// Apply Auth Middleware
 	api.Use(AuthMiddleware())
