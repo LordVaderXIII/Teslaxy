@@ -3,12 +3,12 @@ package api
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"log"
 
 	"github.com/gin-gonic/gin"
 )
@@ -33,18 +33,18 @@ func getThumbnail(c *gin.Context) {
 		fullPath = filepath.Join(cleanFootagePath, cleanRequestPath)
 	}
 
-    // Final Security Check
-    // Ensure the resolved full path is strictly inside the footage path
+	// Final Security Check
+	// Ensure the resolved full path is strictly inside the footage path
 	if fullPath != cleanFootagePath && !strings.HasPrefix(fullPath, cleanFootagePath+string(os.PathSeparator)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
-    // Verify file exists at the full path
-    if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-        c.JSON(http.StatusNotFound, gin.H{"error": "Video file not found"})
-        return
-    }
+	// Verify file exists at the full path
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Video file not found"})
+		return
+	}
 
 	// 2. Cache Setup
 	configPath := os.Getenv("CONFIG_PATH")
@@ -59,7 +59,7 @@ func getThumbnail(c *gin.Context) {
 	}
 
 	// 3. Generate Cache Filename
-    // Hash the full path to ensure uniqueness
+	// Hash the full path to ensure uniqueness
 	hash := md5.Sum([]byte(fullPath))
 	hashStr := hex.EncodeToString(hash[:])
 	thumbPath := filepath.Join(thumbDir, hashStr+".jpg")
