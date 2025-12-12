@@ -219,7 +219,7 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 
 					// Create Telemetry record
 					telemetry := models.Telemetry{
-						ClipID: clip.ID,
+						ClipID:       clip.ID,
 						FullDataJson: string(jsonData),
 						// Populate summary fields from the middle of the clip?
 					}

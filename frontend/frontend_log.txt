@@ -3,52 +3,67 @@
 > vite
 
 
-  VITE v7.2.7  ready in 612 ms
+  VITE v7.2.7  ready in 635 ms
 
   ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose
-7:33:32 AM [vite] http proxy error: /api/version
+11:13:25 PM [vite] http proxy error: /api/version
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:33:32 AM [vite] (client) hmr update /src/index.css
-7:33:32 AM [vite] http proxy error: /api/version
+11:13:25 PM [vite] http proxy error: /api/version
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:33:32 AM [vite] http proxy error: /api/clips/1
+11:13:25 PM [vite] (client) hmr update /src/index.css
+11:13:25 PM [vite] http proxy error: /api/thumbnailfront.mp4
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:33:32 AM [vite] http proxy error: /api/clips/1
+11:13:25 PM [vite] http proxy error: /api/videofront.mp4
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:33:32 AM [vite] http proxy error: /api/videofront.mp4
+11:13:25 PM [vite] (client) hmr update /src/index.css
+11:18:20 PM [vite] http proxy error: /api/version
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:33:32 AM [vite] (client) hmr update /src/index.css
-7:34:45 AM [vite] (client) hmr update /src/index.css
-7:34:45 AM [vite] (client) hmr update /src/index.css
-7:34:51 AM [vite] http proxy error: /api/version
+11:18:20 PM [vite] http proxy error: /api/version
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:34:51 AM [vite] http proxy error: /api/version
+11:18:20 PM [vite] (client) hmr update /src/index.css
+11:18:20 PM [vite] http proxy error: /api/thumbnailfront.mp4
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:34:51 AM [vite] (client) hmr update /src/index.css
-7:34:51 AM [vite] http proxy error: /api/thumbnailfront.mp4
+11:18:20 PM [vite] (client) hmr update /src/index.css
+11:18:20 PM [vite] http proxy error: /api/videofront.mp4
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:34:51 AM [vite] (client) hmr update /src/index.css
-7:34:51 AM [vite] http proxy error: /api/videofront.mp4
+11:18:20 PM [vite] (client) hmr update /src/index.css
+11:19:10 PM [vite] (client) hmr update /src/index.css
+11:19:10 PM [vite] (client) hmr update /src/index.css
+11:19:17 PM [vite] http proxy error: /api/version
 AggregateError [ECONNREFUSED]:
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
-7:34:51 AM [vite] (client) hmr update /src/index.css
-7:37:04 AM [vite] (client) hmr update /src/index.css
-7:37:04 AM [vite] (client) hmr update /src/index.css
+11:19:17 PM [vite] (client) hmr update /src/index.css
+11:19:17 PM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+11:19:17 PM [vite] http proxy error: /api/thumbnailfront.mp4
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+11:19:17 PM [vite] (client) hmr update /src/index.css
+11:19:17 PM [vite] http proxy error: /api/videofront.mp4
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+11:19:17 PM [vite] (client) hmr update /src/index.css
+11:19:33 PM [vite] (client) hmr update /src/index.css
+11:19:33 PM [vite] (client) hmr update /src/index.css
