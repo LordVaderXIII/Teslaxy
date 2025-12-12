@@ -25,7 +25,7 @@ type ScannerService struct {
 
 var (
 	// Tesla file format: 2019-01-21_14-15-20-front.mp4
-	fileRegex = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})-([a-zA-Z0-9]+)\.mp4$`)
+	fileRegex = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})-([a-zA-Z0-9_-]+)\.mp4$`)
 )
 
 func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
