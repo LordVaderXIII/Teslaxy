@@ -1,0 +1,12 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#60a5fa" />
+      <stop offset="100%" stop-color="#9333ea" />
+    </linearGradient>
+    <filter id="shadow">
+        <feDropShadow dx="2" dy="4" stdDeviation="3" flood-color="rgba(0,0,0,0.5)" />
+    </filter>
+  </defs>
+  <text x="64" y="64" font-family="sans-serif" font-size="100" font-weight="bold" fill="url(#grad)" text-anchor="middle" dominant-baseline="central" dy="4" filter="url(#shadow)">T</text>
+</svg>
