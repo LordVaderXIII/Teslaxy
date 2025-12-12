@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react';
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
@@ -16,6 +16,10 @@ interface Clip {
   event: string;
   timestamp: string;
 }
+
+const normalizeCameraName = (name: string) => {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+};
 
 const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -46,11 +50,11 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       setActiveCamera('Front');
   }, [clip?.ID]);
 
-  const handlePlayerReady = (camera: string, player: any) => {
+  const handlePlayerReady = useCallback((camera: string, player: any) => {
     if (!player) return;
     playersRef.current[camera] = player;
 
-    const frontExists = clip?.video_files?.some(v => v.camera === 'Front');
+    const frontExists = clip?.video_files?.some(v => normalizeCameraName(v.camera) === 'front');
     // Set as main if it's Front, OR if Front doesn't exist and we don't have a main player yet.
     const isMain = camera === 'Front' || (!frontExists && !mainPlayerRef.current);
 
@@ -98,7 +102,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
              player.muted(true);
         }
     }
-  };
+  }, [clip]);
 
   const togglePlay = () => {
       // Try main player, or fallback to any available player
@@ -131,12 +135,18 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   if (!clip) return <div className="flex items-center justify-center h-full text-gray-500">Select a clip to play</div>;
   if (!clip.video_files) return <div className="flex items-center justify-center h-full text-gray-500">No video files available</div>;
 
-  const frontVideo = clip.video_files.find(v => v.camera === 'Front');
-  const leftVideo = clip.video_files.find(v => v.camera === 'Left Repeater');
-  const rightVideo = clip.video_files.find(v => v.camera === 'Right Repeater');
-  const backVideo = clip.video_files.find(v => v.camera === 'Back');
-  const leftPillarVideo = clip.video_files.find(v => v.camera === 'Left Pillar');
-  const rightPillarVideo = clip.video_files.find(v => v.camera === 'Right Pillar');
+  const findVideo = (targetCamera: string) => {
+      if (!clip.video_files) return undefined;
+      const target = normalizeCameraName(targetCamera);
+      return clip.video_files.find(v => normalizeCameraName(v.camera) === target);
+  };
+
+  const frontVideo = findVideo('Front');
+  const leftVideo = findVideo('Left Repeater');
+  const rightVideo = findVideo('Right Repeater');
+  const backVideo = findVideo('Back');
+  const leftPillarVideo = findVideo('Left Pillar');
+  const rightPillarVideo = findVideo('Right Pillar');
 
   // Determine Incident Marker
   const markers = [];

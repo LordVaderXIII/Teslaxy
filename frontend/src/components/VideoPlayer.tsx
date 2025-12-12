@@ -12,11 +12,11 @@ interface VideoPlayerProps {
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, options }) => {
   const videoRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
+  const currentSrcRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!playerRef.current) {
       const videoElement = document.createElement("video-js");
-      videoElement.classList.add('vjs-big-play-centered');
       videoElement.classList.add('w-full');
       videoElement.classList.add('h-full');
       // Prevent Apple Video Player takeover
@@ -39,9 +39,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
       }, () => {
         onReady && onReady(player);
       });
+      currentSrcRef.current = src;
     } else {
       const player = playerRef.current;
-      player.src({ src: src, type: 'video/mp4' });
+      // Only update src if it has actually changed
+      if (currentSrcRef.current !== src) {
+        player.src({ src: src, type: 'video/mp4' });
+        currentSrcRef.current = src;
+      }
     }
   }, [src, options, onReady]);
 
