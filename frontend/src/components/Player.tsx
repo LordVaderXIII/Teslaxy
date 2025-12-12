@@ -209,7 +209,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       ) : (
           <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3 md:grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
               {/* Front Camera (Top, Spans 3 on desktop) */}
-              <div className={`relative bg-gray-900 group/cam md:col-span-3 ${activeCamera === 'Front' ? 'block h-full' : 'hidden md:block'}`}>
+              <div className={`relative bg-gray-900 group/cam md:col-span-3 overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Front' ? 'block h-full' : 'hidden md:block'}`}>
                   {frontVideo ? (
                       <VideoPlayer
                           key={`${clip.ID}-Front`}
@@ -233,7 +233,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                {/* Row 2: Left Repeater, Back, Right Repeater */}
 
                {/* Left Repeater */}
-               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Left Repeater' ? 'block h-full' : 'hidden md:block'}`}>
+               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Left Repeater' ? 'block h-full' : 'hidden md:block'}`}>
                    {leftVideo ? (
                       <VideoPlayer
                           key={`${clip.ID}-LeftRepeater`}
@@ -248,7 +248,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                </div>
 
                {/* Back Camera */}
-               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Back' ? 'block h-full' : 'hidden md:block'}`}>
+               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Back' ? 'block h-full' : 'hidden md:block'}`}>
                    {backVideo ? (
                       <VideoPlayer
                           key={`${clip.ID}-Back`}
@@ -263,7 +263,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                </div>
 
                {/* Right Repeater */}
-               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Right Repeater' ? 'block h-full' : 'hidden md:block'}`}>
+               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Right Repeater' ? 'block h-full' : 'hidden md:block'}`}>
                    {rightVideo ? (
                       <VideoPlayer
                           key={`${clip.ID}-RightRepeater`}
@@ -280,7 +280,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                {/* Row 3: Left Pillar, Empty, Right Pillar */}
 
                {/* Left Pillar */}
-               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Left Pillar' ? 'block h-full' : 'hidden md:block'}`}>
+               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Left Pillar' ? 'block h-full' : 'hidden md:block'}`}>
                    {leftPillarVideo ? (
                       <VideoPlayer
                           key={`${clip.ID}-LeftPillar`}
@@ -298,7 +298,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                <div className="relative bg-black hidden md:block"></div>
 
                {/* Right Pillar */}
-               <div className={`relative bg-gray-900 group/cam ${activeCamera === 'Right Pillar' ? 'block h-full' : 'hidden md:block'}`}>
+               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Right Pillar' ? 'block h-full' : 'hidden md:block'}`}>
                    {rightPillarVideo ? (
                       <VideoPlayer
                           key={`${clip.ID}-RightPillar`}
