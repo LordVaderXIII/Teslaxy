@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Filter, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
 import Calendar from './Calendar';
 
@@ -24,13 +24,65 @@ interface SidebarProps {
   className?: string;
 }
 
+interface SidebarItemProps {
+  clip: Clip;
+  isSelected: boolean;
+  onClipSelect: (clip: Clip) => void;
+}
+
+const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemProps) => {
+  const frontVideo = clip.video_files?.find(v => v.camera === 'Front');
+
+  return (
+    <button
+      onClick={() => onClipSelect(clip)}
+      aria-current={isSelected ? 'true' : undefined}
+      className={`
+         w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset
+         p-4 hover:bg-gray-900 transition flex gap-3
+         ${isSelected ? 'bg-gray-900 border-l-4 border-blue-500' : 'border-l-4 border-transparent'}
+      `}
+    >
+       {/* Thumbnail Placeholder or Icon */}
+       <div className="w-12 h-12 rounded flex-shrink-0 overflow-hidden bg-gray-800 relative">
+          {frontVideo ? (
+             <img
+                src={`/api/thumbnail${frontVideo.file_path}`}
+                alt="Thumbnail"
+                className="w-full h-full object-cover"
+                loading="lazy"
+             />
+          ) : (
+              <div className={`
+                  w-full h-full flex items-center justify-center
+                  ${clip.event === 'Sentry' ? 'bg-red-900/20 text-red-500' :
+                  clip.event === 'Saved' ? 'bg-green-900/20 text-green-500' : 'bg-gray-800 text-gray-400'}
+              `}>
+                  <div className="text-xs font-bold uppercase">{clip.event.substring(0,2)}</div>
+              </div>
+          )}
+       </div>
+
+       <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-baseline mb-1">
+             <span className="font-medium text-gray-200 truncate">{clip.city || 'Unknown Location'}</span>
+             <span className="text-xs text-gray-500 font-mono">{new Date(clip.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+          </div>
+          <div className="text-xs text-gray-500 truncate">
+             {clip.event} Event • {new Date(clip.timestamp).toLocaleDateString()}
+          </div>
+       </div>
+    </button>
+  );
+});
+
 const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, loading, className }) => {
   const [filterType, setFilterType] = useState<string>('All');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
 
   // Filter Logic
-  const filteredClips = clips.filter(clip => {
+  const filteredClips = useMemo(() => clips.filter(clip => {
     // Date Filter
     const clipDate = new Date(clip.timestamp);
     const sameDay = clipDate.toDateString() === selectedDate.toDateString();
@@ -39,10 +91,10 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
     const typeMatch = filterType === 'All' || clip.event === filterType;
 
     return sameDay && typeMatch;
-  });
+  }), [clips, selectedDate, filterType]);
 
   // Get unique event types for dropdown
-  const eventTypes = ['All', ...Array.from(new Set(clips.map(c => c.event)))];
+  const eventTypes = useMemo(() => ['All', ...Array.from(new Set(clips.map(c => c.event)))], [clips]);
 
   return (
     <div className={`flex flex-col bg-black border-gray-800 w-full md:w-96 md:h-full md:flex-shrink-0 border-t md:border-l md:border-t-0 ${className || ''}`}>
@@ -68,18 +120,11 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
               </div>
           </div>
 
-          {/* Calendar (Collapsible on Mobile, always visible on Desktop?)
-              Actually, making it collapsible everywhere is cleaner, or just auto-open on desktop.
-              For now, let's make it toggleable but open by default on desktop if we wanted,
-              but user said "can be opened", implying it might be closed.
-          */}
           <div className={`${isCalendarOpen ? 'block' : 'hidden'} md:block transition-all duration-300 ease-in-out`}>
             <Calendar
                 currentDate={selectedDate}
                 onDateSelect={(date) => {
                     setSelectedDate(date);
-                    // Optional: Close calendar on selection on mobile?
-                    // setIsCalendarOpen(false);
                 }}
                 clips={clips}
             />
@@ -116,52 +161,14 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
              </div>
           ) : (
             <div className="grid grid-cols-1 divide-y divide-gray-900">
-               {filteredClips.map(clip => {
-                  const frontVideo = clip.video_files?.find(v => v.camera === 'Front');
-
-                  return (
-                  <button
+               {filteredClips.map(clip => (
+                  <SidebarItem
                     key={clip.ID}
-                    onClick={() => onClipSelect(clip)}
-                    aria-current={selectedClipId === clip.ID ? 'true' : undefined}
-                    className={`
-                       w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset
-                       p-4 hover:bg-gray-900 transition flex gap-3
-                       ${selectedClipId === clip.ID ? 'bg-gray-900 border-l-4 border-blue-500' : 'border-l-4 border-transparent'}
-                    `}
-                  >
-                     {/* Thumbnail Placeholder or Icon */}
-                     <div className="w-12 h-12 rounded flex-shrink-0 overflow-hidden bg-gray-800 relative">
-                        {frontVideo ? (
-                           <img
-                              src={`/api/thumbnail${frontVideo.file_path}`}
-                              alt="Thumbnail"
-                              className="w-full h-full object-cover"
-                              loading="lazy"
-                           />
-                        ) : (
-                            <div className={`
-                                w-full h-full flex items-center justify-center
-                                ${clip.event === 'Sentry' ? 'bg-red-900/20 text-red-500' :
-                                clip.event === 'Saved' ? 'bg-green-900/20 text-green-500' : 'bg-gray-800 text-gray-400'}
-                            `}>
-                                <div className="text-xs font-bold uppercase">{clip.event.substring(0,2)}</div>
-                            </div>
-                        )}
-                     </div>
-
-                     <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-baseline mb-1">
-                           <span className="font-medium text-gray-200 truncate">{clip.city || 'Unknown Location'}</span>
-                           <span className="text-xs text-gray-500 font-mono">{new Date(clip.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                        </div>
-                        <div className="text-xs text-gray-500 truncate">
-                           {clip.event} Event • {new Date(clip.timestamp).toLocaleDateString()}
-                        </div>
-                     </div>
-                  </button>
-                  );
-               })}
+                    clip={clip}
+                    isSelected={selectedClipId === clip.ID}
+                    onClipSelect={onClipSelect}
+                  />
+               ))}
             </div>
           )}
        </div>
@@ -169,4 +176,4 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   );
 };
 
-export default Sidebar;
+export default React.memo(Sidebar);
