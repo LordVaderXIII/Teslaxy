@@ -16,7 +16,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
 
   useEffect(() => {
     if (!playerRef.current) {
-      const videoElement = document.createElement("video-js");
+      const videoElement = document.createElement("video");
+      videoElement.classList.add('video-js');
       videoElement.classList.add('w-full');
       videoElement.classList.add('h-full');
       // Prevent Apple Video Player takeover
