@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video } from 'lucide-react';
+import { Box, Layers, Video, Play, Pause } from 'lucide-react';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -169,6 +169,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                     onClick={() => setIsCameraMenuOpen(!isCameraMenuOpen)}
                     className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white"
                     title="Switch Camera"
+                    aria-label="Switch Camera"
                 >
                     <Video size={20} />
                 </button>
@@ -194,6 +195,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                 onClick={() => setIs3D(!is3D)}
                 className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white"
                 title={is3D ? 'Switch to 2D' : 'Switch to 3D'}
+                aria-label={is3D ? 'Switch to 2D view' : 'Switch to 3D view'}
             >
                 {is3D ? <Layers size={20} /> : <Box size={20} />}
             </button>
@@ -333,11 +335,16 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             markers={markers}
           />
           <div className="flex items-center justify-center gap-4 mt-2">
-              <button onClick={togglePlay} className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition">
+              <button
+                  onClick={togglePlay}
+                  className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition"
+                  aria-label={isPlaying ? "Pause playback" : "Start playback"}
+                  title={isPlaying ? "Pause" : "Play"}
+              >
                   {isPlaying ? (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                    <Pause size={24} fill="currentColor" stroke="none" />
                   ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <Play size={24} fill="currentColor" stroke="none" />
                   )}
               </button>
           </div>
