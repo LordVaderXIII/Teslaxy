@@ -11,6 +11,24 @@ Teslaxy is a modern, self-hosted web application designed for viewing Tesla Dash
 - **Hardware Acceleration:** Supports NVIDIA NVENC for fast video processing and exporting.
 - **Modern UI:** Responsive, clean interface built with React and Tailwind CSS.
 
+## Upcoming Features
+
+- Skip and rewind 5 seconds
+- 1 button playback speed .5, 1, 1.5, 2 and 4 times
+- Export functionality stage 1, snip a section of a clip using red and green bracket from one camera and export to mp4
+- Export funcxtionality stage 2, pick which camera view is included and they are stiched together in the export
+- Basic authentication (optional Docker variable of auth=true/false to reset), off by default, user can set password in app. User account area created to support this
+- Logs now visable in User account
+- Logs have self healing reporting built in, this flags errors and asks the user to send to Jules via Jules API, will require API key
+- 3D view customisations, allow the user to move each camera view around to better stitch them together. This will allow us to get a much better 3D experiance
+- Phone integration stage 1, 3D on mobile using the phones gyro for movement in the space for iOS
+- Phone integration stage 2, mobile notifications
+- AI integration stage 1, build the ability to plug the AI of choice into the app, providing API integration for Gemini, ChatGPT, Grok, Claude
+- AI integration stage 2, Allow the user to use the AI in search
+- Extract telemetry data from the video feeds (post Christmas 2025 update) and store in DB
+- Implement simple dashboards for telemetry
+- AI integration stage 3, Analyse Tesla telemetry data once this is availible
+
 ## Getting Started with Docker
 
 The easiest way to run Teslaxy is using Docker.
