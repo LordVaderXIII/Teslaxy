@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Player from './components/Player'
 import Sidebar from './components/Sidebar'
 import VersionDisplay from './components/VersionDisplay'
@@ -16,6 +16,17 @@ function App() {
   const [clips, setClips] = useState<Clip[]>([])
   const [selectedClip, setSelectedClip] = useState<Clip | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const handleClipSelect = useCallback((clip: Clip) => {
+    // Optimistic update
+    setSelectedClip(clip); // Set minimal data first
+
+    // Fetch full details including telemetry
+    fetch(`/api/clips/${clip.ID}`)
+        .then(res => res.json())
+        .then(data => setSelectedClip(data)) // Update with full data
+        .catch(err => console.error(err))
+  }, [])
 
   useEffect(() => {
     fetch('/api/clips')
@@ -35,18 +46,7 @@ function App() {
         console.error("Failed to fetch clips", err)
         setLoading(false)
       })
-  }, [])
-
-  const handleClipSelect = (clip: Clip) => {
-    // Optimistic update
-    setSelectedClip(clip); // Set minimal data first
-
-    // Fetch full details including telemetry
-    fetch(`/api/clips/${clip.ID}`)
-        .then(res => res.json())
-        .then(data => setSelectedClip(data)) // Update with full data
-        .catch(err => console.error(err))
-  }
+  }, [handleClipSelect])
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-screen bg-black text-white overflow-hidden font-sans">
