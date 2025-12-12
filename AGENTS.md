@@ -9,6 +9,7 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Follow standard conventions for Go (Effective Go) and React/TypeScript.
 - Ensure all code is clean, readable, and well-commented.
 - Use meaningful variable and function names.
+- Always follow Semantic Versioning (SemVer) for every commit: Analyze changes to bump MAJOR for breaking changes, MINOR for new compatible features, PATCH for bug fixes. Use Conventional Commits format (e.g., 'feat:', 'fix:', 'BREAKING CHANGE:'). Tag releases as 'vX.Y.Z' and update CHANGELOG.md accordingly.
 
 ### Backend (Go)
 - Use `gin` for the web framework.
