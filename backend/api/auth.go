@@ -63,11 +63,15 @@ func Login(c *gin.Context) {
 	}
 
 	// Simple check (replace with DB check or env var)
-    // Using simple defaults as requested for MVP
-    adminUser := os.Getenv("ADMIN_USER")
-    if adminUser == "" { adminUser = "admin" }
-    adminPass := os.Getenv("ADMIN_PASS")
-    if adminPass == "" { adminPass = "tesla" }
+	// Using simple defaults as requested for MVP
+	adminUser := os.Getenv("ADMIN_USER")
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+	adminPass := os.Getenv("ADMIN_PASS")
+	if adminPass == "" {
+		adminPass = "tesla"
+	}
 
 	if creds.Username == adminUser && creds.Password == adminPass {
 		token, _ := generateToken(creds.Username)
@@ -104,9 +108,14 @@ func validateToken(token string) (bool, error) {
 	signatureInput := parts[0] + "." + parts[1]
 	mac := hmac.New(sha256.New, secretKey)
 	mac.Write([]byte(signatureInput))
-	expectedSignature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	expectedMAC := mac.Sum(nil)
 
-	if expectedSignature != parts[2] {
+	providedMAC, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		return false, nil
+	}
+
+	if !hmac.Equal(providedMAC, expectedMAC) {
 		return false, nil
 	}
 

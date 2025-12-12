@@ -23,7 +23,7 @@ var (
 // ExportRequest defines the parameters for exporting a clip
 type ExportRequest struct {
 	ClipID    uint     `json:"clip_id"`
-	Cameras   []string `json:"cameras"` // "front", "back", "left_repeater", "right_repeater"
+	Cameras   []string `json:"cameras"`    // "front", "back", "left_repeater", "right_repeater"
 	StartTime float64  `json:"start_time"` // Relative start time in seconds
 	Duration  float64  `json:"duration"`   // Duration in seconds
 }

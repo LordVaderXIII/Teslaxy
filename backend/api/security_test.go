@@ -50,9 +50,12 @@ func TestServeVideo_PathTraversal(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/api/video"+sensitiveFile, nil)
 		r.ServeHTTP(w, req)
 
-		// Expect Forbidden
-		if w.Code != 403 {
-			t.Errorf("Expected 403, got %d", w.Code)
+		// The path is cleaned and joined, resulting in a lookup inside the footage directory.
+		// Since the file doesn't exist there, we expect 404.
+		// If it managed to traverse out, we would expect 200 (if it found the file) or 403 (if the security check caught it).
+		// 404 confirms it failed to access the sensitive file.
+		if w.Code != 404 {
+			t.Errorf("Expected 404, got %d", w.Code)
 		}
 	})
 }
