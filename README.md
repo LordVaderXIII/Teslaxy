@@ -10,10 +10,10 @@ Teslaxy is a modern, self-hosted web application designed for viewing Tesla Dash
 - **Map View:** GPS location tracking synchronized with video playback.
 - **Hardware Acceleration:** Supports NVIDIA NVENC for fast video processing and exporting.
 - **Modern UI:** Responsive, clean interface built with React and Tailwind CSS.
+- **Playback Controls:** Skip and rewind 5 seconds during playback.
 
 ## Upcoming Features
 
-- Skip and rewind 5 seconds
 - 1 button playback speed .5, 1, 1.5, 2 and 4 times
 - Export functionality stage 1, snip a section of a clip using red and green bracket from one camera and export to mp4
 - Export funcxtionality stage 2, pick which camera view is included and they are stiched together in the export

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video } from 'lucide-react';
+import { Box, Layers, Video, RotateCcw, RotateCw } from 'lucide-react';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -333,12 +333,26 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             markers={markers}
           />
           <div className="flex items-center justify-center gap-4 mt-2">
+              <button
+                  onClick={() => handleSeek(Math.max(0, currentTime - 5))}
+                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition"
+                  title="Rewind 5s"
+              >
+                  <RotateCcw size={20} />
+              </button>
               <button onClick={togglePlay} className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition">
                   {isPlaying ? (
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
                   ) : (
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                   )}
+              </button>
+              <button
+                  onClick={() => handleSeek(Math.min(duration, currentTime + 5))}
+                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition"
+                  title="Skip 5s"
+              >
+                  <RotateCw size={20} />
               </button>
           </div>
        </div>

@@ -1,0 +1,54 @@
+
+> frontend@0.0.0 dev
+> vite
+
+
+  VITE v7.2.7  ready in 612 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+7:33:32 AM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:33:32 AM [vite] (client) hmr update /src/index.css
+7:33:32 AM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:33:32 AM [vite] http proxy error: /api/clips/1
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:33:32 AM [vite] http proxy error: /api/clips/1
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:33:32 AM [vite] http proxy error: /api/videofront.mp4
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:33:32 AM [vite] (client) hmr update /src/index.css
+7:34:45 AM [vite] (client) hmr update /src/index.css
+7:34:45 AM [vite] (client) hmr update /src/index.css
+7:34:51 AM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:34:51 AM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:34:51 AM [vite] (client) hmr update /src/index.css
+7:34:51 AM [vite] http proxy error: /api/thumbnailfront.mp4
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:34:51 AM [vite] (client) hmr update /src/index.css
+7:34:51 AM [vite] http proxy error: /api/videofront.mp4
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+7:34:51 AM [vite] (client) hmr update /src/index.css
+7:37:04 AM [vite] (client) hmr update /src/index.css
+7:37:04 AM [vite] (client) hmr update /src/index.css
