@@ -35,6 +35,9 @@ RUN apk add --no-cache ffmpeg tzdata ca-certificates libva
 # Copy Binary
 COPY --from=backend-builder /app/backend/teslaxy /usr/local/bin/teslaxy
 
+# Copy Changelog
+COPY CHANGELOG.md /app/CHANGELOG.md
+
 # Create Directories
 RUN mkdir -p /footage /config /config/logs /config/exports
 
