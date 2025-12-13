@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, RotateCw, Play, Pause } from 'lucide-react';
+import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause } from 'lucide-react';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -339,6 +339,13 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           />
           <div className="flex items-center justify-center gap-4 mt-2">
               <button
+                  onClick={() => handleSeek(Math.max(0, currentTime - 15))}
+                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition"
+                  title="Back 15s"
+              >
+                  <RotateCcw size={20} />
+              </button>
+              <button
                   onClick={togglePlay}
                   className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition"
                   aria-label={isPlaying ? "Pause playback" : "Start playback"}
@@ -351,9 +358,9 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   )}
               </button>
               <button
-                  onClick={() => handleSeek(Math.min(duration, currentTime + 5))}
+                  onClick={() => handleSeek(Math.min(duration, currentTime + 15))}
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition"
-                  title="Skip 5s"
+                  title="Skip 15s"
               >
                   <RotateCw size={20} />
               </button>
