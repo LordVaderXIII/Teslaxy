@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -81,6 +82,14 @@ func serveVideo(c *gin.Context) {
 	// Ensure the resolved full path is strictly inside the footage path
 	if fullPath != cleanFootagePath && !strings.HasPrefix(fullPath, cleanFootagePath+string(os.PathSeparator)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	// Verify file exists (add logging for debugging)
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		// Log error for debugging
+		log.Printf("Error: Video file not found at %s", fullPath)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Video file not found"})
 		return
 	}
 

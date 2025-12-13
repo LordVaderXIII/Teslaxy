@@ -36,13 +36,20 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		tokenString := ""
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		if authHeader != "" {
+			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+		} else {
+			// Fallback to query parameter for <img> and <video> tags
+			tokenString = c.Query("token")
+		}
+
+		if tokenString == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 			return
 		}
 
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 		if valid, _ := validateToken(tokenString); !valid {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 			return
