@@ -336,13 +336,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           />
           <div className="flex items-center justify-center gap-4 mt-2">
               <button
-                  onClick={() => handleSeek(Math.max(0, currentTime - 5))}
-                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition"
-                  title="Rewind 5s"
-              >
-                  <RotateCcw size={20} />
-              </button>
-              <button
                   onClick={togglePlay}
                   className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition"
                   aria-label={isPlaying ? "Pause playback" : "Start playback"}
