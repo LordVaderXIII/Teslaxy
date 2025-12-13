@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Filter, RefreshCw, Calendar as CalendarIcon } from 'lucide-react';
+import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon } from 'lucide-react';
 import Calendar from './Calendar';
+import MapModal from './MapModal';
+import VersionDisplay from './VersionDisplay';
 
 interface VideoFile {
   camera: string;
@@ -99,6 +101,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   const [filterType, setFilterType] = useState<string>('All');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [isMapOpen, setIsMapOpen] = useState(false);
 
   // Filter Logic
   const filteredClips = useMemo(() => clips.filter(clip => {
@@ -120,7 +123,17 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
        {/* Header */}
        <div className="p-4 border-b border-gray-800 flex flex-col gap-4">
           <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold text-white">Library</h2>
+              <div className="flex items-center gap-3">
+                  <h2 className="text-xl font-bold text-white">Library</h2>
+                  <button
+                    onClick={() => setIsMapOpen(true)}
+                    className="p-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 hover:text-white rounded-lg transition-colors"
+                    title="View Map"
+                  >
+                     <MapIcon size={18} />
+                  </button>
+              </div>
+
               <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsCalendarOpen(!isCalendarOpen)}
@@ -191,6 +204,18 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
             </div>
           )}
        </div>
+
+       {/* Footer / Version */}
+       <div className="p-4 border-t border-gray-800 flex justify-center">
+            <VersionDisplay />
+       </div>
+
+       <MapModal
+          isOpen={isMapOpen}
+          onClose={() => setIsMapOpen(false)}
+          clips={clips} // Pass all clips as requested
+          onClipSelect={onClipSelect}
+       />
     </div>
   );
 };
