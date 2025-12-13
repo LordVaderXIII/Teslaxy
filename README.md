@@ -14,6 +14,7 @@ Teslaxy is a modern, self-hosted web application designed for viewing Tesla Dash
 
 ## Upcoming Features
 
+- Update the non 3D grid view to allow a camera to be selected and it replaces the main larger camera, the main front camera then moves to the other cameras location. Always defaulting to the current view when loading a clip
 - 1 button playback speed .5, 1, 1.5, 2 and 4 times
 - Export functionality stage 1, snip a section of a clip using red and green bracket from one camera and export to mp4
 - Export funcxtionality stage 2, pick which camera view is included and they are stiched together in the export
