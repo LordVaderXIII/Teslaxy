@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jinzhu/gorm"
 	"teslaxy/database"
 	"teslaxy/models"
 	"teslaxy/services"
@@ -41,7 +42,10 @@ func getClips(c *gin.Context) {
 	// Pagination? For now, fetch latest 100
 	// Optimized: Added index on Timestamp for faster sorting
 	// Jules: Removed limit to show all historical clips as requested. Pagination can be added later if needed.
-	if err := database.DB.Preload("VideoFiles").Preload("Telemetry").Order("timestamp desc").Find(&clips).Error; err != nil {
+	// Bolt: Optimize query by selecting only necessary Telemetry fields (exclude heavy FullDataJson)
+	if err := database.DB.Preload("VideoFiles").Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
+		return db.Select("id, clip_id, latitude, longitude")
+	}).Order("timestamp desc").Find(&clips).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
