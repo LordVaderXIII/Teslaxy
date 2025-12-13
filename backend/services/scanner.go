@@ -16,11 +16,15 @@ import (
 	pb "teslaxy/proto"
 )
 
+// SEIExtractor is a function type for extracting SEI metadata.
+type SEIExtractor func(path string) ([]*pb.SeiMetadata, error)
+
 // ScannerService handles directory scanning and file watching.
 type ScannerService struct {
 	FootagePath string
 	DB          *gorm.DB
 	Watcher     *fsnotify.Watcher
+	SEIExtractor SEIExtractor
 }
 
 var (
@@ -30,8 +34,9 @@ var (
 
 func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
 	return &ScannerService{
-		FootagePath: footagePath,
-		DB:          db,
+		FootagePath:  footagePath,
+		DB:           db,
+		SEIExtractor: ExtractSEI,
 	}
 }
 
@@ -248,7 +253,7 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 			if cameraName == "Front" {
 				// Process telemetry in background to not block
 				// But we are already in a goroutine
-				meta, err := ExtractSEI(path)
+				meta, err := s.SEIExtractor(path)
 				if err == nil && len(meta) > 0 {
 					// Store first valid metadata frame or aggregate?
 					// Storing everything might be too heavy for SQLite.
@@ -290,6 +295,13 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 
 					// Update clip reference
 					s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
+
+					// Fallback: If Clip City is empty, use telemetry coordinates
+					if clip.City == "" && (telemetry.Latitude != 0 || telemetry.Longitude != 0) {
+						newCity := fmt.Sprintf("%.4f, %.4f", telemetry.Latitude, telemetry.Longitude)
+						s.DB.Model(&clip).Update("city", newCity)
+						clip.City = newCity
+					}
 				}
 			}
 		}
