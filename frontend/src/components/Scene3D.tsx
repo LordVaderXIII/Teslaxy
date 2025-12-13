@@ -24,6 +24,35 @@ const ZoomHandler = () => {
   return null;
 };
 
+// Adapter to make HTMLVideoElement compatible with the interface expected by Player.tsx (video.js-like)
+const createPlayerAdapter = (video: HTMLVideoElement) => {
+  return {
+    on: (event: string, callback: () => void) => {
+       video.addEventListener(event, callback);
+    },
+    off: (event: string, callback: () => void) => {
+       video.removeEventListener(event, callback);
+    },
+    currentTime: (time?: number) => {
+       if (time !== undefined) {
+          video.currentTime = time;
+       }
+       return video.currentTime;
+    },
+    duration: () => video.duration,
+    play: () => video.play(),
+    pause: () => video.pause(),
+    paused: () => video.paused,
+    muted: (mute?: boolean) => {
+       if (mute !== undefined) video.muted = mute;
+       return video.muted;
+    },
+    dispose: () => {
+       // No-op for raw video element, managed by React lifecycle
+    }
+  };
+};
+
 interface Scene3DProps {
   frontSrc: string;
   leftRepeaterSrc: string;
@@ -31,16 +60,27 @@ interface Scene3DProps {
   backSrc: string;
   leftPillarSrc?: string;
   rightPillarSrc?: string;
+  onVideoReady?: (camera: string, player: any) => void;
 }
 
-const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength }: any) => {
+const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength, onReady }: any) => {
     const [video] = useState(() => {
         const vid = document.createElement('video');
         vid.crossOrigin = 'Anonymous';
         vid.loop = true;
         vid.muted = true;
+        // iOS requires playsinline
+        vid.setAttribute('playsinline', 'true');
+        vid.setAttribute('webkit-playsinline', 'true');
         return vid;
     });
+
+    useEffect(() => {
+        if (onReady && video) {
+            const adapter = createPlayerAdapter(video);
+            onReady(adapter);
+        }
+    }, [video, onReady]);
 
     useEffect(() => {
         if (src) {
@@ -74,7 +114,7 @@ const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength }: any) => 
 
 const Scene3D: React.FC<Scene3DProps> = ({
   frontSrc, leftRepeaterSrc, rightRepeaterSrc, backSrc,
-  leftPillarSrc, rightPillarSrc
+  leftPillarSrc, rightPillarSrc, onVideoReady
 }) => {
   const radius = 8;
   const height = 5;
@@ -114,6 +154,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={-segmentAngle / 2}
             thetaLength={segmentAngle}
+            onReady={(p: any) => onVideoReady && onVideoReady('Back', p)}
         />
 
         {/* Right Repeater - Center 60 deg */}
@@ -123,6 +164,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
+            onReady={(p: any) => onVideoReady && onVideoReady('Right Repeater', p)}
         />
 
         {/* Right Pillar - Center 120 deg */}
@@ -132,6 +174,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={2 * Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
+            onReady={(p: any) => onVideoReady && onVideoReady('Right Pillar', p)}
         />
 
         {/* Front Camera - Center 180 deg */}
@@ -141,6 +184,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={Math.PI - segmentAngle / 2}
             thetaLength={segmentAngle}
+            onReady={(p: any) => onVideoReady && onVideoReady('Front', p)}
         />
 
         {/* Left Pillar - Center 240 deg */}
@@ -150,6 +194,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={4 * Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
+            onReady={(p: any) => onVideoReady && onVideoReady('Left Pillar', p)}
         />
 
         {/* Left Repeater - Center 300 deg */}
@@ -159,6 +204,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={5 * Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
+            onReady={(p: any) => onVideoReady && onVideoReady('Left Repeater', p)}
         />
       </Canvas>
     </div>
