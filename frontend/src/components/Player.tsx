@@ -215,6 +215,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                             backSrc={backVideo ? getUrl(backVideo.file_path) : ''}
                             leftPillarSrc={leftPillarVideo ? getUrl(leftPillarVideo.file_path) : ''}
                             rightPillarSrc={rightPillarVideo ? getUrl(rightPillarVideo.file_path) : ''}
+                            onVideoReady={handlePlayerReady}
                          />
                      </Suspense>
                  )}
