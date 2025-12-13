@@ -18,8 +18,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
     if (!playerRef.current) {
       const videoElement = document.createElement("video");
       videoElement.classList.add('video-js');
-      videoElement.classList.add('w-full');
-      videoElement.classList.add('h-full');
       // Prevent Apple Video Player takeover
       videoElement.setAttribute('playsinline', 'true');
       videoElement.setAttribute('webkit-playsinline', 'true');
@@ -40,6 +38,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
       }, () => {
         onReady && onReady(player);
       });
+
+      // Video.js resets classes on the tech element during initialization, so we must re-apply
+      // layout classes to ensure the video scales correctly within the container.
+      videoElement.classList.add('w-full', 'h-full', 'object-contain');
+
       currentSrcRef.current = src;
     } else {
       const player = playerRef.current;
