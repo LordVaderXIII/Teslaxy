@@ -77,9 +77,13 @@ func getThumbnail(c *gin.Context) {
 	thumbPath := filepath.Join(thumbDir, hashStr+".jpg")
 
 	// 4. Check Cache
-	if _, err := os.Stat(thumbPath); err == nil {
-		c.File(thumbPath)
-		return
+	if info, err := os.Stat(thumbPath); err == nil {
+		if info.Size() > 0 {
+			c.File(thumbPath)
+			return
+		}
+		// If 0 bytes (corrupted), delete it so we regenerate
+		os.Remove(thumbPath)
 	}
 
 	// 5. Generate Thumbnail using FFmpeg

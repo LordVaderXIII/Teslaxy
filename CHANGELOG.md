@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2025-12-13
+### Fixed
+- Fixed missing map markers by correctly loading telemetry data for all clips.
+- Added map auto-focus to automatically fit all event markers within the view.
+- Fixed thumbnail generation issues by validating cache integrity and regenerating corrupted thumbnails.
+
 ## [0.1.5] - 2025-12-13
 ### Fixed
 - Fixed mirrored camera feeds in 3D view by horizontally flipping video textures.

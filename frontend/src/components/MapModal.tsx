@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import React, { useMemo, useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'leaflet/dist/leaflet.css';
 import { X } from 'lucide-react';
@@ -24,6 +24,7 @@ interface Clip {
     timestamp: string;
     event: string;
     city: string;
+    event_timestamp?: string; // Added for thumbnail logic
     telemetry?: {
         latitude: number;
         longitude: number;
@@ -38,6 +39,24 @@ interface MapModalProps {
     onClipSelect: (clip: Clip) => void;
 }
 
+// Component to auto-fit map bounds
+const MapAutoFit = ({ clips }: { clips: Clip[] }) => {
+    const map = useMap();
+
+    useEffect(() => {
+        if (clips.length === 0) return;
+
+        const points = clips.map(c => L.latLng(c.telemetry!.latitude, c.telemetry!.longitude));
+        const bounds = L.latLngBounds(points);
+
+        if (bounds.isValid()) {
+             map.fitBounds(bounds, { padding: [50, 50] });
+        }
+    }, [clips, map]);
+
+    return null;
+};
+
 const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelect }) => {
     // We filter clips that have valid coordinates
     const mapClips = useMemo(() => {
@@ -50,9 +69,28 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
         );
     }, [clips]);
 
+    // Helper to generate thumbnail URL (matching Sidebar logic)
+    const getThumbnailUrl = (clip: Clip) => {
+        const frontVideo = clip.video_files?.find((v: any) => v.camera === 'Front');
+        if (!frontVideo) return '';
+
+        let url = `/api/thumbnail${frontVideo.file_path}`;
+        if (clip.event_timestamp) {
+            const start = new Date(clip.timestamp).getTime();
+            const event = new Date(clip.event_timestamp).getTime();
+            if (!isNaN(start) && !isNaN(event)) {
+                 const diff = (event - start) / 1000;
+                 if (diff > 0 && diff < 600) {
+                     url += `?time=${diff.toFixed(1)}`;
+                 }
+            }
+        }
+        return url;
+    };
+
     if (!isOpen) return null;
 
-    // Calculate center based on clips, or default to 0,0
+    // Calculate center based on clips, or default to 0,0 (MapAutoFit will override this)
     const center: [number, number] = mapClips.length > 0
         ? [mapClips[0].telemetry!.latitude, mapClips[0].telemetry!.longitude]
         : [0, 0];
@@ -83,6 +121,7 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                         />
+                        <MapAutoFit clips={mapClips} />
                         <MarkerClusterGroup chunkedLoading>
                             {mapClips.map((clip) => (
                                 <Marker
@@ -105,9 +144,17 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                                             >
                                                {clip.video_files?.find((v:any) => v.camera === 'Front') ? (
                                                    <img
-                                                       src={`/api/thumbnail${clip.video_files.find((v:any) => v.camera === 'Front').file_path}`}
+                                                       src={getThumbnailUrl(clip)}
                                                        alt="Thumbnail"
                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                                       onError={(e) => {
+                                                           // Fallback if image fails
+                                                           e.currentTarget.style.display = 'none';
+                                                           e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-gray-800', 'text-gray-400');
+                                                           if (e.currentTarget.parentElement) {
+                                                               e.currentTarget.parentElement.innerText = clip.event;
+                                                           }
+                                                       }}
                                                    />
                                                ) : (
                                                    <div className="flex items-center justify-center h-full text-xs font-bold uppercase text-gray-500">
