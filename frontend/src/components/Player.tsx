@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, RotateCcw, RotateCw, Play, Pause } from 'lucide-react';
+import { Box, Layers, Video, RotateCw, Play, Pause } from 'lucide-react';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
