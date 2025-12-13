@@ -359,7 +359,9 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             <div className="relative md:hidden">
                 <button
                     onClick={() => setIsCameraMenuOpen(!isCameraMenuOpen)}
-                    className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white"
+                    aria-label={isCameraMenuOpen ? "Close camera menu" : "Open camera menu"}
+                    aria-expanded={isCameraMenuOpen}
+                    className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
                 >
                     <Video size={20} />
                 </button>
@@ -380,7 +382,9 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
             <button
                 onClick={() => setIs3D(!is3D)}
-                className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white"
+                aria-label={is3D ? "Switch to 2D view" : "Switch to 3D view"}
+                title={is3D ? "Switch to 2D view" : "Switch to 3D view"}
+                className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
             >
                 {is3D ? <Layers size={20} /> : <Box size={20} />}
             </button>
@@ -425,13 +429,17 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           <div className="flex items-center justify-center gap-4 mt-2">
               <button
                   onClick={() => handleSeek(Math.max(0, currentTime - 15))}
-                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition"
+                  aria-label="Rewind 15 seconds"
+                  title="Rewind 15 seconds"
+                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCcw size={20} />
               </button>
               <button
                   onClick={togglePlay}
-                  className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition"
+                  aria-label={isPlaying ? "Pause" : "Play"}
+                  title={isPlaying ? "Pause" : "Play"}
+                  className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   {isPlaying ? (
                     <Pause size={24} fill="currentColor" stroke="none" />
@@ -441,7 +449,9 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               </button>
               <button
                   onClick={() => handleSeek(Math.min(totalDuration, currentTime + 15))}
-                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition"
+                  aria-label="Skip forward 15 seconds"
+                  title="Skip forward 15 seconds"
+                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCw size={20} />
               </button>

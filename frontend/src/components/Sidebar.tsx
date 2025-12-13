@@ -144,7 +144,8 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                   <h2 className="text-xl font-bold text-white">Library</h2>
                   <button
                     onClick={() => setIsMapOpen(true)}
-                    className="p-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 hover:text-white rounded-lg transition-colors"
+                    aria-label="View Map"
+                    className="p-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 hover:text-white rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
                     title="View Map"
                   >
                      <MapIcon size={18} />
@@ -154,7 +155,9 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
               <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsCalendarOpen(!isCalendarOpen)}
-                    className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white md:hidden"
+                    aria-label={isCalendarOpen ? "Hide Calendar" : "Show Calendar"}
+                    aria-expanded={isCalendarOpen}
+                    className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white md:hidden focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
                     title="Toggle Calendar"
                   >
                      <CalendarIcon size={18} />
