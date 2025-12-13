@@ -5,3 +5,7 @@
 ## 2025-05-24 - Icon Button Accessibility
 **Learning:** Key interaction points like the Play/Pause button were using inline SVGs without labels, making them invisible to screen readers. The app already has `lucide-react`, so using it ensures consistency and simplifies code.
 **Action:** Audit other icon-only buttons (Calendar, Sidebar toggles) and replace inline SVGs with labeled Lucide icons.
+
+## 2025-05-25 - Media Controls Accessibility
+**Learning:** Media players often rely heavily on iconography (Play, Pause, Skip) without text labels, creating a major barrier for screen reader users. Adding aria-labels and tooltips is a critical, low-effort fix.
+**Action:** Standardize usage of aria-label and title attributes on all player controls (Play, Pause, Skip, 3D toggle) to ensure both screen reader and mouse hover accessibility.
