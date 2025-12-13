@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2025-12-13
+### Fixed
+- Fixed mirrored camera feeds in 3D view by horizontally flipping video textures.
+
 ## [0.1.4] - 2025-12-13
 ### Fixed
 - Fixed camera feed layout issue where videos appeared zoomed in or cropped by forcing the Video.js player to fill its container.
