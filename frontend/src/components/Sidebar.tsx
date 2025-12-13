@@ -7,6 +7,7 @@ import VersionDisplay from './VersionDisplay';
 interface VideoFile {
   camera: string;
   file_path: string;
+  timestamp: string;
 }
 
 interface Clip {
@@ -34,25 +35,41 @@ interface SidebarItemProps {
 }
 
 const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemProps) => {
-  const frontVideo = clip.video_files?.find(v => v.camera === 'Front');
-
   const thumbnailUrl = useMemo(() => {
-    if (!frontVideo) return '';
-    let url = `/api/thumbnail${frontVideo.file_path}`;
+    if (!clip.video_files) return '';
+
+    // Find all front videos
+    const frontVideos = clip.video_files.filter(v => v.camera === 'Front');
+    if (frontVideos.length === 0) return '';
+
+    // Sort by timestamp
+    frontVideos.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    let targetVideo = frontVideos[0];
+    let seekTime = 0;
+
     if (clip.event_timestamp) {
-        const start = new Date(clip.timestamp).getTime();
-        const event = new Date(clip.event_timestamp).getTime();
-        // Ensure valid dates
-        if (!isNaN(start) && !isNaN(event)) {
-             const diff = (event - start) / 1000;
-             // Only apply offset if it's positive and reasonable (e.g. within 10 mins)
-             if (diff > 0 && diff < 600) {
-                 url += `?time=${diff.toFixed(1)}`;
-             }
+        const eventTime = new Date(clip.event_timestamp).getTime();
+        // Find segment containing event
+        // We want the latest segment that starts before or at eventTime
+        const match = frontVideos.reduce((prev, curr) => {
+             const currTime = new Date(curr.timestamp).getTime();
+             if (currTime <= eventTime) return curr;
+             return prev;
+        }, frontVideos[0]);
+
+        targetVideo = match;
+        const startTime = new Date(targetVideo.timestamp).getTime();
+        const diff = (eventTime - startTime) / 1000;
+
+        // Only apply offset if it's positive and reasonable (e.g. within 600s)
+        if (diff >= 0 && diff < 600) {
+            seekTime = diff;
         }
     }
-    return url;
-  }, [frontVideo, clip.timestamp, clip.event_timestamp]);
+
+    return `/api/thumbnail${targetVideo.file_path}?time=${seekTime.toFixed(1)}`;
+  }, [clip.video_files, clip.event_timestamp]);
 
   return (
     <button
@@ -66,7 +83,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
     >
        {/* Thumbnail Placeholder or Icon */}
        <div className="w-12 h-12 rounded flex-shrink-0 overflow-hidden bg-gray-800 relative">
-          {frontVideo ? (
+          {thumbnailUrl ? (
              <img
                 src={thumbnailUrl}
                 alt="Thumbnail"
@@ -213,7 +230,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
        <MapModal
           isOpen={isMapOpen}
           onClose={() => setIsMapOpen(false)}
-          clips={clips} // Pass all clips as requested
+          clips={clips}
           onClipSelect={onClipSelect}
        />
     </div>
