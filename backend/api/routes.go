@@ -40,7 +40,7 @@ func getClips(c *gin.Context) {
 	// Pagination? For now, fetch latest 100
 	// Optimized: Added index on Timestamp for faster sorting
 	// Jules: Removed limit to show all historical clips as requested. Pagination can be added later if needed.
-	if err := database.DB.Preload("VideoFiles").Order("timestamp desc").Find(&clips).Error; err != nil {
+	if err := database.DB.Preload("VideoFiles").Preload("Telemetry").Order("timestamp desc").Find(&clips).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
