@@ -256,56 +256,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                    )}
               </div>
 
-               {/* Row 2: Left Repeater, Back, Right Repeater */}
-
-               {/* Left Repeater */}
-               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Left Repeater' ? 'block h-full' : 'hidden md:block'}`}>
-                   {leftVideo ? (
-                      <VideoPlayer
-                          key={`${clip.ID}-LeftRepeater`}
-                          src={getUrl(leftVideo.file_path)}
-                          className="w-full h-full object-contain"
-                          onReady={(p) => handlePlayerReady('Left Repeater', p)}
-                      />
-                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Left Repeater</div>}
-                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
-                      Left Repeater
-                  </div>
-               </div>
-
-               {/* Back Camera */}
-               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Back' ? 'block h-full' : 'hidden md:block'}`}>
-                   {backVideo ? (
-                      <VideoPlayer
-                          key={`${clip.ID}-Back`}
-                          src={getUrl(backVideo.file_path)}
-                          className="w-full h-full object-contain"
-                          onReady={(p) => handlePlayerReady('Back', p)}
-                      />
-                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Back Camera</div>}
-                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
-                      Back
-                  </div>
-               </div>
-
-               {/* Right Repeater */}
-               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Right Repeater' ? 'block h-full' : 'hidden md:block'}`}>
-                   {rightVideo ? (
-                      <VideoPlayer
-                          key={`${clip.ID}-RightRepeater`}
-                          src={getUrl(rightVideo.file_path)}
-                          className="w-full h-full object-contain"
-                          onReady={(p) => handlePlayerReady('Right Repeater', p)}
-                      />
-                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Right Repeater</div>}
-                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
-                      Right Repeater
-                  </div>
-               </div>
-
-               {/* Row 3: Left Pillar, Empty, Right Pillar */}
-
-               {/* Left Pillar */}
+               {/* Left Pillar (Swapped with Left Repeater) */}
                <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Left Pillar' ? 'block h-full' : 'hidden md:block'}`}>
                    {leftPillarVideo ? (
                       <VideoPlayer
@@ -320,10 +271,22 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   </div>
                </div>
 
-               {/* Empty (Only visible on desktop) */}
-               <div className="relative bg-black hidden md:block"></div>
+               {/* Back Camera (Expanded to span 2 rows) */}
+               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 md:row-span-2 ${activeCamera === 'Back' ? 'block h-full' : 'hidden md:block'}`}>
+                   {backVideo ? (
+                      <VideoPlayer
+                          key={`${clip.ID}-Back`}
+                          src={getUrl(backVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Back', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Back Camera</div>}
+                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Back
+                  </div>
+               </div>
 
-               {/* Right Pillar */}
+               {/* Right Pillar (Swapped with Right Repeater) */}
                <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Right Pillar' ? 'block h-full' : 'hidden md:block'}`}>
                    {rightPillarVideo ? (
                       <VideoPlayer
@@ -335,6 +298,36 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   ) : <div className="flex items-center justify-center h-full text-gray-600">No Right Pillar</div>}
                    <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                       Right Pillar
+                  </div>
+               </div>
+
+               {/* Left Repeater (Swapped with Left Pillar) */}
+               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Left Repeater' ? 'block h-full' : 'hidden md:block'}`}>
+                   {leftVideo ? (
+                      <VideoPlayer
+                          key={`${clip.ID}-LeftRepeater`}
+                          src={getUrl(leftVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Left Repeater', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Left Repeater</div>}
+                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Left Repeater
+                  </div>
+               </div>
+
+               {/* Right Repeater (Swapped with Right Pillar) */}
+               <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${activeCamera === 'Right Repeater' ? 'block h-full' : 'hidden md:block'}`}>
+                   {rightVideo ? (
+                      <VideoPlayer
+                          key={`${clip.ID}-RightRepeater`}
+                          src={getUrl(rightVideo.file_path)}
+                          className="w-full h-full object-contain"
+                          onReady={(p) => handlePlayerReady('Right Repeater', p)}
+                      />
+                  ) : <div className="flex items-center justify-center h-full text-gray-600">No Right Repeater</div>}
+                   <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                      Right Repeater
                   </div>
                </div>
           </div>
