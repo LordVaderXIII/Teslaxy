@@ -254,6 +254,8 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 	// Check for event.json in the same directory (assuming filePaths[0] is valid)
 	var eventTimestamp *time.Time
 	var city string
+	var estLat, estLon float64
+
 	if len(filePaths) > 0 {
 		dir := filepath.Dir(filePaths[0])
 		// Check case-insensitive existence or just check event.json
@@ -286,12 +288,12 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 						}
 					}
 
-					lat := toFloat(eventData.EstLat)
-					lon := toFloat(eventData.EstLon)
+					estLat = toFloat(eventData.EstLat)
+					estLon = toFloat(eventData.EstLon)
 
 					// Fallback: If City is empty, use coordinates
-					if city == "" && (lat != 0 || lon != 0) {
-						city = fmt.Sprintf("%.4f, %.4f", lat, lon)
+					if city == "" && (estLat != 0 || estLon != 0) {
+						city = fmt.Sprintf("%.4f, %.4f", estLat, estLon)
 					}
 
 					// Parse event timestamp
@@ -329,6 +331,22 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 		}
 		if clip.City == "" && city != "" {
 			s.DB.Model(&clip).Update("city", city)
+		}
+	}
+
+	// Fallback Telemetry creation from event.json
+	// If the clip doesn't have telemetry yet (SEI failed or not run yet),
+	// and we have coordinates from event.json, create a basic Telemetry record.
+	if clip.TelemetryID == 0 && (estLat != 0 || estLon != 0) {
+		telemetry := models.Telemetry{
+			ClipID:    clip.ID,
+			Latitude:  estLat,
+			Longitude: estLon,
+		}
+		if err := s.DB.Create(&telemetry).Error; err == nil {
+			s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
+			clip.TelemetryID = telemetry.ID
+			clip.Telemetry = telemetry // Update struct in memory if needed
 		}
 	}
 

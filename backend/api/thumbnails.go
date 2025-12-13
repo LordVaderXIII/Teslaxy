@@ -53,6 +53,7 @@ func getThumbnail(c *gin.Context) {
 
 	// Verify file exists at the full path
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		log.Printf("Thumbnail source not found: %s", fullPath)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Video file not found"})
 		return
 	}

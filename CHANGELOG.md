@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2025-12-13
+### Fixed
+- Fixed missing map markers by populating telemetry from `event.json` coordinates when video SEI data is unavailable.
+- Fixed potential authentication issues for thumbnails and videos by supporting token query parameters.
+- Added detailed error logging for file serving to assist in debugging.
+
 ## [0.1.6] - 2025-12-13
 ### Fixed
 - Fixed missing map markers by correctly loading telemetry data for all clips.
