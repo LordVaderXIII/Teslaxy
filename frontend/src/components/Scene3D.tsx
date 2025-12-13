@@ -76,7 +76,7 @@ interface Scene3DProps {
 }
 
 interface CurvedScreenProps {
-    src: string;
+    src?: string;
     radius: number;
     height: number;
     thetaStart: number;
