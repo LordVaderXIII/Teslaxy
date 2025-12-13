@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback } from 'react
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, Play, Pause } from 'lucide-react';
+import { Box, Layers, Video, RotateCcw, RotateCw, Play, Pause } from 'lucide-react';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -346,6 +346,13 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   ) : (
                     <Play size={24} fill="currentColor" stroke="none" />
                   )}
+              </button>
+              <button
+                  onClick={() => handleSeek(Math.min(duration, currentTime + 5))}
+                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition"
+                  title="Skip 5s"
+              >
+                  <RotateCw size={20} />
               </button>
           </div>
        </div>
