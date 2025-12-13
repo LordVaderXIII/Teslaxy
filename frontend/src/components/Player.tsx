@@ -254,24 +254,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       Object.keys(segments).forEach(cam => {
           const info = getSegmentAtTime(cam, newTime);
           if (info) {
-               const player = playersRef.current[normalizeCameraName(cam) === 'front' ? 'Front' : cam]; // Naming mismatch potential?
-               // Actually we store refs by the keys passed in render.
-               // In render: handlePlayerReady('Front', p)
-
-               // Check if we have a player for this camera
-               // AND if the player is currently playing the CORRECT segment.
-               // If we just changed 'currentTime', the component hasn't re-rendered yet to switch 'src' if needed.
-               // So if we seek to a new segment, 'player.currentTime' on the OLD segment is useless.
-               // We rely on the re-render to switch the source.
-               // BUT if we seek within the SAME segment, we must seek the player.
-
-               // How to know if it's the same segment?
-               // Compare info.index with currentSegmentIndex? (Only valid for main camera)
-
-               // Ideally:
-               // If the segment index changes, we do nothing here, React will unmount/mount new player.
-               // If segment index is same, we seek.
-
                // Let's just try seeking. If src changes, player is destroyed anyway.
                const p = playersRef.current[cam === 'front' ? 'Front' :
                           cam === 'left_repeater' ? 'Left Repeater' :
