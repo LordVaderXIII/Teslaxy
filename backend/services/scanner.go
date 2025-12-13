@@ -25,6 +25,11 @@ type ScannerService struct {
 	DB          *gorm.DB
 	Watcher     *fsnotify.Watcher
 	SEIExtractor SEIExtractor
+
+	// Incremental update state
+	mu           sync.Mutex
+	pendingFiles map[string][]string
+	timers       map[string]*time.Timer
 }
 
 var (
@@ -37,6 +42,8 @@ func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
 		FootagePath:  footagePath,
 		DB:           db,
 		SEIExtractor: ExtractSEI,
+		pendingFiles: make(map[string][]string),
+		timers:       make(map[string]*time.Timer),
 	}
 }
 
@@ -60,14 +67,7 @@ func (s *ScannerService) Start() {
 					return
 				}
 				if event.Op&fsnotify.Create == fsnotify.Create {
-					// Handle new file
-					// Debounce or process immediately?
-					// For now, minimal processing, maybe trigger a rescan of that folder or parsing.
-					// Ideally we wait for the set of files (front, back, left, right) to arrive.
-					// But they might not arrive at exact same millisecond.
-					// Simpler approach: Just re-scan the folder or specific timestamp?
-					fmt.Println("New file detected:", event.Name)
-					// TODO: incremental update
+					s.handleFileCreate(event.Name)
 				}
 			case err, ok := <-s.Watcher.Errors:
 				if !ok {
@@ -91,6 +91,96 @@ func (s *ScannerService) Start() {
 		}
 		return nil
 	})
+}
+
+func (s *ScannerService) handleFileCreate(path string) {
+	filename := filepath.Base(path)
+
+	// Check if it's a new directory (need to watch it)
+	if info, err := os.Stat(path); err == nil && info.IsDir() {
+		fmt.Println("New directory detected, watching:", path)
+		s.Watcher.Add(path)
+		return
+	}
+
+	// Case 1: Video file
+	if matches := fileRegex.FindStringSubmatch(filename); len(matches) == 3 {
+		ts := matches[1]
+
+		s.mu.Lock()
+		// Add to pending files if not already present
+		exists := false
+		for _, f := range s.pendingFiles[ts] {
+			if f == path {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			s.pendingFiles[ts] = append(s.pendingFiles[ts], path)
+		}
+
+		// Debounce: reset timer
+		if t, ok := s.timers[ts]; ok {
+			t.Stop()
+		}
+		s.timers[ts] = time.AfterFunc(2*time.Second, func() {
+			s.processPending(ts)
+		})
+		s.mu.Unlock()
+
+		fmt.Println("New file detected, queued for processing:", filename)
+		return
+	}
+
+	// Case 2: event.json
+	// If event.json appears, we should ensure the clip is updated with event info
+	if strings.ToLower(filename) == "event.json" {
+		fmt.Println("event.json detected:", path)
+		// Scan the directory for any mp4s to update their metadata
+		dir := filepath.Dir(path)
+		go s.scanDir(dir)
+	}
+}
+
+func (s *ScannerService) processPending(timestamp string) {
+	s.mu.Lock()
+	files, ok := s.pendingFiles[timestamp]
+	if !ok {
+		s.mu.Unlock()
+		return
+	}
+	// Cleanup
+	delete(s.pendingFiles, timestamp)
+	delete(s.timers, timestamp)
+	s.mu.Unlock()
+
+	fmt.Printf("Processing incremental update for timestamp %s with %d files\n", timestamp, len(files))
+	s.processClipGroup(timestamp, files)
+}
+
+func (s *ScannerService) scanDir(dirPath string) {
+	clipMap := make(map[string][]string)
+
+	files, err := os.ReadDir(dirPath)
+	if err != nil {
+		fmt.Println("Error reading dir:", err)
+		return
+	}
+
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".mp4") {
+			matches := fileRegex.FindStringSubmatch(f.Name())
+			if len(matches) == 3 {
+				ts := matches[1]
+				clipMap[ts] = append(clipMap[ts], filepath.Join(dirPath, f.Name()))
+			}
+		}
+	}
+
+	for ts, filePaths := range clipMap {
+		s.processClipGroup(ts, filePaths)
+	}
 }
 
 func (s *ScannerService) ScanAll() {
