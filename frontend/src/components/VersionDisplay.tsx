@@ -12,7 +12,11 @@ interface VersionResponse {
   releases: Release[];
 }
 
-const VersionDisplay: React.FC = () => {
+interface VersionDisplayProps {
+  className?: string;
+}
+
+const VersionDisplay: React.FC<VersionDisplayProps> = ({ className }) => {
   const [data, setData] = useState<VersionResponse | null>(null);
   const [showChangelog, setShowChangelog] = useState(false);
 
@@ -27,16 +31,16 @@ const VersionDisplay: React.FC = () => {
 
   return (
     <>
-      <div
-        className="fixed top-4 right-4 z-50 cursor-pointer bg-black/50 hover:bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-gray-700 text-xs text-gray-400 hover:text-white transition-colors"
+      <button
+        className={`cursor-pointer px-3 py-1 rounded-full border border-gray-700 text-xs text-gray-400 hover:text-white transition-colors hover:border-gray-500 bg-gray-900/50 ${className || ''}`}
         onClick={() => setShowChangelog(true)}
         title="Click to view changelog"
       >
         {data.latestVersion}
-      </div>
+      </button>
 
       {showChangelog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Header / Banner */}
             <div className="relative bg-gradient-to-r from-blue-600 to-purple-700 p-8 shrink-0 overflow-hidden">

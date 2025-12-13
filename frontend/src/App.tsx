@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import Player from './components/Player'
 import Sidebar from './components/Sidebar'
-import VersionDisplay from './components/VersionDisplay'
 
 interface Clip {
   ID: number;
@@ -79,8 +78,6 @@ function App() {
          loading={loading}
          className="order-2 flex-1 md:h-full md:flex-none"
       />
-
-      <VersionDisplay />
     </div>
   )
 }
