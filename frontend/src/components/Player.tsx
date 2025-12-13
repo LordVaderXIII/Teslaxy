@@ -32,14 +32,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const playersRef = useRef<{ [key: string]: any }>({});
   const mainPlayerRef = useRef<any>(null);
 
-  useEffect(() => {
-    // Cleanup
-    return () => {
-      playersRef.current = {};
-      mainPlayerRef.current = null;
-    };
-  }, [clip]);
-
   // Reset state when clip changes
   useEffect(() => {
       setCurrentTime(0);
@@ -48,6 +40,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       mainPlayerRef.current = null;
       playersRef.current = {};
       setActiveCamera('Front');
+
+      // Cleanup
+      return () => {
+        playersRef.current = {};
+        mainPlayerRef.current = null;
+      };
   }, [clip?.ID]);
 
   const handlePlayerReady = useCallback((camera: string, player: any) => {
