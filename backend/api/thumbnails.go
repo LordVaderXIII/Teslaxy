@@ -3,11 +3,13 @@ package api
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +17,15 @@ import (
 
 func getThumbnail(c *gin.Context) {
 	videoPath := c.Param("path")
+	seekTime := c.DefaultQuery("time", "0.1")
+
+	// Validate seekTime
+	if _, err := strconv.ParseFloat(seekTime, 64); err != nil {
+		// Attempt to parse as duration if it's not a float?
+		// For now, strict check on float to avoid injection
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid time parameter"})
+		return
+	}
 
 	footagePath := os.Getenv("FOOTAGE_PATH")
 	if footagePath == "" {
@@ -59,8 +70,9 @@ func getThumbnail(c *gin.Context) {
 	}
 
 	// 3. Generate Cache Filename
-	// Hash the full path to ensure uniqueness
-	hash := md5.Sum([]byte(fullPath))
+	// Hash the full path AND the seekTime to ensure uniqueness
+	cacheKey := fmt.Sprintf("%s|%s", fullPath, seekTime)
+	hash := md5.Sum([]byte(cacheKey))
 	hashStr := hex.EncodeToString(hash[:])
 	thumbPath := filepath.Join(thumbDir, hashStr+".jpg")
 
@@ -71,12 +83,12 @@ func getThumbnail(c *gin.Context) {
 	}
 
 	// 5. Generate Thumbnail using FFmpeg
-	// -ss 0.1: seek to 0.1s
+	// -ss seekTime: seek to specific time
 	// -i input: input file
 	// -vframes 1: output 1 frame
 	// -vf scale=480:-1: resize to width 480 (keep aspect ratio)
 	// -q:v 5: quality (1-31, lower is better)
-	cmd := exec.Command("ffmpeg", "-y", "-ss", "0.1", "-i", fullPath, "-vframes", "1", "-vf", "scale=480:-1", "-q:v", "5", thumbPath)
+	cmd := exec.Command("ffmpeg", "-y", "-ss", seekTime, "-i", fullPath, "-vframes", "1", "-vf", "scale=480:-1", "-q:v", "5", thumbPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("FFmpeg error: %v, Output: %s", err, string(out))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})

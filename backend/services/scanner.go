@@ -160,18 +160,28 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 	var city string
 	if len(filePaths) > 0 {
 		dir := filepath.Dir(filePaths[0])
+		// Check case-insensitive existence or just check event.json
+		// Standard Tesla is lowercase event.json
 		eventJsonPath := filepath.Join(dir, "event.json")
 		if _, err := os.Stat(eventJsonPath); err == nil {
 			// Found event.json
 			content, err := os.ReadFile(eventJsonPath)
 			if err == nil {
 				var eventData struct {
-					Timestamp string `json:"timestamp"`
-					City      string `json:"city"`
-					Reason    string `json:"reason"`
+					Timestamp string  `json:"timestamp"`
+					City      string  `json:"city"`
+					Reason    string  `json:"reason"`
+					EstLat    float64 `json:"est_lat"`
+					EstLon    float64 `json:"est_lon"`
 				}
 				if err := json.Unmarshal(content, &eventData); err == nil {
 					city = eventData.City
+
+					// Fallback: If City is empty, use coordinates
+					if city == "" && (eventData.EstLat != 0 || eventData.EstLon != 0) {
+						city = fmt.Sprintf("%.4f, %.4f", eventData.EstLat, eventData.EstLon)
+					}
+
 					// Parse event timestamp
 					// Tesla JSON timestamp format: 2023-10-27T10:00:30 (sometimes with milliseconds)
 					// Try ISO formats

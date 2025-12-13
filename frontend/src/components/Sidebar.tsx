@@ -10,6 +10,7 @@ interface VideoFile {
 interface Clip {
   ID: number;
   timestamp: string;
+  event_timestamp?: string;
   event: string;
   city: string;
   video_files?: VideoFile[];
@@ -33,6 +34,24 @@ interface SidebarItemProps {
 const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemProps) => {
   const frontVideo = clip.video_files?.find(v => v.camera === 'Front');
 
+  const thumbnailUrl = useMemo(() => {
+    if (!frontVideo) return '';
+    let url = `/api/thumbnail${frontVideo.file_path}`;
+    if (clip.event_timestamp) {
+        const start = new Date(clip.timestamp).getTime();
+        const event = new Date(clip.event_timestamp).getTime();
+        // Ensure valid dates
+        if (!isNaN(start) && !isNaN(event)) {
+             const diff = (event - start) / 1000;
+             // Only apply offset if it's positive and reasonable (e.g. within 10 mins)
+             if (diff > 0 && diff < 600) {
+                 url += `?time=${diff.toFixed(1)}`;
+             }
+        }
+    }
+    return url;
+  }, [frontVideo, clip.timestamp, clip.event_timestamp]);
+
   return (
     <button
       onClick={() => onClipSelect(clip)}
@@ -47,7 +66,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
        <div className="w-12 h-12 rounded flex-shrink-0 overflow-hidden bg-gray-800 relative">
           {frontVideo ? (
              <img
-                src={`/api/thumbnail${frontVideo.file_path}`}
+                src={thumbnailUrl}
                 alt="Thumbnail"
                 className="w-full h-full object-cover"
                 loading="lazy"
