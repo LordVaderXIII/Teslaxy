@@ -15,6 +15,7 @@ interface Clip {
   telemetry?: any;
   event: string;
   timestamp: string;
+  event_timestamp?: string;
 }
 
 const normalizeCameraName = (name: string) => {
@@ -152,8 +153,18 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
   // Determine Incident Marker
   const markers = [];
-  if (clip.event === 'Sentry') {
-      if (duration > 0) {
+  if (clip.event === 'Sentry' || clip.event === 'Saved') {
+      if (clip.event_timestamp) {
+          const eventTime = new Date(clip.event_timestamp).getTime();
+          const clipTime = new Date(clip.timestamp).getTime();
+          // Calculate offset in seconds
+          const offset = (eventTime - clipTime) / 1000;
+
+          if (offset >= 0 && offset <= duration) {
+              markers.push({ time: offset, color: '#ef4444', label: 'Event' });
+          }
+      } else if (clip.event === 'Sentry' && duration > 0) {
+          // Fallback if no exact timestamp available
           markers.push({ time: duration * 0.8, color: '#ef4444', label: 'Sentry Event' });
       }
   }

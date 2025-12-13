@@ -8,12 +8,13 @@ import (
 
 type Clip struct {
 	gorm.Model
-	Timestamp   time.Time   `json:"timestamp" gorm:"index"`
-	Event       string      `json:"event"` // e.g., "Sentry", "Saved", "Recent"
-	City        string      `json:"city"`
-	VideoFiles  []VideoFile `json:"video_files"`
-	TelemetryID uint        `json:"telemetry_id"`
-	Telemetry   Telemetry   `json:"telemetry"`
+	Timestamp      time.Time   `json:"timestamp" gorm:"index"`
+	EventTimestamp *time.Time  `json:"event_timestamp"` // Timestamp from event.json
+	Event          string      `json:"event"`           // e.g., "Sentry", "Saved", "Recent"
+	City           string      `json:"city"`
+	VideoFiles     []VideoFile `json:"video_files"`
+	TelemetryID    uint        `json:"telemetry_id"`
+	Telemetry      Telemetry   `json:"telemetry"`
 }
 
 type VideoFile struct {

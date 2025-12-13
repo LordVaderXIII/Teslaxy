@@ -155,18 +155,58 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 		}
 	}
 
+	// Check for event.json in the same directory (assuming filePaths[0] is valid)
+	var eventTimestamp *time.Time
+	var city string
+	if len(filePaths) > 0 {
+		dir := filepath.Dir(filePaths[0])
+		eventJsonPath := filepath.Join(dir, "event.json")
+		if _, err := os.Stat(eventJsonPath); err == nil {
+			// Found event.json
+			content, err := os.ReadFile(eventJsonPath)
+			if err == nil {
+				var eventData struct {
+					Timestamp string `json:"timestamp"`
+					City      string `json:"city"`
+					Reason    string `json:"reason"`
+				}
+				if err := json.Unmarshal(content, &eventData); err == nil {
+					city = eventData.City
+					// Parse event timestamp
+					// Tesla JSON timestamp format: 2023-10-27T10:00:30 (sometimes with milliseconds)
+					// Try ISO formats
+					if parsed, err := time.Parse("2006-01-02T15:04:05", eventData.Timestamp); err == nil {
+						eventTimestamp = &parsed
+					} else if parsed, err := time.Parse(time.RFC3339, eventData.Timestamp); err == nil {
+						eventTimestamp = &parsed
+					}
+				}
+			}
+		}
+	}
+
 	// Create Clip record if not exists
 	var clip models.Clip
 	if err := s.DB.Where("timestamp = ?", t).First(&clip).Error; err != nil {
 		if gorm.IsRecordNotFoundError(err) {
 			clip = models.Clip{
-				Timestamp: t,
-				Event:     eventType,
+				Timestamp:      t,
+				Event:          eventType,
+				EventTimestamp: eventTimestamp,
+				City:           city,
 			}
 			s.DB.Create(&clip)
 		} else {
 			fmt.Println("DB Error:", err)
 			return
+		}
+	} else {
+		// Update existing clip if event info was missing
+		if clip.EventTimestamp == nil && eventTimestamp != nil {
+			s.DB.Model(&clip).Update("event_timestamp", eventTimestamp)
+		}
+		if clip.City == "" && city != "" {
+			s.DB.Model(&clip).Update("city", city)
 		}
 	}
 
