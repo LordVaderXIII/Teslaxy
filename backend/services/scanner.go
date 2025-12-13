@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -263,18 +264,34 @@ func (s *ScannerService) processClipGroup(timestampStr string, filePaths []strin
 			content, err := os.ReadFile(eventJsonPath)
 			if err == nil {
 				var eventData struct {
-					Timestamp string  `json:"timestamp"`
-					City      string  `json:"city"`
-					Reason    string  `json:"reason"`
-					EstLat    float64 `json:"est_lat"`
-					EstLon    float64 `json:"est_lon"`
+					Timestamp string      `json:"timestamp"`
+					City      string      `json:"city"`
+					Reason    string      `json:"reason"`
+					EstLat    interface{} `json:"est_lat"`
+					EstLon    interface{} `json:"est_lon"`
 				}
 				if err := json.Unmarshal(content, &eventData); err == nil {
 					city = eventData.City
 
+					// Helper to safely convert interface{} to float64
+					toFloat := func(v interface{}) float64 {
+						switch val := v.(type) {
+						case float64:
+							return val
+						case string:
+							f, _ := strconv.ParseFloat(val, 64)
+							return f
+						default:
+							return 0
+						}
+					}
+
+					lat := toFloat(eventData.EstLat)
+					lon := toFloat(eventData.EstLon)
+
 					// Fallback: If City is empty, use coordinates
-					if city == "" && (eventData.EstLat != 0 || eventData.EstLon != 0) {
-						city = fmt.Sprintf("%.4f, %.4f", eventData.EstLat, eventData.EstLon)
+					if city == "" && (lat != 0 || lon != 0) {
+						city = fmt.Sprintf("%.4f, %.4f", lat, lon)
 					}
 
 					// Parse event timestamp
