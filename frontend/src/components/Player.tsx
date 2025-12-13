@@ -68,21 +68,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
         setDuration(player.duration());
       });
 
-      // Sync other players
-      player.on('play', () => {
-        setIsPlaying(true);
-        Object.values(playersRef.current).forEach(p => {
-          if (p && p !== player) p.play();
-        });
-      });
-
-      player.on('pause', () => {
-        setIsPlaying(false);
-        Object.values(playersRef.current).forEach(p => {
-          if (p && p !== player) p.pause();
-        });
-      });
-
       player.on('seeking', () => {
         const time = player.currentTime();
         Object.values(playersRef.current).forEach(p => {
@@ -91,10 +76,10 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       });
 
       // Attempt to autoplay
-      player.play().catch((e: any) => {
-          console.warn("Autoplay prevented:", e);
-          setIsPlaying(false);
-      });
+      // player.play().catch((e: any) => {
+      //     console.warn("Autoplay prevented:", e);
+      //     setIsPlaying(false);
+      // });
 
     } else {
         // Mute other players by default to avoid echo
@@ -102,6 +87,25 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
              player.muted(true);
         }
     }
+
+    // Sync other players & Update UI state
+    player.on('play', () => {
+      setIsPlaying(true);
+      if (isMain) {
+        Object.values(playersRef.current).forEach(p => {
+          if (p && p !== player) p.play();
+        });
+      }
+    });
+
+    player.on('pause', () => {
+      setIsPlaying(false);
+      if (isMain) {
+        Object.values(playersRef.current).forEach(p => {
+          if (p && p !== player) p.pause();
+        });
+      }
+    });
   }, [clip]);
 
   const togglePlay = () => {
