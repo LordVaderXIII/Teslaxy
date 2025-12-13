@@ -5,26 +5,12 @@ import 'leaflet/dist/leaflet.css';
 import { X } from 'lucide-react';
 import L from 'leaflet';
 
-// Fix for default Leaflet icon not showing
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
-
-L.Marker.prototype.options.icon = DefaultIcon;
-
-
 interface Clip {
     ID: number;
     timestamp: string;
     event: string;
     city: string;
-    event_timestamp?: string; // Added for thumbnail logic
+    event_timestamp?: string;
     telemetry?: {
         latitude: number;
         longitude: number;
@@ -38,6 +24,22 @@ interface MapModalProps {
     clips: Clip[];
     onClipSelect: (clip: Clip) => void;
 }
+
+// Custom Icons
+const createClusterCustomIcon = (cluster: any) => {
+    return L.divIcon({
+        html: `<div class="w-full h-full flex items-center justify-center bg-blue-600 text-white font-bold rounded-full border-2 border-gray-900 shadow-lg text-sm">${cluster.getChildCount()}</div>`,
+        className: 'custom-cluster-icon', // Used for verification
+        iconSize: L.point(40, 40, true),
+    });
+};
+
+const customMarkerIcon = L.divIcon({
+    html: `<div class="w-full h-full bg-blue-500 rounded-full border-2 border-white shadow-md"></div>`,
+    className: 'custom-marker-icon', // Used for verification
+    iconSize: L.point(16, 16, true), // Small dot
+    iconAnchor: [8, 8], // Center it
+});
 
 // Component to auto-fit map bounds
 const MapAutoFit = ({ clips }: { clips: Clip[] }) => {
@@ -58,7 +60,6 @@ const MapAutoFit = ({ clips }: { clips: Clip[] }) => {
 };
 
 const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelect }) => {
-    // We filter clips that have valid coordinates
     const mapClips = useMemo(() => {
         return clips.filter(c =>
             c.telemetry &&
@@ -69,7 +70,6 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
         );
     }, [clips]);
 
-    // Helper to generate thumbnail URL (matching Sidebar logic)
     const getThumbnailUrl = (clip: Clip) => {
         const frontVideo = clip.video_files?.find((v: any) => v.camera === 'Front');
         if (!frontVideo) return '';
@@ -90,7 +90,6 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
 
     if (!isOpen) return null;
 
-    // Calculate center based on clips, or default to 0,0 (MapAutoFit will override this)
     const center: [number, number] = mapClips.length > 0
         ? [mapClips[0].telemetry!.latitude, mapClips[0].telemetry!.longitude]
         : [0, 0];
@@ -103,14 +102,14 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                 <div className="absolute top-4 right-4 z-[1000]">
                     <button
                         onClick={onClose}
-                        className="bg-white/90 text-black p-2 rounded-full shadow-lg hover:bg-white transition-colors"
+                        className="bg-gray-800 text-white p-2 rounded-full shadow-lg hover:bg-gray-700 transition-colors border border-gray-600"
                         aria-label="Close Map"
                     >
                         <X size={24} />
                     </button>
                 </div>
 
-                <div className="w-full h-full">
+                <div className="w-full h-full bg-[#1e1e1e]">
                      <MapContainer
                         center={center}
                         zoom={13}
@@ -118,17 +117,23 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                         className="w-full h-full z-0"
                      >
                         <TileLayer
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
                         />
                         <MapAutoFit clips={mapClips} />
-                        <MarkerClusterGroup chunkedLoading>
+                        <MarkerClusterGroup
+                            chunkedLoading
+                            iconCreateFunction={createClusterCustomIcon}
+                            spiderfyOnMaxZoom={true}
+                            showCoverageOnHover={false}
+                        >
                             {mapClips.map((clip) => (
                                 <Marker
                                     key={clip.ID}
                                     position={[clip.telemetry!.latitude, clip.telemetry!.longitude]}
+                                    icon={customMarkerIcon}
                                 >
-                                    <Popup>
+                                    <Popup className="custom-popup">
                                         <div className="w-48 text-gray-900">
                                             <div className="font-bold mb-1">{clip.city || 'Unknown Location'}</div>
                                             <div className="text-xs text-gray-600 mb-2">
@@ -148,7 +153,6 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                                                        alt="Thumbnail"
                                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                                                        onError={(e) => {
-                                                           // Fallback if image fails
                                                            e.currentTarget.style.display = 'none';
                                                            e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-gray-800', 'text-gray-400');
                                                            if (e.currentTarget.parentElement) {
