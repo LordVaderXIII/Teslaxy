@@ -26,6 +26,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
 
       const player = playerRef.current = videojs(videoElement, {
         ...options,
+        fill: true,
         controls: false,
         autoplay: false,
         muted: true,
