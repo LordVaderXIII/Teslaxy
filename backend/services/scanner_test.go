@@ -71,12 +71,52 @@ func TestScanner_EventTimestamp(t *testing.T) {
 	if clip.EventTimestamp == nil {
 		t.Fatal("expected EventTimestamp to be populated, got nil")
 	}
+}
 
-	// Verify the parsed time
-	// Note: event.json timestamp might be in local time or UTC. Assuming scanner parses it correctly.
-	// Typically ISO8601 can be parsed by time.Parse(time.RFC3339, ...) if it has T.
-	// But Tesla format in JSON is "YYYY-MM-DDTHH:MM:SS" (no Z usually, implies local or matches video)
-	// Let's see how I implement it.
+func TestScanner_CityFallback(t *testing.T) {
+	// Setup DB
+	db, err := gorm.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to connect database: %v", err)
+	}
+	defer db.Close()
+	db.AutoMigrate(&models.Clip{}, &models.VideoFile{}, &models.Telemetry{})
 
-	// Since I haven't implemented it yet, this test will FAIL at clip.EventTimestamp == nil.
+	// Setup Temp Dir
+	tmpDir, err := ioutil.TempDir("", "scanner_test_city")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create Clip Directory
+	clipDir := filepath.Join(tmpDir, "SavedClips", "2024-02-19_10-00-00")
+	if err := os.MkdirAll(clipDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create Dummy MP4
+	mp4Path := filepath.Join(clipDir, "2024-02-19_10-00-00-front.mp4")
+	ioutil.WriteFile(mp4Path, []byte("dummy"), 0644)
+
+	// Create event.json with missing city but present lat/lon
+	eventTimeStr := "2024-02-19T10:00:10"
+	eventJsonContent := `{"timestamp": "` + eventTimeStr + `", "city": "", "est_lat": 37.1234, "est_lon": -122.5678, "reason": "test"}`
+	ioutil.WriteFile(filepath.Join(clipDir, "event.json"), []byte(eventJsonContent), 0644)
+
+	// Initialize Scanner
+	scanner := NewScannerService(tmpDir, db)
+	scanner.ScanAll()
+
+	// Verify Clip
+	var clip models.Clip
+	if err := db.First(&clip).Error; err != nil {
+		t.Fatalf("failed to find clip: %v", err)
+	}
+
+	// Check City Fallback
+	expected := "37.1234, -122.5678"
+	if clip.City != expected {
+		t.Errorf("expected City '%s', got '%s'", expected, clip.City)
+	}
 }
