@@ -1,15 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import Player from './components/Player'
 import Sidebar from './components/Sidebar'
-
-interface Clip {
-  ID: number;
-  timestamp: string;
-  event: string;
-  city: string;
-  video_files?: any[];
-  telemetry?: any;
-}
+import { mergeClips, type Clip } from './utils/clipMerge'
 
 function App() {
   const [clips, setClips] = useState<Clip[]>([])
@@ -23,18 +15,34 @@ function App() {
     // Fetch full details including telemetry
     fetch(`/api/clips/${clip.ID}`)
         .then(res => res.json())
-        .then(data => setSelectedClip(data)) // Update with full data
+        .then(data => {
+            // Merge logic: Preserve the 'virtual' video files if we are viewing a merged clip.
+            // A merged clip (from the list) will likely have MORE video files than the single clip API response.
+            let mergedVideoFiles = data.video_files;
+            if (clip.video_files && data.video_files && clip.video_files.length > data.video_files.length) {
+                mergedVideoFiles = clip.video_files;
+            }
+
+            setSelectedClip({
+                ...data,
+                video_files: mergedVideoFiles
+            });
+        })
         .catch(err => console.error(err))
   }, [])
 
   useEffect(() => {
     fetch('/api/clips')
       .then(res => res.json())
-      .then(data => {
+      .then((data: Clip[]) => {
+        // Merge clips into timelines
+        const merged = mergeClips(data || []);
+
         // Sort by date desc
-        const sorted = (data || []).sort((a: Clip, b: Clip) =>
+        const sorted = merged.sort((a, b) =>
             new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
         );
+
         setClips(sorted)
         if (sorted.length > 0) {
             handleClipSelect(sorted[0])
