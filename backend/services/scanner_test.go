@@ -13,6 +13,10 @@ import (
 )
 
 func TestScanner_EventTimestamp(t *testing.T) {
+	// Ensure UTC for test consistency
+	os.Setenv("DEFAULT_TIMEZONE", "UTC")
+	defer os.Unsetenv("DEFAULT_TIMEZONE")
+
 	// Setup DB
 	db, err := gorm.Open("sqlite3", ":memory:")
 	if err != nil {

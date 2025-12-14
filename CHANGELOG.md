@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2025-12-14
+### Added
+- Mobile-optimized player view with single camera display and camera switcher.
+- Real-time file scanning using `fsnotify` to detect new clips and events immediately.
+- Support for generating thumbnails at specific timestamps via API.
+- Custom Markdown parser for Changelog display in the UI.
+
+### Changed
+- Improved version API to return structured release data.
+
 ## [0.1.10] - 2025-12-13
 ### Fixed
 - Fixed issue where 1-minute clips were not grouping correctly by implementing time-based grouping for flat directories.
