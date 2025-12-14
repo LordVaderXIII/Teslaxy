@@ -36,8 +36,10 @@ type ScannerService struct {
 }
 
 var (
-	// Tesla file format: 2019-01-21_14-15-20-front.mp4
-	fileRegex = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})-([a-zA-Z0-9_-]+)\.mp4$`)
+	// Tesla file format:
+	// Standard: 2019-01-21_14-15-20-front.mp4
+	// With MS:  2019-01-21_14-15-20_123456-front.mp4 (or _front.mp4)
+	fileRegex = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})(?:[_-]\d+)?[_-]([a-zA-Z0-9_]+)\.mp4$`)
 )
 
 func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
@@ -106,7 +108,7 @@ func (s *ScannerService) handleFileCreate(path string) {
 	}
 
 	// Case 1: Video file
-	if matches := fileRegex.FindStringSubmatch(filename); len(matches) == 3 {
+	if fileRegex.MatchString(filename) {
 		dir := filepath.Dir(path)
 
 		s.mu.Lock()
@@ -268,16 +270,40 @@ type fileInfo struct {
 	timestamp time.Time
 }
 
+// groupFilesByTimestamp creates groups of files (the 6 cameras) synchronized by timestamp.
+func groupFilesByTimestamp(files []fileInfo) [][]fileInfo {
+    // Bucket by timestamp
+    buckets := make(map[time.Time][]fileInfo)
+    var times []time.Time
+
+    for _, f := range files {
+        if _, exists := buckets[f.timestamp]; !exists {
+            times = append(times, f.timestamp)
+        }
+        buckets[f.timestamp] = append(buckets[f.timestamp], f)
+    }
+
+    sort.Slice(times, func(i, j int) bool {
+        return times[i].Before(times[j])
+    })
+
+    var result [][]fileInfo
+    for _, t := range times {
+        result = append(result, buckets[t])
+    }
+    return result
+}
+
 func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	if len(filePaths) == 0 {
 		return
 	}
 
 	// Parse Metadata
-	var eventTimestamp *time.Time
 	var city string
 	var estLat, estLon float64
 	var timezone *time.Location
+	var eventJsonTimestamp *time.Time // Timestamp from event.json
 
 	eventJsonPath := filepath.Join(dirPath, "event.json")
 	if _, err := os.Stat(eventJsonPath); err == nil {
@@ -314,9 +340,9 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 				timezone = determineTimezone(estLat, estLon)
 
 				if t, err := time.ParseInLocation("2006-01-02T15:04:05", eventData.Timestamp, timezone); err == nil {
-					eventTimestamp = &t
+					eventJsonTimestamp = &t
 				} else if t, err := time.Parse(time.RFC3339, eventData.Timestamp); err == nil {
-					eventTimestamp = &t
+					eventJsonTimestamp = &t
 				}
 			}
 		}
@@ -330,6 +356,7 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	for _, path := range filePaths {
 		matches := fileRegex.FindStringSubmatch(filepath.Base(path))
 		if len(matches) == 3 {
+			// Using matches[1] (date-time)
 			t, err := time.ParseInLocation("2006-01-02_15-04-05", matches[1], timezone)
 			if err == nil {
 				files = append(files, fileInfo{path: path, timestamp: t})
@@ -337,60 +364,72 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 		}
 	}
 
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].timestamp.Before(files[j].timestamp)
-	})
+    // Group by timestamp to handle multiple events in one folder or split segments
+    groups := groupFilesByTimestamp(files)
 
-	if len(files) == 0 {
-		return
-	}
+    for _, group := range groups {
+        if len(group) == 0 { continue }
+        minTime := group[0].timestamp
 
-	// Grouping: Event folders are treated as SINGLE group
-	minTime := files[0].timestamp
-	eventType := "Recent"
-	if strings.Contains(dirPath, "SentryClips") {
-		eventType = "Sentry"
-	} else if strings.Contains(dirPath, "SavedClips") {
-		eventType = "Saved"
-	}
+        eventType := "Recent"
+        if strings.Contains(dirPath, "SentryClips") {
+            eventType = "Sentry"
+        } else if strings.Contains(dirPath, "SavedClips") {
+            eventType = "Saved"
+        }
 
-	var clip models.Clip
-	if err := s.DB.Where("timestamp = ?", minTime).First(&clip).Error; err != nil {
-		if gorm.IsRecordNotFoundError(err) {
-			clip = models.Clip{
-				Timestamp:      minTime,
-				Event:          eventType,
-				EventTimestamp: eventTimestamp,
-				City:           city,
-			}
-			s.DB.Create(&clip)
-		}
-	} else {
-		updates := map[string]interface{}{}
-		if clip.EventTimestamp == nil && eventTimestamp != nil {
-			updates["event_timestamp"] = eventTimestamp
-		}
-		if city != "" {
-			updates["city"] = city
-		}
-		if len(updates) > 0 {
-			s.DB.Model(&clip).Updates(updates)
-		}
-	}
+        var clip models.Clip
+        if err := s.DB.Where("timestamp = ?", minTime).First(&clip).Error; err != nil {
+            if gorm.IsRecordNotFoundError(err) {
+                clip = models.Clip{
+                    Timestamp:      minTime,
+                    Event:          eventType,
+                    City:           city, // Default city from folder's event.json
+                }
 
-	// Fallback Telemetry setup
-	if clip.TelemetryID == 0 && (estLat != 0 || estLon != 0) {
-		telemetry := models.Telemetry{
-			ClipID:    clip.ID,
-			Latitude:  estLat,
-			Longitude: estLon,
-		}
-		if err := s.DB.Create(&telemetry).Error; err == nil {
-			s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
-		}
-	}
+                // Relaxed Event Timestamp Check:
+                // Check if the event timestamp is within the 60s duration of this clip
+                if eventJsonTimestamp != nil {
+                    // event time >= start time AND event time < start time + 60s
+                    endTime := minTime.Add(60 * time.Second)
+                    if (eventJsonTimestamp.Equal(minTime) || eventJsonTimestamp.After(minTime)) && eventJsonTimestamp.Before(endTime) {
+                         clip.EventTimestamp = eventJsonTimestamp
+                    }
+                }
 
-	s.addFilesToClip(clip, files)
+                s.DB.Create(&clip)
+            }
+        } else {
+            // Update existing
+            updates := map[string]interface{}{}
+            if clip.EventTimestamp == nil && eventJsonTimestamp != nil {
+                 endTime := minTime.Add(60 * time.Second)
+                 if (eventJsonTimestamp.Equal(minTime) || eventJsonTimestamp.After(minTime)) && eventJsonTimestamp.Before(endTime) {
+                     updates["event_timestamp"] = eventJsonTimestamp
+                 }
+            }
+            if city != "" {
+                updates["city"] = city
+            }
+            if len(updates) > 0 {
+                s.DB.Model(&clip).Updates(updates)
+            }
+        }
+
+        // Fallback Telemetry setup
+        if clip.TelemetryID == 0 && (estLat != 0 || estLon != 0) {
+            telemetry := models.Telemetry{
+                ClipID:    clip.ID,
+                Latitude:  estLat,
+                Longitude: estLon,
+            }
+            if err := s.DB.Create(&telemetry).Error; err == nil {
+                s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
+            }
+        }
+
+        s.addFilesToClip(clip, group)
+    }
 }
 
 func (s *ScannerService) processRecentGroup(filePaths []string) {
@@ -411,42 +450,48 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 		}
 	}
 
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].timestamp.Before(files[j].timestamp)
-	})
+    // 1. Group into "Time Buckets" (Camera Sets)
+    timeGroups := groupFilesByTimestamp(files)
+    if len(timeGroups) == 0 {
+        return
+    }
 
-	if len(files) == 0 {
-		return
-	}
+	// 2. Merge Time Buckets into "Continuous Clips"
+	var clipGroups [][][]fileInfo // List of Clips, each Clip is a list of Camera Sets (Time Buckets)
+	currentClipGroup := [][]fileInfo{timeGroups[0]}
 
-	// Split by gaps (> 90 seconds)
-	var groups [][]fileInfo
-	currentGroup := []fileInfo{files[0]}
-	for i := 1; i < len(files); i++ {
-		diff := files[i].timestamp.Sub(files[i-1].timestamp)
-		if diff > 90*time.Second {
-			groups = append(groups, currentGroup)
-			currentGroup = []fileInfo{files[i]}
+	for i := 1; i < len(timeGroups); i++ {
+        prevTime := timeGroups[i-1][0].timestamp
+        currTime := timeGroups[i][0].timestamp
+
+        // If gap is > 90 seconds, split
+		if currTime.Sub(prevTime) > 90*time.Second {
+			clipGroups = append(clipGroups, currentClipGroup)
+			currentClipGroup = [][]fileInfo{timeGroups[i]}
 		} else {
-			currentGroup = append(currentGroup, files[i])
+			currentClipGroup = append(currentClipGroup, timeGroups[i])
 		}
 	}
-	groups = append(groups, currentGroup)
+	clipGroups = append(clipGroups, currentClipGroup)
 
-	for _, group := range groups {
-		if len(group) == 0 {
+    // 3. Process each Clip Group
+	for _, clipGroup := range clipGroups { // clipGroup is [][]fileInfo (a list of minute-segments)
+		if len(clipGroup) == 0 {
 			continue
 		}
-		minTime := group[0].timestamp
+
+        // Start time of the FIRST segment in this continuous block
+        minTime := clipGroup[0][0].timestamp
 
 		var clip models.Clip
 		var found bool = false
 
-		// Try to find a recent clip to merge with
-		// Look for a VideoFile belonging to a Recent clip that ends just before this group
-		var lastVf models.VideoFile
-		startTime := minTime.Add(-120 * time.Second)
+		// Merge Strategy:
+        // We look for any Recent clip that ends just before `minTime`.
+        // Lookback window matches the 90s split logic.
+		startTime := minTime.Add(-90 * time.Second)
 
+		var lastVf models.VideoFile
 		if err := s.DB.Table("video_files").
 			Joins("JOIN clips ON video_files.clip_id = clips.id").
 			Where("clips.event = ? AND video_files.timestamp >= ? AND video_files.timestamp < ?", "Recent", startTime, minTime).
@@ -456,7 +501,7 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 			s.DB.First(&clip, lastVf.ClipID)
 			found = true
 		} else if err := s.DB.Where("timestamp = ?", minTime).First(&clip).Error; err == nil {
-			// Idempotency check
+			// Idempotency: found the clip itself (maybe we are reprocessing)
 			found = true
 		}
 
@@ -468,7 +513,10 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 			s.DB.Create(&clip)
 		}
 
-		s.addFilesToClip(clip, group)
+        // Add ALL segments in this continuous block to the clip
+        for _, segment := range clipGroup {
+		    s.addFilesToClip(clip, segment)
+        }
 	}
 }
 
@@ -477,7 +525,7 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 		matches := fileRegex.FindStringSubmatch(filepath.Base(f.path))
 		cameraName := "Unknown"
 		if len(matches) == 3 {
-			cameraName = matches[2]
+			cameraName = matches[2] // This is group 2 now in the new regex
 		}
 		cameraName = normalizeCameraName(cameraName)
 
