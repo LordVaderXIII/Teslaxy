@@ -88,13 +88,27 @@ func Login(c *gin.Context) {
 	}
 }
 
+type jwtClaims struct {
+	Sub string `json:"sub"`
+	Exp int64  `json:"exp"`
+}
+
 // Simple JWT Implementation using stdlib
 func generateToken(user string) (string, error) {
 	header := `{"alg":"HS256","typ":"JWT"}`
-	payload := fmt.Sprintf(`{"sub":"%s","exp":%d}`, user, time.Now().Add(24*time.Hour).Unix())
+
+	claims := jwtClaims{
+		Sub: user,
+		Exp: time.Now().Add(24 * time.Hour).Unix(),
+	}
+
+	payloadBytes, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
 
 	encodedHeader := base64.RawURLEncoding.EncodeToString([]byte(header))
-	encodedPayload := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	encodedPayload := base64.RawURLEncoding.EncodeToString(payloadBytes)
 
 	signatureInput := encodedHeader + "." + encodedPayload
 
@@ -127,11 +141,16 @@ func validateToken(token string) (bool, error) {
 	}
 
 	// Check exp
-	payloadBytes, _ := base64.RawURLEncoding.DecodeString(parts[1])
-	var claims struct {
-		Exp int64 `json:"exp"`
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return false, fmt.Errorf("invalid token encoding")
 	}
-	json.Unmarshal(payloadBytes, &claims)
+
+	var claims jwtClaims
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return false, fmt.Errorf("invalid token payload")
+	}
+
 	if time.Now().Unix() > claims.Exp {
 		return false, fmt.Errorf("token expired")
 	}

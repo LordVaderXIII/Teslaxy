@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.13] - 2025-12-14
+### Security
+- Fixed potential JSON injection vulnerability in JWT generation by replacing manual string formatting with secure JSON marshaling.
 ### Performance
 - Further optimized `GET /api/clips` payload by excluding unused GORM model fields (CreatedAt, UpdatedAt, DeletedAt) and unneeded VideoFile columns.
 ### Fixed
