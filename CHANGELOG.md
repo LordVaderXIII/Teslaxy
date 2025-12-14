@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.13] - 2025-12-14
 ### Security
 - Fixed potential JSON injection vulnerability in JWT generation by replacing manual string formatting with secure JSON marshaling.
+### Performance
+- Further optimized `GET /api/clips` payload by excluding unused GORM model fields (CreatedAt, UpdatedAt, DeletedAt) and unneeded VideoFile columns.
+### Fixed
+- Fixed mobile layout issue where the video player was pushed off-screen when the clip list was long.
 
 ## [0.1.12] - 2025-12-14
 ### Fixed
