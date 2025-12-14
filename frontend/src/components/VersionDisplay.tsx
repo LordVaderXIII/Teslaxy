@@ -27,6 +27,16 @@ const VersionDisplay: React.FC<VersionDisplayProps> = ({ className }) => {
       .catch(err => console.error("Failed to fetch version", err));
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showChangelog && e.key === 'Escape') {
+        setShowChangelog(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showChangelog]);
+
   if (!data) return null;
 
   return (
@@ -40,7 +50,12 @@ const VersionDisplay: React.FC<VersionDisplayProps> = ({ className }) => {
       </button>
 
       {showChangelog && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowChangelog(false);
+          }}
+        >
           <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Header / Banner */}
             <div className="relative bg-gradient-to-r from-blue-600 to-purple-700 p-8 shrink-0 overflow-hidden">

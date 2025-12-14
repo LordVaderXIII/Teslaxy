@@ -18,9 +18,13 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
     if (!clips || clips.length === 0) return [];
 
     // 1. Sort by timestamp ascending (oldest first)
-    const sorted = [...clips].sort((a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+    const sorted = [...clips].sort((a, b) => {
+        const tA = new Date(a.timestamp).getTime();
+        const tB = new Date(b.timestamp).getTime();
+        if (isNaN(tA)) return 1;
+        if (isNaN(tB)) return -1;
+        return tA - tB;
+    });
 
     // 2. Group clips
     const groups: Clip[][] = [];
