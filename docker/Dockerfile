@@ -19,6 +19,9 @@ COPY backend/ .
 # Copy frontend build to backend/public for embedding
 COPY --from=frontend-builder /app/frontend/dist ./public
 
+# Fix for missing latlong module in some build environments
+RUN go get github.com/bradfitz/latlong
+
 # Build binary
 # CGO_ENABLED=1 is required for go-sqlite3
 RUN CGO_ENABLED=1 GOOS=linux go build -o teslaxy .
