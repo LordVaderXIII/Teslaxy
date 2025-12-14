@@ -146,45 +146,31 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     if (isMain) {
       mainPlayerRef.current = player;
 
+      const checkAdvance = () => {
+         const camSegments = segments[normCam];
+         if (camSegments) {
+             let src = player.currentSrc();
+             // Try to decode in case video.js encoded it
+             try { src = decodeURIComponent(src); } catch (e) {}
+
+             const idx = camSegments.findIndex(s => src.endsWith(s.file_path));
+             if (idx !== -1 && idx < camSegments.length - 1) {
+                 // Advance to next segment
+                 const nextSeg = camSegments[idx+1];
+                 console.log("Advancing to next segment:", nextSeg.file_path);
+                 setCurrentTime(nextSeg.startTime);
+             } else {
+                 setIsPlaying(false);
+             }
+         }
+      };
+
       player.on('timeupdate', () => {
-        // Map local time to global time
         const camSegments = segments[normCam];
         if (camSegments) {
-            // We need to know WHICH segment this player is currently playing
-            // We can infer it from the 'currentSegmentIndex' state or passed props?
-            // Actually, inside the callback, state might be stale.
-            // But we know the source is set.
+            let src = player.currentSrc();
+            try { src = decodeURIComponent(src); } catch (e) {}
 
-            // Better: use the pre-calculated offset for the CURRENT segment
-            // We can't easily get the segment index from the player object.
-            // Let's rely on the outer 'currentSegmentIndex' via a ref if needed, or just calculate:
-
-            // Wait, this closure captures 'segments'.
-            // But we need the *active* segment for this player.
-            // Since we re-mount the player (via key change) when segment changes,
-            // this 'handlePlayerReady' might be called for EACH segment.
-            // But 'timeupdate' fires continuously.
-
-            // Actually, we are using the 'key' prop on VideoPlayer to force remount.
-            // So 'player' instance is specific to that segment.
-            // So we can find which segment corresponds to player.src()
-            // But src is a full URL.
-
-            // Simpler: Use a ref to track current segment start time?
-            // No, the safest way is: The Player component knows the global time.
-            // But the 'timeupdate' drives the global time.
-
-            // Let's look at how we render VideoPlayer:
-            // key={`${clip.ID}-${camera}-${segment.file_path}`}
-
-            // So when this callback runs, it runs for a specific segment.
-            // We need to know the offset of THAT segment.
-            // We can look it up in 'segments' using the src? Or pass it?
-            // We can't pass extra args to onReady easily without wrapper.
-            // Let's just find the segment in the list that matches the src.
-
-            // NOTE: player.currentSrc() returns full URL.
-            const src = player.currentSrc();
             const seg = camSegments.find(s => src.endsWith(s.file_path));
             if (seg) {
                 const global = seg.startTime + player.currentTime();
@@ -193,24 +179,20 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                      setCurrentTime(global);
                 }
             }
+
+            // Check for end of segment manually (fallback for 'ended' event)
+            if (player.duration() > 0 && player.currentTime() >= player.duration() - 0.2) {
+                // Debounce or ensure we don't spam?
+                // Actually, if we advance, component remounts.
+                if (!player.paused()) {
+                    checkAdvance();
+                }
+            }
         }
       });
 
       player.on('ended', () => {
-         // Auto-advance
-         const camSegments = segments[normCam];
-         if (camSegments) {
-             const src = player.currentSrc();
-             const idx = camSegments.findIndex(s => src.endsWith(s.file_path));
-             if (idx !== -1 && idx < camSegments.length - 1) {
-                 // Advance to next segment
-                 const nextSeg = camSegments[idx+1];
-                 setCurrentTime(nextSeg.startTime);
-                 // This updates state -> Re-renders VideoPlayer with new Src -> New Player -> Autoplay
-             } else {
-                 setIsPlaying(false);
-             }
-         }
+         checkAdvance();
       });
 
       // Auto-play if global state is playing
@@ -227,7 +209,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     // Sync play state
     player.on('play', () => {
        setIsPlaying(true);
-       // Sync others
     });
     player.on('pause', () => setIsPlaying(false));
 
@@ -246,11 +227,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       setCurrentTime(newTime);
 
       // We need to sync the players to this new time
-      // 1. Find target segment
-      // 2. Calculate local time
-      // 3. If segment is different, the render loop will handle the src switch.
-      // 4. If segment is SAME, we need to seek the player.
-
       Object.keys(segments).forEach(cam => {
           const info = getSegmentAtTime(cam, newTime);
           if (info) {
@@ -264,10 +240,15 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
                if (p) {
                    // Check if player src matches target segment
-                   // If not, don't seek (wait for remount)
-                   const src = p.currentSrc();
+                   let src = p.currentSrc();
+                   try { src = decodeURIComponent(src); } catch (e) {}
+
                    if (src && src.endsWith(info.segment.file_path)) {
-                       p.currentTime(newTime - info.segment.startTime);
+                       const localTime = newTime - info.segment.startTime;
+                       // Only seek if difference is significant to avoid stutter
+                       if (Math.abs(p.currentTime() - localTime) > 0.5) {
+                           p.currentTime(localTime);
+                       }
                    }
                }
           }
@@ -304,15 +285,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   // Render a camera slot
   const renderCamera = (camName: string, className: string) => {
       const seg = getCurrentSegment(camName);
-      // We need to calculate start time for the player (if we just mounted it, it needs to seek)
-      // Actually, if we mount a new player, we should pass 'startTime' logic?
-      // VideoPlayer doesn't accept startTime.
-      // We can use 'onReady' to seek.
 
       const onReady = (p: any) => {
           handlePlayerReady(camName, p);
           if (seg) {
               const localTime = currentTime - seg.startTime;
+              // Seek if needed (initial load of segment)
               if (Math.abs(p.currentTime() - localTime) > 0.5) {
                   p.currentTime(localTime);
               }
@@ -338,13 +316,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               {camName === 'Front' && clip.telemetry && clip.telemetry.full_data_json && (
                    <TelemetryOverlay
                        dataJson={clip.telemetry.full_data_json}
-                       currentTime={currentTime} // TODO: Telemetry needs syncing with global time? Telemetry currently is 1 record per clip?
-                       // If telemetry is also segmented, we need to handle that.
-                       // For now, assuming telemetry is attached to the clip object (which is now the Event).
-                       // Backend: "Store full thing as JSON".
-                       // The 'full_data_json' is likely from the FIRST segment only in my backend implementation.
-                       // Ideally, we should stitch telemetry too.
-                       // But for now, let's leave it.
+                       currentTime={currentTime}
                    />
               )}
           </div>
@@ -393,7 +365,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       {is3D ? (
           <div className="flex-1 bg-gray-900 overflow-hidden relative flex flex-col">
              <div className="flex-1 relative">
-                 {/* 3D View requires 6 streams. We grab the current segments for all 6. */}
                  <Suspense fallback={<div className="flex items-center justify-center h-full text-white">Loading 3D...</div>}>
                      <Scene3D
                         frontSrc={getCurrentSegment('Front')?.file_path ? getUrl(getCurrentSegment('Front')!.file_path) : ''}
