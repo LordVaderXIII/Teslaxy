@@ -51,6 +51,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           if (!grouped[cam]) grouped[cam] = [];
 
           const ts = new Date(f.timestamp).getTime() / 1000;
+          if (isNaN(ts)) return;
+
           grouped[cam].push({
               file_path: f.file_path,
               timestamp: ts,
@@ -66,10 +68,11 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           if (grouped[cam].length > 0) {
               const startTs = grouped[cam][0].timestamp;
               grouped[cam].forEach((seg, idx) => {
-                  seg.startTime = seg.timestamp - startTs;
+                  seg.startTime = Math.max(0, seg.timestamp - startTs);
                   // Adjust duration based on next segment if available
                   if (idx < grouped[cam].length - 1) {
-                      seg.duration = grouped[cam][idx+1].timestamp - seg.timestamp;
+                      const dur = grouped[cam][idx+1].timestamp - seg.timestamp;
+                      seg.duration = Math.max(0, dur);
                   }
               });
           }
