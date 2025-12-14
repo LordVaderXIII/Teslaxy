@@ -42,10 +42,16 @@ func getClips(c *gin.Context) {
 	// Pagination? For now, fetch latest 100
 	// Optimized: Added index on Timestamp for faster sorting
 	// Jules: Removed limit to show all historical clips as requested. Pagination can be added later if needed.
-	// Bolt: Optimize query by selecting only necessary Telemetry fields (exclude heavy FullDataJson)
-	if err := database.DB.Preload("VideoFiles").Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
-		return db.Select("id, clip_id, latitude, longitude")
-	}).Order("timestamp desc").Find(&clips).Error; err != nil {
+	// Bolt: Optimize query by selecting only necessary fields for Clip, VideoFiles, and Telemetry.
+	// This reduces payload size by excluding model timestamps (CreatedAt, UpdatedAt, DeletedAt)
+	// and heavy fields (FullDataJson) from the list view.
+	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, telemetry_id").
+		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
+			return db.Select("clip_id, camera, file_path, timestamp")
+		}).
+		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id, clip_id, latitude, longitude")
+		}).Order("timestamp desc").Find(&clips).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
