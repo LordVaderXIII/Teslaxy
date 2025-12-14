@@ -39,9 +39,13 @@ function App() {
         const merged = mergeClips(data || []);
 
         // Sort by date desc
-        const sorted = merged.sort((a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
+        const sorted = merged.sort((a, b) => {
+            const tA = new Date(a.timestamp).getTime();
+            const tB = new Date(b.timestamp).getTime();
+            if (isNaN(tA)) return 1;
+            if (isNaN(tB)) return -1;
+            return tB - tA;
+        });
 
         setClips(sorted)
         if (sorted.length > 0) {
