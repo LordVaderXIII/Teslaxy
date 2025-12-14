@@ -35,3 +35,5 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Always verify changes with `read_file` or `ls` after creating/modifying files.
 - Run tests where possible.
 - If unsure about a requirement, check the plan or ask the user.
+- Update this file when adding automation-relevant guidance for AI coding agents. Include any new tools, input/output conventions, or workflow quirks that future agents should know.
+- Document code changes in the changelog and bump versions following Semantic Versioning for every release (PATCH for bug fixes, MINOR for additive features, MAJOR for breaking changes). Align package/app versions with the changelog entry.
