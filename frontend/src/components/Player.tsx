@@ -50,32 +50,37 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           const cam = normalizeCameraName(f.camera);
           if (!grouped[cam]) grouped[cam] = [];
 
-          const ts = new Date(f.timestamp).getTime() / 1000;
-          if (isNaN(ts)) return;
+          const tsMs = Date.parse(f.timestamp);
+          if (!Number.isFinite(tsMs)) return;
+
+          const tsSeconds = tsMs / 1000;
 
           grouped[cam].push({
               file_path: f.file_path,
-              timestamp: ts,
+              timestamp: tsSeconds,
               startTime: 0,
               duration: 60 // Estimate
           });
       });
 
-      // 2. Sort and calculate offsets
+      // 2. Sort and calculate offsets using sanitized durations to avoid runaway timelines
       Object.keys(grouped).forEach(cam => {
-          grouped[cam].sort((a, b) => a.timestamp - b.timestamp);
+          const camSegments = grouped[cam];
+          camSegments.sort((a, b) => a.timestamp - b.timestamp);
 
-          if (grouped[cam].length > 0) {
-              const startTs = grouped[cam][0].timestamp;
-              grouped[cam].forEach((seg, idx) => {
-                  seg.startTime = Math.max(0, seg.timestamp - startTs);
-                  // Adjust duration based on next segment if available
-                  if (idx < grouped[cam].length - 1) {
-                      const dur = grouped[cam][idx+1].timestamp - seg.timestamp;
-                      seg.duration = Math.max(0, dur);
-                  }
-              });
-          }
+          let accumulatedStart = 0;
+          camSegments.forEach((seg, idx) => {
+              seg.startTime = accumulatedStart;
+
+              const next = camSegments[idx + 1];
+              const rawDuration = next ? next.timestamp - seg.timestamp : seg.duration;
+              const safeDuration = Number.isFinite(rawDuration)
+                ? Math.min(120, Math.max(1, rawDuration))
+                : 60;
+
+              seg.duration = safeDuration;
+              accumulatedStart += safeDuration;
+          });
       });
 
       return grouped;
