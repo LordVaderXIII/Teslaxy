@@ -59,7 +59,7 @@ function App() {
     <div className="flex flex-col md:flex-row h-screen w-screen bg-black text-white overflow-hidden font-sans">
 
       {/* Main Content (Top on mobile, Left on Desktop) */}
-      <div className="w-full h-[40vh] md:h-full md:flex-1 flex flex-col overflow-hidden relative order-1">
+      <div className="w-full h-[40vh] md:h-full md:flex-1 flex flex-col overflow-hidden relative order-1 shrink-0">
         <div className="absolute top-4 left-4 z-10 pointer-events-none">
           <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-600 drop-shadow-md">
             Teslaxy
@@ -84,7 +84,7 @@ function App() {
          selectedClipId={selectedClip?.ID || null}
          onClipSelect={handleClipSelect}
          loading={loading}
-         className="order-2 flex-1 md:h-full md:flex-none"
+         className="order-2 flex-1 md:h-full md:flex-none min-h-0 overflow-hidden"
       />
     </div>
   )
