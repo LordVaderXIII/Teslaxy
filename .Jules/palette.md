@@ -9,3 +9,7 @@
 ## 2025-05-25 - Media Controls Accessibility
 **Learning:** Media players often rely heavily on iconography (Play, Pause, Skip) without text labels, creating a major barrier for screen reader users. Adding aria-labels and tooltips is a critical, low-effort fix.
 **Action:** Standardize usage of aria-label and title attributes on all player controls (Play, Pause, Skip, 3D toggle) to ensure both screen reader and mouse hover accessibility.
+
+## 2025-05-26 - Modal Dismissal Interactions
+**Learning:** Users instinctively press `Escape` or click the backdrop to close modals. Relying solely on a close button creates friction and can feel "broken" or unresponsive.
+**Action:** Always add `useEffect` listeners for the `Escape` key and `onClick` handlers on the modal backdrop to trigger the close action.
