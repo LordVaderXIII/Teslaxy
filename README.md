@@ -2,6 +2,8 @@
 
 Teslaxy is a modern, self-hosted web application designed for viewing Tesla Dashcam and Sentry Mode clips. It provides a unified interface to browse, playback, and export your Tesla footage, complete with telemetry data overlays.
 
+THIS APP IS IN HEAVY DEVELOPMENT AND MOST FEATURES ARE IN SOME SORT OF BROKEN STATE.
+
 ## Features
 
 - **Multi-Camera Playback:** Synchronized viewing of Front, Back, Left, and Right camera angles.
