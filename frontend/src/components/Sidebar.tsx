@@ -208,8 +208,31 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                 <span>Loading footage...</span>
              </div>
           ) : filteredClips.length === 0 ? (
-             <div className="p-8 text-center text-gray-600">
-                No clips found for {selectedDate.toLocaleDateString()}
+             <div className="p-8 text-center flex flex-col items-center justify-center gap-3">
+                <div className="text-gray-500">
+                   No {filterType !== 'All' ? filterType : ''} clips found for {selectedDate.toLocaleDateString()}
+                </div>
+
+                {filterType !== 'All' && (
+                   <button
+                      onClick={() => setFilterType('All')}
+                      className="text-blue-400 hover:text-blue-300 text-sm font-medium hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-2 py-1"
+                   >
+                      View all events for this day
+                   </button>
+                )}
+
+                {selectedDate.toDateString() !== new Date().toDateString() && (
+                   <button
+                      onClick={() => {
+                         setSelectedDate(new Date());
+                         setFilterType('All');
+                      }}
+                      className="text-gray-400 hover:text-white text-sm hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-500 rounded px-2 py-1"
+                   >
+                      Reset to Today
+                   </button>
+                )}
              </div>
           ) : (
             <div className="grid grid-cols-1 divide-y divide-gray-900">
