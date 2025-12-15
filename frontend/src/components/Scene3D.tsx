@@ -233,4 +233,6 @@ const Scene3D: React.FC<Scene3DProps> = ({
   );
 };
 
-export default Scene3D;
+// Bolt Optimization: Prevent re-renders of the 3D scene on every parent update (e.g. timeupdate).
+// Since props are stable during segment playback, this saves significant GPU/CPU overhead.
+export default React.memo(Scene3D);
