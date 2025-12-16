@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon } from 'lucide-react';
+import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Video } from 'lucide-react';
 import Calendar from './Calendar';
 import MapModal from './MapModal';
 import VersionDisplay from './VersionDisplay';
@@ -208,8 +208,24 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                 <span>Loading footage...</span>
              </div>
           ) : filteredClips.length === 0 ? (
-             <div className="p-8 text-center text-gray-600">
-                No clips found for {selectedDate.toLocaleDateString()}
+             <div className="flex flex-col items-center justify-center p-8 text-center text-gray-500 h-full min-h-[200px]">
+                <div className="bg-gray-900/50 p-4 rounded-full mb-3">
+                   <Video size={24} className="opacity-40" />
+                </div>
+                <p className="mb-4 text-sm">
+                   No clips found for {selectedDate.toLocaleDateString()}
+                </p>
+                {(filterType !== 'All' || selectedDate.toDateString() !== new Date().toDateString()) && (
+                   <button
+                      onClick={() => {
+                         setFilterType('All');
+                         setSelectedDate(new Date());
+                      }}
+                      className="px-4 py-2 text-xs font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
+                   >
+                      Reset Filters
+                   </button>
+                )}
              </div>
           ) : (
             <div className="grid grid-cols-1 divide-y divide-gray-900">
