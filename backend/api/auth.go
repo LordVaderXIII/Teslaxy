@@ -2,10 +2,12 @@ package api
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -18,7 +20,13 @@ var secretKey = []byte(os.Getenv("JWT_SECRET"))
 
 func init() {
 	if len(secretKey) == 0 {
-		secretKey = []byte("default-secret-key-change-me")
+		// Generate random 32-byte key
+		key := make([]byte, 32)
+		if _, err := rand.Read(key); err != nil {
+			panic(fmt.Sprintf("CRITICAL: Failed to generate random JWT secret: %v", err))
+		}
+		secretKey = key
+		log.Println("SECURITY WARNING: JWT_SECRET not set. Using randomly generated secret key. All existing sessions will be invalidated on restart.")
 	}
 }
 
