@@ -17,26 +17,70 @@ export interface Clip {
 export const mergeClips = (clips: Clip[]): Clip[] => {
     if (!clips || clips.length === 0) return [];
 
-    // 1. Sort by timestamp ascending (oldest first)
-    const sorted = [...clips].sort((a, b) => {
-        const tA = new Date(a.timestamp).getTime();
-        const tB = new Date(b.timestamp).getTime();
-        if (isNaN(tA)) return 1;
-        if (isNaN(tB)) return -1;
-        return tA - tB;
-    });
+    const n = clips.length;
+    // Cache timestamps to avoid repetitive parsing and optimize sorting
+    // Float64Array is efficient for numeric timestamps
+    const times = new Float64Array(n);
+    let isAscending = true;
+    let isDescending = true;
+
+    // First pass: Parse timestamps and check order
+    // Handle first element
+    const t0 = new Date(clips[0].timestamp).getTime();
+    times[0] = isNaN(t0) ? Infinity : t0;
+
+    for (let i = 1; i < n; i++) {
+        const t = new Date(clips[i].timestamp).getTime();
+        const val = isNaN(t) ? Infinity : t;
+        times[i] = val;
+
+        if (val < times[i-1]) isAscending = false;
+        if (val > times[i-1]) isDescending = false;
+    }
+
+    let sortedClips: Clip[];
+    let sortedTimes: Float64Array;
+
+    if (isAscending) {
+        // Already ascending (Oldest -> Newest)
+        sortedClips = [...clips];
+        sortedTimes = times;
+    } else if (isDescending) {
+        // Reverse (Newest -> Oldest => Oldest -> Newest)
+        sortedClips = [...clips].reverse();
+        sortedTimes = times.reverse();
+    } else {
+        // Unsorted or mixed - perform sort
+        const indices = new Uint32Array(n);
+        for(let i=0; i<n; i++) indices[i] = i;
+
+        indices.sort((a, b) => {
+             const tA = times[a];
+             const tB = times[b];
+             return tA - tB;
+        });
+
+        sortedClips = new Array(n);
+        sortedTimes = new Float64Array(n);
+        for(let i=0; i<n; i++) {
+            sortedClips[i] = clips[indices[i]];
+            sortedTimes[i] = times[indices[i]];
+        }
+    }
 
     // 2. Group clips
     const groups: Clip[][] = [];
-    if (sorted.length > 0) {
-        let currentGroup: Clip[] = [sorted[0]];
+    if (sortedClips.length > 0) {
+        let currentGroup: Clip[] = [sortedClips[0]];
 
-        for (let i = 1; i < sorted.length; i++) {
-            const prev = currentGroup[currentGroup.length - 1];
-            const curr = sorted[i];
+        for (let i = 1; i < n; i++) {
+            const curr = sortedClips[i];
+            const currTime = sortedTimes[i];
 
-            const prevTime = new Date(prev.timestamp).getTime();
-            const currTime = new Date(curr.timestamp).getTime();
+            // prev is always the immediately preceding element in the sorted list
+            const prev = sortedClips[i-1];
+            const prevTime = sortedTimes[i-1];
+
             const diffSeconds = (currTime - prevTime) / 1000;
 
             // Criteria: Same event type, Gap < 90s
