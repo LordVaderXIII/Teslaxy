@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon } from 'lucide-react';
+import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox } from 'lucide-react';
 import Calendar from './Calendar';
 import MapModal from './MapModal';
 import VersionDisplay from './VersionDisplay';
@@ -17,7 +17,7 @@ interface Clip {
   event: string;
   city: string;
   video_files?: VideoFile[];
-  telemetry?: any;
+  telemetry?: Record<string, unknown>;
 }
 
 interface SidebarProps {
@@ -135,6 +135,16 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   // Get unique event types for dropdown
   const eventTypes = useMemo(() => ['All', ...Array.from(new Set(clips.map(c => c.event)))], [clips]);
 
+  const handleResetFilters = () => {
+    setFilterType('All');
+    setSelectedDate(new Date());
+  };
+
+  const isToday = (date: Date) => {
+    const today = new Date();
+    return date.toDateString() === today.toDateString();
+  };
+
   return (
     <div className={`flex flex-col bg-black border-gray-800 w-full md:w-96 md:h-full md:flex-shrink-0 border-t md:border-l md:border-t-0 ${className || ''}`}>
        {/* Header */}
@@ -208,8 +218,27 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                 <span>Loading footage...</span>
              </div>
           ) : filteredClips.length === 0 ? (
-             <div className="p-8 text-center text-gray-600">
-                No clips found for {selectedDate.toLocaleDateString()}
+             <div className="flex flex-col items-center justify-center p-8 text-center h-full text-gray-500 space-y-4">
+                <div className="bg-gray-900 p-4 rounded-full">
+                  <Inbox size={32} className="opacity-50" />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-400">No clips found</p>
+                  <p className="text-sm mt-1 opacity-70">
+                    {filterType !== 'All'
+                      ? `No ${filterType} events on this day.`
+                      : `No footage available for ${selectedDate.toLocaleDateString()}`}
+                  </p>
+                </div>
+
+                {(filterType !== 'All' || !isToday(selectedDate)) && (
+                  <button
+                    onClick={handleResetFilters}
+                    className="text-sm text-blue-400 hover:text-blue-300 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-2 py-1 outline-none transition-colors"
+                  >
+                    Reset filters
+                  </button>
+                )}
              </div>
           ) : (
             <div className="grid grid-cols-1 divide-y divide-gray-900">

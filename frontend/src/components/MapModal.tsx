@@ -11,10 +11,7 @@ interface Clip {
     event: string;
     city: string;
     event_timestamp?: string;
-    telemetry?: {
-        latitude: number;
-        longitude: number;
-    };
+    telemetry?: any;
     video_files?: any[];
 }
 
