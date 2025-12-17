@@ -14,3 +14,8 @@
 **Vulnerability:** The application fell back to a hardcoded string ("default-secret-key-change-me") when the `JWT_SECRET` environment variable was missing, allowing attackers to forge tokens on instances with default configuration.
 **Learning:** Default values for security-critical parameters (secrets, passwords) often become production vulnerabilities because users forget to override them. "Secure by default" means failing or generating a secure random value, not using a weak constant.
 **Prevention:** Use `crypto/rand` to generate ephemeral secrets if not provided, or panic on startup. Log a loud warning when falling back to generated secrets.
+
+## 2025-12-16 - Hardcoded Admin Password Removal
+**Vulnerability:** The application defaulted to a hardcoded password ("tesla") if the `ADMIN_PASS` environment variable was missing, enabling unauthorized access if users failed to configure it.
+**Learning:** Default credentials are a common entry point for attackers (CWE-798). Relying on users to "change the default" is insufficient defense.
+**Prevention:** Removed the hardcoded default. The application now generates a cryptographically secure random password on startup if `ADMIN_PASS` is missing, and logs it to stdout. It also uses `crypto/subtle.ConstantTimeCompare` for credential verification to mitigate timing attacks.

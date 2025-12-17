@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -16,7 +17,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var secretKey = []byte(os.Getenv("JWT_SECRET"))
+var (
+	secretKey        = []byte(os.Getenv("JWT_SECRET"))
+	defaultAdminUser = "admin"
+	defaultAdminPass = ""
+)
 
 func init() {
 	if len(secretKey) == 0 {
@@ -28,6 +33,36 @@ func init() {
 		secretKey = key
 		log.Println("SECURITY WARNING: JWT_SECRET not set. Using randomly generated secret key. All existing sessions will be invalidated on restart.")
 	}
+
+	// Generate a secure default password on startup
+	// This will be used only if ADMIN_PASS env var is not set at runtime
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Sprintf("CRITICAL: Failed to generate random admin password: %v", err))
+	}
+	defaultAdminPass = base64.RawURLEncoding.EncodeToString(b)
+
+	// Log the generated password if ADMIN_PASS is missing
+	// We log this regardless of AUTH_ENABLED so the user is always aware of the active credentials
+	if os.Getenv("ADMIN_PASS") == "" {
+		log.Printf("SECURITY NOTICE: ADMIN_PASS not set. Generated temporary password for user '%s': %s", getAdminUser(), defaultAdminPass)
+	}
+}
+
+func getAdminUser() string {
+	user := os.Getenv("ADMIN_USER")
+	if user == "" {
+		return defaultAdminUser
+	}
+	return user
+}
+
+func getAdminPass() string {
+	pass := os.Getenv("ADMIN_PASS")
+	if pass == "" {
+		return defaultAdminPass
+	}
+	return pass
 }
 
 func AuthMiddleware() gin.HandlerFunc {
@@ -77,18 +112,11 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Simple check (replace with DB check or env var)
-	// Using simple defaults as requested for MVP
-	adminUser := os.Getenv("ADMIN_USER")
-	if adminUser == "" {
-		adminUser = "admin"
-	}
-	adminPass := os.Getenv("ADMIN_PASS")
-	if adminPass == "" {
-		adminPass = "tesla"
-	}
+	// Use constant time comparison to prevent timing attacks
+	userMatch := subtle.ConstantTimeCompare([]byte(creds.Username), []byte(getAdminUser())) == 1
+	passMatch := subtle.ConstantTimeCompare([]byte(creds.Password), []byte(getAdminPass())) == 1
 
-	if creds.Username == adminUser && creds.Password == adminPass {
+	if userMatch && passMatch {
 		token, _ := generateToken(creds.Username)
 		c.JSON(200, gin.H{"token": token})
 	} else {
