@@ -38,14 +38,9 @@ function App() {
         // Merge clips into timelines
         const merged = mergeClips(data || []);
 
-        // Sort by date desc
-        const sorted = merged.sort((a, b) => {
-            const tA = new Date(a.timestamp).getTime();
-            const tB = new Date(b.timestamp).getTime();
-            if (isNaN(tA)) return 1;
-            if (isNaN(tB)) return -1;
-            return tB - tA;
-        });
+        // Optimization: merged clips are returned in ASC order (Oldest -> Newest)
+        // We simply reverse them to restore DESC order (Newest -> Oldest)
+        const sorted = merged.reverse();
 
         setClips(sorted)
         if (sorted.length > 0) {

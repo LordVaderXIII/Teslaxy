@@ -17,40 +17,35 @@ export interface Clip {
 export const mergeClips = (clips: Clip[]): Clip[] => {
     if (!clips || clips.length === 0) return [];
 
-    // 1. Sort by timestamp ascending (oldest first)
-    const sorted = [...clips].sort((a, b) => {
-        const tA = new Date(a.timestamp).getTime();
-        const tB = new Date(b.timestamp).getTime();
-        if (isNaN(tA)) return 1;
-        if (isNaN(tB)) return -1;
-        return tA - tB;
-    });
+    // Optimization: The backend returns clips sorted by Timestamp DESC.
+    // Instead of re-sorting them ASC (O(N log N)), we iterate backwards (O(N)).
+    // This effectively processes them in ASC order (Oldest -> Newest).
 
-    // 2. Group clips
     const groups: Clip[][] = [];
-    if (sorted.length > 0) {
-        let currentGroup: Clip[] = [sorted[0]];
+    const len = clips.length;
 
-        for (let i = 1; i < sorted.length; i++) {
-            const prev = currentGroup[currentGroup.length - 1];
-            const curr = sorted[i];
+    // Start with the last item (Oldest)
+    let currentGroup: Clip[] = [clips[len - 1]];
 
-            const prevTime = new Date(prev.timestamp).getTime();
-            const currTime = new Date(curr.timestamp).getTime();
-            const diffSeconds = (currTime - prevTime) / 1000;
+    for (let i = len - 2; i >= 0; i--) {
+        const prev = currentGroup[currentGroup.length - 1];
+        const curr = clips[i];
 
-            // Criteria: Same event type, Gap < 90s
-            // We treat 'Recent' and 'Saved'/'Sentry' similarly, but usually only Recent needs stitching.
-            // However, strictly adhering to event type prevents merging a Sentry event into a Recent drive accidentally.
-            if (curr.event === prev.event && diffSeconds < 90 && diffSeconds >= 0) {
-                currentGroup.push(curr);
-            } else {
-                groups.push(currentGroup);
-                currentGroup = [curr];
-            }
+        const prevTime = new Date(prev.timestamp).getTime();
+        const currTime = new Date(curr.timestamp).getTime();
+        const diffSeconds = (currTime - prevTime) / 1000;
+
+        // Criteria: Same event type, Gap < 90s
+        // We treat 'Recent' and 'Saved'/'Sentry' similarly, but usually only Recent needs stitching.
+        // However, strictly adhering to event type prevents merging a Sentry event into a Recent drive accidentally.
+        if (curr.event === prev.event && diffSeconds < 90 && diffSeconds >= 0) {
+            currentGroup.push(curr);
+        } else {
+            groups.push(currentGroup);
+            currentGroup = [curr];
         }
-        groups.push(currentGroup);
     }
+    groups.push(currentGroup);
 
     // 3. Create Super Clips
     return groups.map(group => {
