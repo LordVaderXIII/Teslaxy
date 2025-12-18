@@ -29,12 +29,13 @@ func TestTokenValidation(t *testing.T) {
 	// We'll just change the last character
 	fakeSignature := parts[2]
 	if len(fakeSignature) > 0 {
-		// Change the last character to something else to invalidate the signature
-		lastChar := fakeSignature[len(fakeSignature)-1]
-		if lastChar == 'A' {
-			fakeSignature = fakeSignature[:len(fakeSignature)-1] + "B"
+		// Change the FIRST character to ensure we change significant bits
+		// (Changing the last char might only affect padding bits ignored by decoder)
+		firstChar := fakeSignature[0]
+		if firstChar == 'A' {
+			fakeSignature = "B" + fakeSignature[1:]
 		} else {
-			fakeSignature = fakeSignature[:len(fakeSignature)-1] + "A"
+			fakeSignature = "A" + fakeSignature[1:]
 		}
 	}
 	tamperedToken := parts[0] + "." + parts[1] + "." + fakeSignature

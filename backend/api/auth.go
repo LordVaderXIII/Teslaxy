@@ -4,7 +4,9 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,9 +18,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-var secretKey = []byte(os.Getenv("JWT_SECRET"))
+var (
+	secretKey []byte
+	adminUser string
+	adminPass string
+)
 
 func init() {
+	// Initialize JWT Secret
+	secretKey = []byte(os.Getenv("JWT_SECRET"))
 	if len(secretKey) == 0 {
 		// Generate random 32-byte key
 		key := make([]byte, 32)
@@ -27,6 +35,27 @@ func init() {
 		}
 		secretKey = key
 		log.Println("SECURITY WARNING: JWT_SECRET not set. Using randomly generated secret key. All existing sessions will be invalidated on restart.")
+	}
+
+	// Initialize Admin Credentials
+	loadAdminCreds()
+}
+
+func loadAdminCreds() {
+	adminUser = os.Getenv("ADMIN_USER")
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+
+	adminPass = os.Getenv("ADMIN_PASS")
+	if adminPass == "" {
+		// Generate secure random password
+		bytes := make([]byte, 16)
+		if _, err := rand.Read(bytes); err != nil {
+			panic(fmt.Sprintf("CRITICAL: Failed to generate random admin password: %v", err))
+		}
+		adminPass = hex.EncodeToString(bytes)
+		log.Printf("SECURITY NOTICE: ADMIN_PASS not set. Auto-generated admin password: %s", adminPass)
 	}
 }
 
@@ -77,18 +106,11 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Simple check (replace with DB check or env var)
-	// Using simple defaults as requested for MVP
-	adminUser := os.Getenv("ADMIN_USER")
-	if adminUser == "" {
-		adminUser = "admin"
-	}
-	adminPass := os.Getenv("ADMIN_PASS")
-	if adminPass == "" {
-		adminPass = "tesla"
-	}
+	// Verify using constant time compare to prevent timing attacks
+	userMatch := subtle.ConstantTimeCompare([]byte(creds.Username), []byte(adminUser)) == 1
+	passMatch := subtle.ConstantTimeCompare([]byte(creds.Password), []byte(adminPass)) == 1
 
-	if creds.Username == adminUser && creds.Password == adminPass {
+	if userMatch && passMatch {
 		token, _ := generateToken(creds.Username)
 		c.JSON(200, gin.H{"token": token})
 	} else {

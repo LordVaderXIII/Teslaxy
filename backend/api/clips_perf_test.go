@@ -1,9 +1,9 @@
 package api
 
 import (
-	"testing"
 	"teslaxy/database"
 	"teslaxy/models"
+	"testing"
 
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
