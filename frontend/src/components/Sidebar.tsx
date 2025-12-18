@@ -26,6 +26,7 @@ interface SidebarProps {
   onClipSelect: (clip: Clip) => void;
   loading: boolean;
   className?: string;
+  onRefresh?: () => void;
 }
 
 interface SidebarItemProps {
@@ -114,7 +115,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
   );
 });
 
-const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, loading, className }) => {
+const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, loading, className, onRefresh }) => {
   const [filterType, setFilterType] = useState<string>('All');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
@@ -173,11 +174,12 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                      <CalendarIcon size={18} />
                   </button>
                   <button
+                    onClick={onRefresh}
                     aria-label="Refresh library"
                     className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                     title="Sync"
                   >
-                     <RefreshCw size={18} />
+                     <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
                   </button>
               </div>
           </div>

@@ -13,3 +13,7 @@
 ## 2025-05-26 - Modal Dismissal Interactions
 **Learning:** Users instinctively press `Escape` or click the backdrop to close modals. Relying solely on a close button creates friction and can feel "broken" or unresponsive.
 **Action:** Always add `useEffect` listeners for the `Escape` key and `onClick` handlers on the modal backdrop to trigger the close action.
+
+## 2025-05-27 - Context Preservation on Refresh
+**Learning:** When refreshing a data list (like clips), blindly resetting the selection to the first item disrupts the user's current context (e.g., watching a video). Separating "fetch" logic from "initial selection" logic allows updates without context loss.
+**Action:** Ensure refresh actions update the backing data but only change the selection if the current item is invalidated or if no item was selected.
