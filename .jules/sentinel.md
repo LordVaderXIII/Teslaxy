@@ -14,3 +14,8 @@
 **Vulnerability:** The application fell back to a hardcoded string ("default-secret-key-change-me") when the `JWT_SECRET` environment variable was missing, allowing attackers to forge tokens on instances with default configuration.
 **Learning:** Default values for security-critical parameters (secrets, passwords) often become production vulnerabilities because users forget to override them. "Secure by default" means failing or generating a secure random value, not using a weak constant.
 **Prevention:** Use `crypto/rand` to generate ephemeral secrets if not provided, or panic on startup. Log a loud warning when falling back to generated secrets.
+
+## 2025-12-18 - Insecure Default Password
+**Vulnerability:** The application used a hardcoded default password ("tesla") for the "admin" user when the `ADMIN_PASS` environment variable was not set, making unconfigured instances trivially exploitable.
+**Learning:** Hardcoded fallbacks for authentication credentials defeat the purpose of authentication. Users often deploy with defaults for testing and forget to change them.
+**Prevention:** Implement "Secure by Default": if `ADMIN_PASS` is missing, generate a strong random password at startup and log it. This ensures security without breaking the "zero-config" usability goal.

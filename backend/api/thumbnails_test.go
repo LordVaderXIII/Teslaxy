@@ -49,6 +49,6 @@ func TestGetThumbnail(t *testing.T) {
 	})
 
 	// We can't easily test success without ffmpeg and valid video in this environment
-    // unless we mock exec.Command which is hard in Go without dependency injection.
-    // But we verified the input validation.
+	// unless we mock exec.Command which is hard in Go without dependency injection.
+	// But we verified the input validation.
 }
