@@ -31,7 +31,8 @@ function App() {
         .catch(err => console.error(err))
   }, [])
 
-  useEffect(() => {
+  const refreshClips = useCallback(() => {
+    setLoading(true)
     fetch('/api/clips')
       .then(res => res.json())
       .then((data: Clip[]) => {
@@ -43,16 +44,23 @@ function App() {
         const sorted = merged.reverse();
 
         setClips(sorted)
-        if (sorted.length > 0) {
-            handleClipSelect(sorted[0])
-        }
         setLoading(false)
       })
       .catch(err => {
         console.error("Failed to fetch clips", err)
         setLoading(false)
       })
-  }, [handleClipSelect])
+  }, [])
+
+  useEffect(() => {
+    refreshClips()
+  }, [refreshClips])
+
+  useEffect(() => {
+    if (!selectedClip && !loading && clips.length > 0) {
+      handleClipSelect(clips[0])
+    }
+  }, [clips, selectedClip, loading, handleClipSelect])
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-screen bg-black text-white overflow-hidden font-sans">
@@ -83,6 +91,7 @@ function App() {
          selectedClipId={selectedClip?.ID || null}
          onClipSelect={handleClipSelect}
          loading={loading}
+         onRefresh={refreshClips}
          className="order-2 flex-1 md:h-full md:flex-none min-h-0 overflow-hidden"
       />
     </div>
