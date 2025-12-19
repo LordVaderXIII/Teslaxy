@@ -13,11 +13,11 @@ THIS APP IS IN HEAVY DEVELOPMENT AND MOST FEATURES ARE IN SOME SORT OF BROKEN ST
 - **Hardware Acceleration:** Supports NVIDIA NVENC for fast video processing and exporting.
 - **Modern UI:** Responsive, clean interface built with React and Tailwind CSS.
 - **Playback Controls:** Skip and rewind 5 seconds during playback.
+- **Playback Speed:** Cycle through 0.5x, 1x, 1.5x, 2x, and 4x playback speeds.
 
 ## Upcoming Features
 
 - Update the non 3D grid view to allow a camera to be selected and it replaces the main larger camera, the main front camera then moves to the other cameras location. Always defaulting to the current view when loading a clip
-- 1 button playback speed .5, 1, 1.5, 2 and 4 times
 - Export functionality stage 1, snip a section of a clip using red and green bracket from one camera and export to mp4
 - Export funcxtionality stage 2, pick which camera view is included and they are stiched together in the export
 - Basic authentication (optional Docker variable of auth=true/false to reset), off by default, user can set password in app. User account area created to support this
