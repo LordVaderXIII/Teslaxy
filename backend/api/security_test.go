@@ -59,3 +59,26 @@ func TestServeVideo_PathTraversal(t *testing.T) {
 		}
 	})
 }
+
+func TestSecurityHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	SetupRoutes(r)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/version", nil)
+	r.ServeHTTP(w, req)
+
+	expectedHeaders := map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "SAMEORIGIN",
+		"X-XSS-Protection":       "1; mode=block",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+	}
+
+	for key, val := range expectedHeaders {
+		if got := w.Header().Get(key); got != val {
+			t.Errorf("Expected header %s to be %s, got %s", key, val, got)
+		}
+	}
+}
