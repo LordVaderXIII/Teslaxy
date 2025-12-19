@@ -43,7 +43,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
     if (frontVideos.length === 0) return '';
 
     // Sort by timestamp
-    frontVideos.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    frontVideos.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
     let targetVideo = frontVideos[0];
     let seekTime = 0;
@@ -120,17 +120,29 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
 
+  // Optimization: Memoize date strings to avoid re-parsing on every render/filter change
+  const clipDateMap = useMemo(() => {
+    const map = new Map<number, string>();
+    clips.forEach(clip => {
+      map.set(clip.ID, new Date(clip.timestamp).toDateString());
+    });
+    return map;
+  }, [clips]);
+
   // Filter Logic
-  const filteredClips = useMemo(() => clips.filter(clip => {
-    // Date Filter
-    const clipDate = new Date(clip.timestamp);
-    const sameDay = clipDate.toDateString() === selectedDate.toDateString();
+  const filteredClips = useMemo(() => {
+    const targetDateStr = selectedDate.toDateString();
 
-    // Type Filter
-    const typeMatch = filterType === 'All' || clip.event === filterType;
+    return clips.filter(clip => {
+      // Date Filter
+      const sameDay = clipDateMap.get(clip.ID) === targetDateStr;
 
-    return sameDay && typeMatch;
-  }), [clips, selectedDate, filterType]);
+      // Type Filter
+      const typeMatch = filterType === 'All' || clip.event === filterType;
+
+      return sameDay && typeMatch;
+    });
+  }, [clips, clipDateMap, selectedDate, filterType]);
 
   // Get unique event types for dropdown
   const eventTypes = useMemo(() => ['All', ...Array.from(new Set(clips.map(c => c.event)))], [clips]);
