@@ -38,6 +38,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [is3D, setIs3D] = useState(false);
   const [activeCamera, setActiveCamera] = useState<string>('Front');
   const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
 
   // Group segments by camera
   const segments = useMemo(() => {
@@ -141,10 +142,25 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       }
   }, [currentTime, getSegmentAtTime, currentSegmentIndex]);
 
+  useEffect(() => {
+    Object.values(playersRef.current).forEach((p: any) => {
+      if (p && typeof p.playbackRate === 'function') {
+        p.playbackRate(playbackSpeed);
+      }
+    });
+
+    if (mainPlayerRef.current && typeof mainPlayerRef.current.playbackRate === 'function') {
+        mainPlayerRef.current.playbackRate(playbackSpeed);
+    }
+  }, [playbackSpeed]);
 
   const handlePlayerReady = useCallback((camera: string, player: any) => {
     if (!player) return;
     playersRef.current[camera] = player;
+
+    if (typeof player.playbackRate === 'function') {
+        player.playbackRate(playbackSpeed);
+    }
 
     const normCam = normalizeCameraName(camera);
     const frontExists = !!segments['front'];
@@ -221,6 +237,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     player.on('pause', () => setIsPlaying(false));
 
   }, [segments, isPlaying]); // Removed currentTime from deps to avoid re-binding
+
+  const cyclePlaybackSpeed = () => {
+    const speeds = [0.5, 1, 1.5, 2, 4];
+    const nextIndex = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
+    setPlaybackSpeed(speeds[nextIndex]);
+  };
 
   const togglePlay = () => {
       const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
@@ -433,6 +455,14 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCw size={20} />
+              </button>
+              <button
+                  onClick={cyclePlaybackSpeed}
+                  aria-label={`Playback speed: ${playbackSpeed}x`}
+                  title="Change playback speed"
+                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none text-xs font-bold font-mono"
+              >
+                  {playbackSpeed}x
               </button>
           </div>
        </div>
