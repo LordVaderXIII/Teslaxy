@@ -15,6 +15,9 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine) {
+	// Apply global security headers
+	r.Use(SecurityHeadersMiddleware())
+
 	api := r.Group("/api")
 
 	// Login endpoint (public)
