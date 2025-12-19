@@ -31,7 +31,7 @@ function App() {
         .catch(err => console.error(err))
   }, [])
 
-  useEffect(() => {
+  const refreshClips = useCallback((autoSelectFirst = false) => {
     fetch('/api/clips')
       .then(res => res.json())
       .then((data: Clip[]) => {
@@ -43,7 +43,7 @@ function App() {
         const sorted = merged.reverse();
 
         setClips(sorted)
-        if (sorted.length > 0) {
+        if (autoSelectFirst && sorted.length > 0) {
             handleClipSelect(sorted[0])
         }
         setLoading(false)
@@ -53,6 +53,15 @@ function App() {
         setLoading(false)
       })
   }, [handleClipSelect])
+
+  useEffect(() => {
+    refreshClips(true)
+  }, [refreshClips])
+
+  const handleRefresh = useCallback(() => {
+    setLoading(true)
+    refreshClips(false)
+  }, [refreshClips])
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-screen bg-black text-white overflow-hidden font-sans">
@@ -82,6 +91,7 @@ function App() {
          clips={clips}
          selectedClipId={selectedClip?.ID || null}
          onClipSelect={handleClipSelect}
+         onRefresh={handleRefresh}
          loading={loading}
          className="order-2 flex-1 md:h-full md:flex-none min-h-0 overflow-hidden"
       />

@@ -24,6 +24,7 @@ interface SidebarProps {
   clips: Clip[];
   selectedClipId: number | null;
   onClipSelect: (clip: Clip) => void;
+  onRefresh?: () => void;
   loading: boolean;
   className?: string;
 }
@@ -114,7 +115,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
   );
 });
 
-const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, loading, className }) => {
+const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, onRefresh, loading, className }) => {
   const [filterType, setFilterType] = useState<string>('All');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
@@ -173,11 +174,16 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                      <CalendarIcon size={18} />
                   </button>
                   <button
+                    onClick={onRefresh}
+                    disabled={loading}
                     aria-label="Refresh library"
-                    className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                    data-loading={loading ? "true" : "false"}
+                    className="p-2 bg-gray-900 rounded-full hover:bg-gray-800 transition text-gray-400 hover:text-white outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Sync"
                   >
-                     <RefreshCw size={18} />
+                     <div className={loading ? 'animate-spin' : undefined}>
+                        <RefreshCw size={18} />
+                     </div>
                   </button>
               </div>
           </div>
