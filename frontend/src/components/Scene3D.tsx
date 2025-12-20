@@ -233,4 +233,6 @@ const Scene3D: React.FC<Scene3DProps> = ({
   );
 };
 
-export default Scene3D;
+// Bolt: Memoize Scene3D to prevent re-renders on every timeline update (10Hz).
+// Only re-render when video sources change (segment switch).
+export default React.memo(Scene3D);
