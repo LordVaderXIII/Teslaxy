@@ -87,7 +87,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
           {thumbnailUrl ? (
              <img
                 src={thumbnailUrl}
-                alt="Thumbnail"
+                alt={`Thumbnail for ${clip.event} event at ${clip.city}`}
                 className="w-full h-full object-cover"
                 loading="lazy"
              />

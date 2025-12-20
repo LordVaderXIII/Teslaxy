@@ -61,11 +61,19 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
     for (let i = 1; i <= daysInMonth; i++) {
       const hasFootage = hasClips(i);
       const selected = isSelected(i);
+      const date = new Date(viewDate.getFullYear(), viewDate.getMonth(), i);
+      const dateStr = date.toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      });
+      const label = `${dateStr}${hasFootage ? ', has footage' : ''}${selected ? ', selected' : ''}`;
 
       days.push(
         <button
           key={i}
-          onClick={() => onDateSelect(new Date(viewDate.getFullYear(), viewDate.getMonth(), i))}
+          onClick={() => onDateSelect(date)}
+          aria-label={label}
           className={`
             h-8 w-8 rounded-full flex items-center justify-center text-sm transition
             ${selected ? 'bg-blue-600 text-white font-bold' : ''}
@@ -83,13 +91,21 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
   return (
     <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
       <div className="flex justify-between items-center mb-4">
-        <button onClick={handlePrevMonth} className="p-1 hover:bg-gray-800 rounded">
+        <button
+          onClick={handlePrevMonth}
+          className="p-1 hover:bg-gray-800 rounded"
+          aria-label="Previous Month"
+        >
           <ChevronLeft size={16} />
         </button>
         <span className="font-semibold text-sm">
           {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
         </span>
-        <button onClick={handleNextMonth} className="p-1 hover:bg-gray-800 rounded">
+        <button
+          onClick={handleNextMonth}
+          className="p-1 hover:bg-gray-800 rounded"
+          aria-label="Next Month"
+        >
           <ChevronRight size={16} />
         </button>
       </div>
