@@ -13,16 +13,24 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 var (
-	secretKey []byte
-	adminUser string
-	adminPass string
+	secretKey     []byte
+	adminUser     string
+	adminPass     string
+	loginAttempts = make(map[string]*loginAttempt)
+	loginLock     sync.Mutex
 )
+
+type loginAttempt struct {
+	count        int
+	firstAttempt time.Time
+}
 
 func init() {
 	// Initialize JWT Secret
@@ -39,6 +47,22 @@ func init() {
 
 	// Initialize Admin Credentials
 	loadAdminCreds()
+
+	// Start rate limit cleanup
+	go cleanupRateLimits()
+}
+
+func cleanupRateLimits() {
+	for {
+		time.Sleep(time.Minute)
+		loginLock.Lock()
+		for ip, attempt := range loginAttempts {
+			if time.Since(attempt.firstAttempt) > time.Minute {
+				delete(loginAttempts, ip)
+			}
+		}
+		loginLock.Unlock()
+	}
 }
 
 func loadAdminCreds() {
@@ -96,7 +120,38 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+func checkRateLimit(ip string) bool {
+	loginLock.Lock()
+	defer loginLock.Unlock()
+
+	attempt, exists := loginAttempts[ip]
+	if !exists {
+		loginAttempts[ip] = &loginAttempt{count: 1, firstAttempt: time.Now()}
+		return true
+	}
+
+	// Reset if window passed (1 minute)
+	if time.Since(attempt.firstAttempt) > time.Minute {
+		attempt.count = 1
+		attempt.firstAttempt = time.Now()
+		return true
+	}
+
+	if attempt.count >= 5 {
+		return false
+	}
+
+	attempt.count++
+	return true
+}
+
 func Login(c *gin.Context) {
+	// Rate Limiting
+	if !checkRateLimit(c.ClientIP()) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many login attempts. Please try again later."})
+		return
+	}
+
 	var creds struct {
 		Username string `json:"username"`
 		Password string `json:"password"`

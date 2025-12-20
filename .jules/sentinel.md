@@ -19,3 +19,8 @@
 **Vulnerability:** The application used a hardcoded default password ("tesla") for the "admin" user when the `ADMIN_PASS` environment variable was not set, making unconfigured instances trivially exploitable.
 **Learning:** Hardcoded fallbacks for authentication credentials defeat the purpose of authentication. Users often deploy with defaults for testing and forget to change them.
 **Prevention:** Implement "Secure by Default": if `ADMIN_PASS` is missing, generate a strong random password at startup and log it. This ensures security without breaking the "zero-config" usability goal.
+
+## 2025-12-20 - Unbounded In-Memory Rate Limiting
+**Vulnerability:** Implementing simple map-based rate limiting without cleanup created a memory leak risk (DoS) where attackers could exhaust server RAM by spoofing many unique IP addresses.
+**Learning:** Security controls themselves can become vulnerabilities if they consume unbounded resources. "Simple" in-memory solutions often lack the eviction logic found in mature libraries (like Redis or proper LRU caches).
+**Prevention:** When implementing custom stateful security controls (like rate limiters), always include a mechanism to prune old data (e.g., a background cleanup goroutine or usage of `golang.org/x/time/rate` with a wrapper).
