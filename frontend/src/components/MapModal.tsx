@@ -71,18 +71,20 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
         const frontVideo = clip.video_files?.find((v: any) => v.camera === 'Front');
         if (!frontVideo) return '';
 
-        let url = `/api/thumbnail${frontVideo.file_path}`;
+        const params = new URLSearchParams();
+        params.append('w', '320');
+
         if (clip.event_timestamp) {
             const start = new Date(clip.timestamp).getTime();
             const event = new Date(clip.event_timestamp).getTime();
             if (!isNaN(start) && !isNaN(event)) {
                  const diff = (event - start) / 1000;
                  if (diff > 0 && diff < 600) {
-                     url += `?time=${diff.toFixed(1)}`;
+                     params.append('time', diff.toFixed(1));
                  }
             }
         }
-        return url;
+        return `/api/thumbnail${frontVideo.file_path}?${params.toString()}`;
     };
 
     // Handle Escape key
