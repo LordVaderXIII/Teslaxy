@@ -116,7 +116,7 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                 <div className="absolute top-4 right-4 z-[1000]">
                     <button
                         onClick={onClose}
-                        className="bg-gray-800 text-white p-2 rounded-full shadow-lg hover:bg-gray-700 transition-colors border border-gray-600"
+                        className="bg-gray-800 text-white p-2 rounded-full shadow-lg hover:bg-gray-700 transition-colors border border-gray-600 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900"
                         aria-label="Close Map"
                     >
                         <X size={24} />
@@ -159,7 +159,7 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                                                     onClipSelect(clip);
                                                     onClose();
                                                 }}
-                                                className="w-full group relative aspect-video bg-gray-200 rounded overflow-hidden"
+                                                className="w-full group relative aspect-video bg-gray-200 rounded overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                                             >
                                                {clip.video_files?.find((v:any) => v.camera === 'Front') ? (
                                                    <img

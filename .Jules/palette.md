@@ -21,3 +21,7 @@
 ## 2025-05-28 - Calendar Navigation Accessibility
 **Learning:** Calendar components often use simple numbers for day buttons, which provides poor context for screen reader users (hearing "1, 2, 3" instead of "May 1st"). Navigational chevrons also frequently lack labels.
 **Action:** Ensure calendar day buttons have `aria-label` attributes containing the full date and status (e.g., "May 1st, 2025, has footage"), and navigational arrows are clearly labeled "Previous Month" and "Next Month".
+
+## 2025-12-21 - Consistent Focus States
+**Learning:** While some components (Sidebar, Player) had excellent focus states, others (Calendar, MapModal) relied on browser defaults or had none, creating a disjointed keyboard navigation experience.
+**Action:** Audit all interactive elements and enforce a consistent `focus-visible` ring style (e.g., `ring-2 ring-blue-500`) to ensure users always know where they are, regardless of the component.

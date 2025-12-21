@@ -42,7 +42,7 @@ const VersionDisplay: React.FC<VersionDisplayProps> = ({ className }) => {
   return (
     <>
       <button
-        className={`cursor-pointer px-3 py-1 rounded-full border border-gray-700 text-xs text-gray-400 hover:text-white transition-colors hover:border-gray-500 bg-gray-900/50 ${className || ''}`}
+        className={`cursor-pointer px-3 py-1 rounded-full border border-gray-700 text-xs text-gray-400 hover:text-white transition-colors hover:border-gray-500 bg-gray-900/50 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${className || ''}`}
         onClick={() => setShowChangelog(true)}
         title="Click to view changelog"
       >
@@ -75,7 +75,7 @@ const VersionDisplay: React.FC<VersionDisplayProps> = ({ className }) => {
                 </div>
                 <button
                   onClick={() => setShowChangelog(false)}
-                  className="bg-black/20 hover:bg-black/40 text-white p-2 rounded-full transition-colors backdrop-blur-sm"
+                  className="bg-black/20 hover:bg-black/40 text-white p-2 rounded-full transition-colors backdrop-blur-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   aria-label="Close changelog"
                 >
                   <X size={24} />
