@@ -24,3 +24,8 @@
 **Vulnerability:** Implementing simple map-based rate limiting without cleanup created a memory leak risk (DoS) where attackers could exhaust server RAM by spoofing many unique IP addresses.
 **Learning:** Security controls themselves can become vulnerabilities if they consume unbounded resources. "Simple" in-memory solutions often lack the eviction logic found in mature libraries (like Redis or proper LRU caches).
 **Prevention:** When implementing custom stateful security controls (like rate limiters), always include a mechanism to prune old data (e.g., a background cleanup goroutine or usage of `golang.org/x/time/rate` with a wrapper).
+
+## 2025-12-22 - Insecure Global CORS Configuration
+**Vulnerability:** The application applied `Access-Control-Allow-Origin: *` globally and included `Access-Control-Allow-Credentials: true`, which is an invalid and insecure configuration allowing potential data leakage and bypassing same-origin protections.
+**Learning:** Applying CORS globally "just to make it work" defeats the purpose of the Same-Origin Policy. Specific endpoints (like video textures) might need CORS, but APIs generally don't if served from the same origin.
+**Prevention:** Default to NO CORS. Apply CORS middleware only to specific routes that require it (e.g., assets loaded by `<video crossOrigin>`). Ensure `Credentials` is not true if `Origin` is `*`.

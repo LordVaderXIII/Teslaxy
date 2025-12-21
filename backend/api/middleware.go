@@ -16,3 +16,19 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// CORSMiddleware enables CORS for specific endpoints (like video serving for 3D textures)
+func CORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
