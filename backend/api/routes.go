@@ -30,7 +30,8 @@ func SetupRoutes(r *gin.Engine) {
 	{
 		api.GET("/clips", getClips)
 		api.GET("/clips/:id", getClipDetails)
-		api.GET("/video/*path", serveVideo)
+		// Apply CORS only to video serving to support 3D textures (crossOrigin)
+		api.GET("/video/*path", CORSMiddleware(), serveVideo)
 		api.GET("/thumbnail/*path", getThumbnail)
 
 		// Export Routes

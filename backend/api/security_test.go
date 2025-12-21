@@ -82,3 +82,45 @@ func TestSecurityHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestCORS(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	SetupRoutes(r)
+
+	// Case 1: Standard API endpoint should NOT have CORS headers (Security: Restrict access)
+	t.Run("API Clips - No CORS", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/api/clips", nil)
+		req.Header.Set("Authorization", "Bearer invalid-but-present") // Middleware check
+		r.ServeHTTP(w, req)
+
+		if w.Header().Get("Access-Control-Allow-Origin") != "" {
+			t.Errorf("Expected no Access-Control-Allow-Origin header for /api/clips")
+		}
+	})
+
+	// Case 2: Video endpoint MUST have CORS headers for 3D textures
+	t.Run("Video Endpoint - Has CORS", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		// Setup mock file
+		footageDir := "/tmp/footage_cors_test"
+		os.MkdirAll(footageDir, 0755)
+		defer os.RemoveAll(footageDir)
+		os.Setenv("FOOTAGE_PATH", footageDir)
+		defer os.Unsetenv("FOOTAGE_PATH")
+		os.WriteFile(filepath.Join(footageDir, "test.mp4"), []byte("video"), 0644)
+
+		req, _ := http.NewRequest("GET", "/api/video/test.mp4", nil)
+		// We need to bypass auth for this test or provide valid token?
+		// AuthMiddleware is enabled by default if AUTH_ENABLED is true.
+		// If AUTH_ENABLED is false (default env), AuthMiddleware calls Next().
+		// Wait, os.Getenv("AUTH_ENABLED") is empty in tests unless set.
+		// So AuthMiddleware is disabled.
+		r.ServeHTTP(w, req)
+
+		if w.Header().Get("Access-Control-Allow-Origin") != "*" {
+			t.Errorf("Expected Access-Control-Allow-Origin: * for /api/video, got '%s'", w.Header().Get("Access-Control-Allow-Origin"))
+		}
+	})
+}

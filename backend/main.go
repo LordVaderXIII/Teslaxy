@@ -43,20 +43,12 @@ func main() {
 	// Setup Server
 	r := gin.Default()
 
-	// CORS (Simple for now)
-	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
-
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-
-		c.Next()
-	})
+	// Trusted Proxies (Fix IP spoofing)
+	// Trust no proxies by default. If running behind Nginx/Traefik, this should be configured.
+	// But for security, we default to nil to ensure ClientIP is accurate for rate limiting.
+	if err := r.SetTrustedProxies(nil); err != nil {
+		log.Printf("Warning: Failed to set trusted proxies: %v", err)
+	}
 
 	api.SetupRoutes(r)
 
