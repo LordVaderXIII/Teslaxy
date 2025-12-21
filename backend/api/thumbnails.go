@@ -18,6 +18,7 @@ import (
 func getThumbnail(c *gin.Context) {
 	videoPath := c.Param("path")
 	seekTime := c.DefaultQuery("time", "0.1")
+	widthStr := c.DefaultQuery("w", "480")
 
 	// Validate seekTime
 	if _, err := strconv.ParseFloat(seekTime, 64); err != nil {
@@ -25,6 +26,12 @@ func getThumbnail(c *gin.Context) {
 		// For now, strict check on float to avoid injection
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid time parameter"})
 		return
+	}
+
+	// Validate width
+	width, err := strconv.Atoi(widthStr)
+	if err != nil || width < 10 || width > 1920 {
+		width = 480
 	}
 
 	footagePath := os.Getenv("FOOTAGE_PATH")
@@ -71,8 +78,8 @@ func getThumbnail(c *gin.Context) {
 	}
 
 	// 3. Generate Cache Filename
-	// Hash the full path AND the seekTime to ensure uniqueness
-	cacheKey := fmt.Sprintf("%s|%s", fullPath, seekTime)
+	// Hash the full path, seekTime AND width to ensure uniqueness
+	cacheKey := fmt.Sprintf("%s|%s|%d", fullPath, seekTime, width)
 	hash := md5.Sum([]byte(cacheKey))
 	hashStr := hex.EncodeToString(hash[:])
 	thumbPath := filepath.Join(thumbDir, hashStr+".jpg")
@@ -91,9 +98,10 @@ func getThumbnail(c *gin.Context) {
 	// -ss seekTime: seek to specific time
 	// -i input: input file
 	// -vframes 1: output 1 frame
-	// -vf scale=480:-1: resize to width 480 (keep aspect ratio)
+	// -vf scale=width:-1: resize to requested width (keep aspect ratio)
 	// -q:v 5: quality (1-31, lower is better)
-	cmd := exec.Command("ffmpeg", "-y", "-ss", seekTime, "-i", fullPath, "-vframes", "1", "-vf", "scale=480:-1", "-q:v", "5", thumbPath)
+	vf := fmt.Sprintf("scale=%d:-1", width)
+	cmd := exec.Command("ffmpeg", "-y", "-ss", seekTime, "-i", fullPath, "-vframes", "1", "-vf", vf, "-q:v", "5", thumbPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("FFmpeg error: %v, Output: %s", err, string(out))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})

@@ -48,6 +48,18 @@ func TestGetThumbnail(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
+	t.Run("Invalid Width Parameter Defaults", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		// Should not fail validation, but fallback to 480.
+		// Since file exists (dummy), it should proceed to ffmpeg and likely fail (500) or cache check.
+		// We expect 500 because dummy content is not valid video for ffmpeg.
+		// But validation should pass (not 400).
+		req, _ := http.NewRequest("GET", "/api/thumbnail/test_thumb.mp4?w=invalid", nil)
+		r.ServeHTTP(w, req)
+
+		assert.NotEqual(t, http.StatusBadRequest, w.Code)
+	})
+
 	// We can't easily test success without ffmpeg and valid video in this environment
 	// unless we mock exec.Command which is hard in Go without dependency injection.
 	// But we verified the input validation.

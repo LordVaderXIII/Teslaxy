@@ -69,7 +69,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
         }
     }
 
-    return `/api/thumbnail${targetVideo.file_path}?time=${seekTime.toFixed(1)}`;
+    return `/api/thumbnail${targetVideo.file_path}?time=${seekTime.toFixed(1)}&w=160`;
   }, [clip.video_files, clip.event_timestamp]);
 
   return (
