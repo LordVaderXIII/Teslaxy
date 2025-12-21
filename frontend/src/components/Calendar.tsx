@@ -75,7 +75,7 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
           onClick={() => onDateSelect(date)}
           aria-label={label}
           className={`
-            h-8 w-8 rounded-full flex items-center justify-center text-sm transition
+            h-8 w-8 rounded-full flex items-center justify-center text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900
             ${selected ? 'bg-blue-600 text-white font-bold' : ''}
             ${!selected && hasFootage ? 'bg-gray-700 text-gray-200 font-medium' : ''}
             ${!selected && !hasFootage ? 'text-gray-500 hover:bg-gray-800' : ''}
@@ -93,7 +93,7 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
       <div className="flex justify-between items-center mb-4">
         <button
           onClick={handlePrevMonth}
-          className="p-1 hover:bg-gray-800 rounded"
+          className="p-1 hover:bg-gray-800 rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           aria-label="Previous Month"
         >
           <ChevronLeft size={16} />
@@ -103,7 +103,7 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
         </span>
         <button
           onClick={handleNextMonth}
-          className="p-1 hover:bg-gray-800 rounded"
+          className="p-1 hover:bg-gray-800 rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           aria-label="Next Month"
         >
           <ChevronRight size={16} />
