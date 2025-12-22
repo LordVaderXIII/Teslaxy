@@ -25,3 +25,7 @@
 ## 2025-12-21 - Consistent Focus States
 **Learning:** While some components (Sidebar, Player) had excellent focus states, others (Calendar, MapModal) relied on browser defaults or had none, creating a disjointed keyboard navigation experience.
 **Action:** Audit all interactive elements and enforce a consistent `focus-visible` ring style (e.g., `ring-2 ring-blue-500`) to ensure users always know where they are, regardless of the component.
+
+## 2025-12-22 - Global Keyboard Shortcuts
+**Learning:** Video players are expected to support global keyboard shortcuts (Space, Arrows) even when the player control isn't explicitly focused. Relying solely on click handlers creates friction.
+**Action:** Implement `window` level `keydown` listeners for media components, ensuring to exclude input fields to prevent conflicts.
