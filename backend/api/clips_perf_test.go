@@ -4,6 +4,7 @@ import (
 	"teslaxy/database"
 	"teslaxy/models"
 	"testing"
+	"time"
 
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/sqlite"
@@ -36,18 +37,27 @@ func TestGetClipsPerformance(t *testing.T) {
 	}
 	database.DB.Create(&telemetry)
 
-	videoFile := models.VideoFile{
-		ClipID:   clip.ID,
-		Camera:   "Front",
-		FilePath: "/test/front.mp4",
+	videoFile1 := models.VideoFile{
+		ClipID:    clip.ID,
+		Camera:    "Front",
+		FilePath:  "/test/front1.mp4",
+		Timestamp: clip.Timestamp.Add(2 * time.Second),
 	}
-	database.DB.Create(&videoFile)
+	database.DB.Create(&videoFile1)
+
+	videoFile2 := models.VideoFile{
+		ClipID:    clip.ID,
+		Camera:    "Front",
+		FilePath:  "/test/front2.mp4",
+		Timestamp: clip.Timestamp.Add(1 * time.Second), // Earlier than file1
+	}
+	database.DB.Create(&videoFile2)
 
 	// Test the optimized query
 	var clips []models.Clip
 	err = database.DB.Select("id, timestamp, event_timestamp, event, city, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
-			return db.Select("clip_id, camera, file_path, timestamp")
+			return db.Select("clip_id, camera, file_path, timestamp").Order("timestamp asc")
 		}).
 		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, clip_id, latitude, longitude") // Only select needed fields
@@ -82,14 +92,21 @@ func TestGetClipsPerformance(t *testing.T) {
 		t.Errorf("Expected Telemetry.CreatedAt to be zero, got %v", tClip.Telemetry.CreatedAt)
 	}
 
-	// Verify VideoFile optimization
-	if len(tClip.VideoFiles) != 1 {
-		t.Fatalf("Expected 1 VideoFile, got %d", len(tClip.VideoFiles))
+	// Verify VideoFile optimization & Ordering
+	if len(tClip.VideoFiles) != 2 {
+		t.Fatalf("Expected 2 VideoFiles, got %d", len(tClip.VideoFiles))
 	}
+
+	// Check ordering (should be sorted by timestamp asc)
+	// front2.mp4 is earlier (1s) than front1.mp4 (2s)
+	if tClip.VideoFiles[0].FilePath != "/test/front2.mp4" {
+		t.Errorf("Expected first video to be front2.mp4 (earlier), got %s", tClip.VideoFiles[0].FilePath)
+	}
+	if tClip.VideoFiles[1].FilePath != "/test/front1.mp4" {
+		t.Errorf("Expected second video to be front1.mp4 (later), got %s", tClip.VideoFiles[1].FilePath)
+	}
+
 	tFile := tClip.VideoFiles[0]
-	if tFile.FilePath != "/test/front.mp4" {
-		t.Errorf("Expected FilePath /test/front.mp4, got %s", tFile.FilePath)
-	}
 	if !tFile.CreatedAt.IsZero() {
 		t.Errorf("Expected VideoFile.CreatedAt to be zero, got %v", tFile.CreatedAt)
 	}
