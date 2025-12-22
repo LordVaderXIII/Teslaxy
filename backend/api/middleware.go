@@ -13,6 +13,8 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
 		// Strict referrer policy to protect privacy
 		c.Writer.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Content Security Policy
+		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.basemaps.cartocdn.com; connect-src 'self'; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self';")
 		c.Next()
 	}
 }

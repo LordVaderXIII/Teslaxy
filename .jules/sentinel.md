@@ -29,3 +29,8 @@
 **Vulnerability:** The application applied `Access-Control-Allow-Origin: *` globally and included `Access-Control-Allow-Credentials: true`, which is an invalid and insecure configuration allowing potential data leakage and bypassing same-origin protections.
 **Learning:** Applying CORS globally "just to make it work" defeats the purpose of the Same-Origin Policy. Specific endpoints (like video textures) might need CORS, but APIs generally don't if served from the same origin.
 **Prevention:** Default to NO CORS. Apply CORS middleware only to specific routes that require it (e.g., assets loaded by `<video crossOrigin>`). Ensure `Credentials` is not true if `Origin` is `*`.
+
+## 2025-12-22 - Content Security Policy for Hybrid Apps
+**Vulnerability:** Missing CSP allowed potential XSS.
+**Learning:** React apps using external mapping libraries (Leaflet/CartoDB) and video players require specific CSP exemptions (blob:, data:, external tile domains) that can be tricky to balance with security.
+**Prevention:** Use a strict CSP starting with `default-src 'self'` and whitelist specific needs like `https://*.basemaps.cartocdn.com` for maps and `unsafe-inline` for React styles/scripts if necessary.
