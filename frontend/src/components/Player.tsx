@@ -101,9 +101,15 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
   const playersRef = useRef<{ [key: string]: any }>({});
   const mainPlayerRef = useRef<any>(null);
+  const currentTimeRef = useRef(0);
 
   // Track which segment is currently playing to optimize updates
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
+
+  // Sync ref
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
 
   // Reset state when clip changes
   useEffect(() => {
@@ -244,15 +250,15 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     setPlaybackSpeed(speeds[nextIndex]);
   };
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
       const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
       if (player) {
           if (player.paused()) player.play();
           else player.pause();
       }
-  };
+  }, []);
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
       const newTime = Math.max(0, Math.min(time, totalDuration));
       setCurrentTime(newTime);
 
@@ -283,7 +289,39 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                }
           }
       });
-  };
+  }, [totalDuration, segments, getSegmentAtTime]);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // Ignore if typing in an input
+        const target = e.target as HTMLElement;
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+        // Ignore Space if focusing a button (native behavior)
+        if (e.code === 'Space' && target.tagName === 'BUTTON') return;
+
+        switch(e.code) {
+            case 'Space':
+            case 'KeyK': // YouTube standard
+                e.preventDefault();
+                togglePlay();
+                break;
+            case 'ArrowLeft':
+            case 'KeyJ': // YouTube standard
+                e.preventDefault();
+                handleSeek(currentTimeRef.current - 15);
+                break;
+            case 'ArrowRight':
+            case 'KeyL': // YouTube standard
+                e.preventDefault();
+                handleSeek(currentTimeRef.current + 15);
+                break;
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, handleSeek]);
 
   const getUrl = (path: string) => {
     return `/api/video${path}`;
@@ -430,16 +468,16 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           <div className="flex items-center justify-center gap-4 mt-2">
               <button
                   onClick={() => handleSeek(Math.max(0, currentTime - 15))}
-                  aria-label="Rewind 15 seconds"
-                  title="Rewind 15 seconds"
+                  aria-label="Rewind 15 seconds (Left Arrow)"
+                  title="Rewind 15 seconds (Left Arrow)"
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCcw size={20} />
               </button>
               <button
                   onClick={togglePlay}
-                  aria-label={isPlaying ? "Pause" : "Play"}
-                  title={isPlaying ? "Pause" : "Play"}
+                  aria-label={isPlaying ? "Pause (Space)" : "Play (Space)"}
+                  title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                   className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   {isPlaying ? (
@@ -450,8 +488,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               </button>
               <button
                   onClick={() => handleSeek(Math.min(totalDuration, currentTime + 15))}
-                  aria-label="Skip forward 15 seconds"
-                  title="Skip forward 15 seconds"
+                  aria-label="Skip forward 15 seconds (Right Arrow)"
+                  title="Skip forward 15 seconds (Right Arrow)"
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCw size={20} />
