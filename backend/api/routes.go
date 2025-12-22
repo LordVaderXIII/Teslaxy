@@ -51,7 +51,7 @@ func getClips(c *gin.Context) {
 	// and heavy fields (FullDataJson) from the list view.
 	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
-			return db.Select("clip_id, camera, file_path, timestamp")
+			return db.Select("clip_id, camera, file_path, timestamp").Order("timestamp asc")
 		}).
 		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, clip_id, latitude, longitude")
@@ -65,7 +65,9 @@ func getClips(c *gin.Context) {
 func getClipDetails(c *gin.Context) {
 	id := c.Param("id")
 	var clip models.Clip
-	if err := database.DB.Preload("VideoFiles").Preload("Telemetry").First(&clip, id).Error; err != nil {
+	if err := database.DB.Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
+		return db.Order("timestamp asc")
+	}).Preload("Telemetry").First(&clip, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Clip not found"})
 		return
 	}
