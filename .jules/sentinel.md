@@ -29,3 +29,12 @@
 **Vulnerability:** The application applied `Access-Control-Allow-Origin: *` globally and included `Access-Control-Allow-Credentials: true`, which is an invalid and insecure configuration allowing potential data leakage and bypassing same-origin protections.
 **Learning:** Applying CORS globally "just to make it work" defeats the purpose of the Same-Origin Policy. Specific endpoints (like video textures) might need CORS, but APIs generally don't if served from the same origin.
 **Prevention:** Default to NO CORS. Apply CORS middleware only to specific routes that require it (e.g., assets loaded by `<video crossOrigin>`). Ensure `Credentials` is not true if `Origin` is `*`.
+
+## 2025-05-23 - [CSP Implementation]
+**Vulnerability:** Missing `Content-Security-Policy` header exposed the application to Cross-Site Scripting (XSS) and data injection attacks.
+**Learning:** React/Vite applications often require `'unsafe-inline'` for scripts and styles unless a nonce-based build system is strictly implemented. 3D libraries (Three.js) and maps (Leaflet/CartoDB) introduce specific requirements like `blob:` for textures and external domains for tiles.
+**Prevention:** Implemented a strict CSP that whitelists only necessary origins:
+- `script-src/style-src`: `'self' 'unsafe-inline'` (Required for Vite/Tailwind)
+- `img-src`: `'self' data: blob: https://*.basemaps.cartocdn.com` (Maps & Thumbnails)
+- `media-src`: `'self' blob:` (Video playback & 3D textures)
+- `object-src`: `'none'` (Block plugins)

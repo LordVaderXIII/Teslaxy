@@ -13,6 +13,12 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		c.Writer.Header().Set("X-XSS-Protection", "1; mode=block")
 		// Strict referrer policy to protect privacy
 		c.Writer.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Content Security Policy (CSP)
+		// - Allow 'self' by default
+		// - Allow inline scripts/styles for React/Tailwind (unsafe-inline is a trade-off for SPA)
+		// - Allow CartoDB basemaps for the map
+		// - Allow blob: for 3D video textures
+		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.basemaps.cartocdn.com; connect-src 'self'; media-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'self';")
 		c.Next()
 	}
 }
