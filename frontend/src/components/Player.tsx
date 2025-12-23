@@ -40,6 +40,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
 
+  // Keep track of latest time for event handlers to avoid re-binding
+  const currentTimeRef = useRef(currentTime);
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
+
   // Group segments by camera
   const segments = useMemo(() => {
       if (!clip?.video_files) return {};
@@ -199,7 +205,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             if (seg) {
                 const global = seg.startTime + player.currentTime();
                 // Avoid state update loops if close enough?
-                if (Math.abs(global - currentTime) > 0.1) {
+                // Use Ref to check against LATEST state without stale closure
+                if (Math.abs(global - currentTimeRef.current) > 0.1) {
                      setCurrentTime(global);
                 }
             }
@@ -236,7 +243,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     });
     player.on('pause', () => setIsPlaying(false));
 
-  }, [segments, isPlaying]); // Removed currentTime from deps to avoid re-binding
+  }, [segments, isPlaying, playbackSpeed]);
 
   const cyclePlaybackSpeed = () => {
     const speeds = [0.5, 1, 1.5, 2, 4];
@@ -244,15 +251,15 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     setPlaybackSpeed(speeds[nextIndex]);
   };
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
       const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
       if (player) {
           if (player.paused()) player.play();
           else player.pause();
       }
-  };
+  }, []);
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
       const newTime = Math.max(0, Math.min(time, totalDuration));
       setCurrentTime(newTime);
 
@@ -283,7 +290,36 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                }
           }
       });
-  };
+  }, [totalDuration, segments, getSegmentAtTime]);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      // Ignore inputs
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+
+      switch (e.code) {
+        case 'Space':
+          // Don't intercept if button is focused (let native click happen)
+          if (target.tagName === 'BUTTON') return;
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          handleSeek(currentTimeRef.current - 5);
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          handleSeek(currentTimeRef.current + 5);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, handleSeek]);
 
   const getUrl = (path: string) => {
     return `/api/video${path}`;
