@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -58,6 +59,38 @@ func TestServeVideo_PathTraversal(t *testing.T) {
 			t.Errorf("Expected 404, got %d", w.Code)
 		}
 	})
+}
+
+func TestCSPHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	// Use the middleware that should have CSP
+	r.Use(SecurityHeadersMiddleware())
+	r.GET("/ping", func(c *gin.Context) {
+		c.String(200, "pong")
+	})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/ping", nil)
+	r.ServeHTTP(w, req)
+
+	csp := w.Header().Get("Content-Security-Policy")
+	if csp == "" {
+		t.Error("Expected Content-Security-Policy header to be set, but it was empty")
+	}
+
+	// Verify critical directives if CSP exists
+	requiredDirectives := []string{
+		"default-src 'self'",
+		"script-src 'self' 'unsafe-inline'", // Required for React/Vite without nonces
+		"object-src 'none'",
+	}
+
+	for _, directive := range requiredDirectives {
+		if !strings.Contains(csp, directive) {
+			t.Errorf("Expected CSP to contain directive '%s', got: %s", directive, csp)
+		}
+	}
 }
 
 func TestSecurityHeaders(t *testing.T) {
