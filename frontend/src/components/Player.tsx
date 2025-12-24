@@ -244,15 +244,15 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     setPlaybackSpeed(speeds[nextIndex]);
   };
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
       const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
       if (player) {
           if (player.paused()) player.play();
           else player.pause();
       }
-  };
+  }, []);
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
       const newTime = Math.max(0, Math.min(time, totalDuration));
       setCurrentTime(newTime);
 
@@ -283,7 +283,53 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                }
           }
       });
-  };
+  }, [totalDuration, segments, getSegmentAtTime]);
+
+  // Sync state to ref for keyboard handlers to avoid re-binding
+  const stateRef = useRef({ currentTime });
+  useEffect(() => {
+    stateRef.current = { currentTime };
+  }, [currentTime]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if modifier keys are pressed
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+
+      // Ignore if user is typing in an input
+      const target = e.target as HTMLElement;
+      const tagName = target.tagName;
+      const isInput = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || target.isContentEditable;
+      if (isInput) return;
+
+      const isInteractive = tagName === 'BUTTON' || tagName === 'A' || target.role === 'button' || target.role === 'slider';
+
+      switch (e.key) {
+        case ' ':
+        case 'k':
+          // If focus is on an interactive element (like a button), let the browser handle it (which clicks the button).
+          // Exception: If the body or player container is focused.
+          if (e.key === ' ' && isInteractive) return;
+
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'ArrowLeft':
+        case 'j':
+          e.preventDefault();
+          handleSeek(stateRef.current.currentTime - 5);
+          break;
+        case 'ArrowRight':
+        case 'l':
+          e.preventDefault();
+          handleSeek(stateRef.current.currentTime + 5);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, handleSeek]);
 
   const getUrl = (path: string) => {
     return `/api/video${path}`;
@@ -431,7 +477,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={() => handleSeek(Math.max(0, currentTime - 15))}
                   aria-label="Rewind 15 seconds"
-                  title="Rewind 15 seconds"
+                  title="Rewind 15s (Arrow Left for 5s)"
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCcw size={20} />
@@ -439,7 +485,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={togglePlay}
                   aria-label={isPlaying ? "Pause" : "Play"}
-                  title={isPlaying ? "Pause" : "Play"}
+                  title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                   className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   {isPlaying ? (
@@ -451,7 +497,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={() => handleSeek(Math.min(totalDuration, currentTime + 15))}
                   aria-label="Skip forward 15 seconds"
-                  title="Skip forward 15 seconds"
+                  title="Skip forward 15s (Arrow Right for 5s)"
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCw size={20} />
