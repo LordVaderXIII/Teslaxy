@@ -22,7 +22,7 @@ type VideoFile struct {
 	ClipID    uint      `json:"clip_id" gorm:"index"`
 	Camera    string    `json:"camera"` // "Front", "Left Repeater", etc.
 	FilePath  string    `json:"file_path"`
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time `json:"timestamp" gorm:"index"`
 }
 
 type Telemetry struct {
