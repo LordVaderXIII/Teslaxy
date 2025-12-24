@@ -41,6 +41,40 @@ type ExportStatus struct {
 var exportQueue = make(map[string]*ExportStatus)
 var exportQueueLock sync.Mutex
 
+// Sentinel: Limit concurrent exports to prevent DoS (Process/CPU exhaustion)
+const MaxConcurrentExports = 3
+
+func init() {
+	// Sentinel: Background cleanup to prevent memory leaks from old job statuses
+	go func() {
+		for {
+			time.Sleep(10 * time.Minute)
+			cleanupOldExports()
+		}
+	}()
+}
+
+func cleanupOldExports() {
+	exportQueueLock.Lock()
+	defer exportQueueLock.Unlock()
+
+	now := time.Now()
+	for id, status := range exportQueue {
+		// Keep failed/completed jobs for 1 hour so users can check status
+		if status.Status == "completed" || status.Status == "failed" {
+			if now.Sub(status.CreatedAt) > 1*time.Hour {
+				delete(exportQueue, id)
+			}
+		}
+		// If a job is "processing" for > 2 hours, assume it's zombie and kill it
+		if status.Status == "processing" && now.Sub(status.CreatedAt) > 2*time.Hour {
+			status.Status = "failed"
+			status.Error = "Timeout (Zombie)"
+			// We don't kill the process here as we don't track PIDs, but we clean the map
+		}
+	}
+}
+
 // CheckForNvidiaGPU checks if an NVIDIA GPU is available via nvidia-smi
 func CheckForNvidiaGPU() bool {
 	gpuCheckLock.Lock()
@@ -66,22 +100,41 @@ func CheckForNvidiaGPU() bool {
 
 // QueueExport adds an export job to the queue
 func QueueExport(req ExportRequest) (string, error) {
-	var clip models.Clip
-	if err := database.DB.Preload("VideoFiles").First(&clip, req.ClipID).Error; err != nil {
-		return "", err
+	// Sentinel: Check concurrent limit (Strict: Hold lock to prevent TOCTOU race)
+	exportQueueLock.Lock()
+	activeJobs := 0
+	for _, status := range exportQueue {
+		if status.Status == "pending" || status.Status == "processing" {
+			activeJobs++
+		}
+	}
+	if activeJobs >= MaxConcurrentExports {
+		exportQueueLock.Unlock()
+		return "", fmt.Errorf("too many export jobs in progress (limit %d)", MaxConcurrentExports)
 	}
 
+	// Reserve the slot immediately by creating the entry with "pending" status
+	// We do this BEFORE DB operations to hold the "semaphore"
 	jobID := fmt.Sprintf("export_%d_%d", req.ClipID, time.Now().Unix())
 	status := &ExportStatus{
 		JobID:     jobID,
 		Status:    "pending",
 		CreatedAt: time.Now(),
 	}
-
-	exportQueueLock.Lock()
 	exportQueue[jobID] = status
 	exportQueueLock.Unlock()
 
+	// Perform DB Operation (outside lock to avoid blocking other readers)
+	var clip models.Clip
+	if err := database.DB.Preload("VideoFiles").First(&clip, req.ClipID).Error; err != nil {
+		// Rollback reservation if DB fails
+		exportQueueLock.Lock()
+		delete(exportQueue, jobID)
+		exportQueueLock.Unlock()
+		return "", err
+	}
+
+	// Start Processing
 	go processExport(jobID, req, clip)
 
 	return jobID, nil
