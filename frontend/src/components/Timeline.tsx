@@ -45,6 +45,32 @@ const Timeline: React.FC<TimelineProps> = ({
     handleSeek(e);
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (duration <= 0) return;
+    const step = 5; // 5 seconds jump
+
+    switch (e.key) {
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        e.preventDefault();
+        onSeek(Math.max(0, currentTime - step));
+        break;
+      case 'ArrowRight':
+      case 'ArrowUp':
+        e.preventDefault();
+        onSeek(Math.min(duration, currentTime + step));
+        break;
+      case 'Home':
+        e.preventDefault();
+        onSeek(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        onSeek(duration);
+        break;
+    }
+  };
+
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDragging) {
@@ -78,8 +104,16 @@ const Timeline: React.FC<TimelineProps> = ({
     <div className={`flex flex-col gap-1 select-none ${className}`}>
       <div
         ref={containerRef}
-        className="relative h-6 flex items-center cursor-pointer group"
+        className="relative h-6 flex items-center cursor-pointer group outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
         onMouseDown={handleMouseDown}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+        role="slider"
+        aria-label="Playback timeline"
+        aria-valuemin={0}
+        aria-valuemax={duration}
+        aria-valuenow={currentTime}
+        aria-valuetext={formatTime(currentTime)}
       >
         {/* Track Background */}
         <div className="absolute w-full h-1.5 bg-gray-700 rounded-full overflow-hidden group-hover:h-2 transition-all">
