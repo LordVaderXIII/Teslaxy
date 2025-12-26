@@ -102,6 +102,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const playersRef = useRef<{ [key: string]: any }>({});
   const mainPlayerRef = useRef<any>(null);
 
+  // State ref for event listeners to avoid stale closures
+  const stateRef = useRef({ currentTime, isPlaying, totalDuration });
+  useEffect(() => {
+    stateRef.current = { currentTime, isPlaying, totalDuration };
+  }, [currentTime, isPlaying, totalDuration]);
+
   // Track which segment is currently playing to optimize updates
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
 
@@ -252,8 +258,47 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       }
   };
 
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input
+      if (
+        document.activeElement instanceof HTMLInputElement ||
+        document.activeElement instanceof HTMLTextAreaElement ||
+        document.activeElement?.getAttribute('role') === 'slider'
+      ) {
+        return;
+      }
+
+      const { currentTime, totalDuration } = stateRef.current;
+
+      switch (e.key.toLowerCase()) {
+        case ' ':
+        case 'k':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'arrowleft':
+        case 'j':
+          e.preventDefault();
+          seekRef.current(Math.max(0, currentTime - 5));
+          break;
+        case 'arrowright':
+        case 'l':
+          e.preventDefault();
+          seekRef.current(Math.min(totalDuration, currentTime + 5));
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const handleSeek = (time: number) => {
-      const newTime = Math.max(0, Math.min(time, totalDuration));
+      // Use ref to ensure we respect the latest totalDuration if invoked externally or via ref
+      const maxDur = stateRef.current.totalDuration;
+      const newTime = Math.max(0, Math.min(time, maxDur));
       setCurrentTime(newTime);
 
       // We need to sync the players to this new time
@@ -284,6 +329,11 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           }
       });
   };
+
+  const seekRef = useRef(handleSeek);
+  useEffect(() => {
+      seekRef.current = handleSeek;
+  }, [handleSeek]);
 
   const getUrl = (path: string) => {
     return `/api/video${path}`;
