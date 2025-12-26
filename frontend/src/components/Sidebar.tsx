@@ -40,11 +40,10 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
     if (!clip.video_files) return '';
 
     // Find all front videos
+    // Note: clip.video_files is already sorted by timestamp (ASC) from the backend/merge logic.
+    // Filtering preserves relative order, so frontVideos is also sorted.
     const frontVideos = clip.video_files.filter(v => v.camera === 'Front');
     if (frontVideos.length === 0) return '';
-
-    // Sort by timestamp
-    frontVideos.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
     let targetVideo = frontVideos[0];
     let seekTime = 0;
