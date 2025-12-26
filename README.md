@@ -7,6 +7,7 @@ THIS APP IS IN HEAVY DEVELOPMENT AND MOST FEATURES ARE IN SOME SORT OF BROKEN ST
 ## Features
 
 - **Multi-Camera Playback:** Synchronized viewing of Front, Back, Left, and Right camera angles.
+- **Grid View Selection:** Select any camera to swap it into the main view, with the previous main camera taking its place.
 - **Sentry & Dashcam Support:** Automatically organizes clips from `SentryClips`, `SavedClips`, and `RecentClips`.
 - **Telemetry Overlay:** Visualization of vehicle data including speed, gear, steering angle, and autopilot state (extracted from video SEI data).
 - **Map View:** GPS location tracking synchronized with video playback.
@@ -17,7 +18,6 @@ THIS APP IS IN HEAVY DEVELOPMENT AND MOST FEATURES ARE IN SOME SORT OF BROKEN ST
 
 ## Upcoming Features
 
-- Update the non 3D grid view to allow a camera to be selected and it replaces the main larger camera, the main front camera then moves to the other cameras location. Always defaulting to the current view when loading a clip
 - Export functionality stage 1, snip a section of a clip using red and green bracket from one camera and export to mp4
 - Export funcxtionality stage 2, pick which camera view is included and they are stiched together in the export
 - Basic authentication (optional Docker variable of auth=true/false to reset), off by default, user can set password in app. User account area created to support this
