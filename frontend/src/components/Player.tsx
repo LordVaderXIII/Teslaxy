@@ -112,13 +112,25 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       setIsPlaying(false);
       mainPlayerRef.current = null;
       playersRef.current = {};
-      setActiveCamera('Front');
+      // Removed setActiveCamera('Front') to persist view selection
 
       return () => {
         playersRef.current = {};
         mainPlayerRef.current = null;
       };
   }, [clip?.ID]);
+
+  // Validate activeCamera against new clip's available files
+  useEffect(() => {
+      if (clip?.video_files && clip.video_files.length > 0) {
+          const hasActive = clip.video_files.some(f => normalizeCameraName(f.camera) === normalizeCameraName(activeCamera));
+          if (!hasActive) {
+             const hasFront = clip.video_files.some(f => normalizeCameraName(f.camera) === 'front');
+             if (hasFront) setActiveCamera('Front');
+             else setActiveCamera(clip.video_files[0].camera);
+          }
+      }
+  }, [clip?.ID, activeCamera]);
 
   // Determine current segment based on global time
   const getSegmentAtTime = useCallback((camera: string, time: number) => {
@@ -163,9 +175,10 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     }
 
     const normCam = normalizeCameraName(camera);
-    const frontExists = !!segments['front'];
-    // Set as main if it's Front, OR if Front doesn't exist and we don't have a main player yet.
-    const isMain = normCam === 'front' || (!frontExists && !mainPlayerRef.current);
+    const normActive = normalizeCameraName(activeCamera);
+
+    // Set as main if it matches the active camera
+    const isMain = normCam === normActive;
 
     if (isMain) {
       mainPlayerRef.current = player;
@@ -236,7 +249,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     });
     player.on('pause', () => setIsPlaying(false));
 
-  }, [segments, isPlaying]); // Removed currentTime from deps to avoid re-binding
+  }, [segments, isPlaying, activeCamera]);
 
   const cyclePlaybackSpeed = () => {
     const speeds = [0.5, 1, 1.5, 2, 4];
@@ -329,7 +342,10 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       };
 
       return (
-          <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${className} ${activeCamera === camName ? 'block h-full' : 'hidden md:block'}`}>
+          <div
+              onClick={() => setActiveCamera(camName)}
+              className={`cursor-pointer relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${className} ${activeCamera === camName ? 'block h-full' : 'hidden md:block'}`}
+          >
               {seg ? (
                   <VideoPlayer
                       key={`${clip.ID}-${camName}-${seg.file_path}`} // Key forces remount on segment change
@@ -351,6 +367,11 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               )}
           </div>
       );
+  };
+
+  const getSlotCamera = (defaultCam: string) => {
+      if (activeCamera === defaultCam) return 'Front';
+      return defaultCam;
   };
 
   return (
@@ -410,12 +431,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           </div>
       ) : (
           <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3 md:grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
-              {renderCamera('Front', 'md:col-span-3')}
-              {renderCamera('Left Pillar', '')}
-              {renderCamera('Back', 'md:row-span-2')}
-              {renderCamera('Right Pillar', '')}
-              {renderCamera('Left Repeater', '')}
-              {renderCamera('Right Repeater', '')}
+              {renderCamera(activeCamera, 'md:col-span-3')}
+              {renderCamera(getSlotCamera('Left Pillar'), '')}
+              {renderCamera(getSlotCamera('Back'), 'md:row-span-2')}
+              {renderCamera(getSlotCamera('Right Pillar'), '')}
+              {renderCamera(getSlotCamera('Left Repeater'), '')}
+              {renderCamera(getSlotCamera('Right Repeater'), '')}
           </div>
       )}
 
