@@ -1,0 +1,13 @@
+
+> frontend@0.1.17 dev
+> vite --port 5173
+
+
+  VITE v7.2.7  ready in 402 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+3:06:14 PM [vite] http proxy error: /api/video/test/front.mp4
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
