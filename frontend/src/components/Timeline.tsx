@@ -110,6 +110,7 @@ const Timeline: React.FC<TimelineProps> = ({
         tabIndex={0}
         role="slider"
         aria-label="Playback timeline"
+        aria-orientation="horizontal"
         aria-valuemin={0}
         aria-valuemax={duration}
         aria-valuenow={currentTime}
@@ -126,7 +127,7 @@ const Timeline: React.FC<TimelineProps> = ({
 
         {/* Handle */}
         <div
-          className="absolute h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2 scale-0 group-hover:scale-100 transition-transform"
+          className={`absolute h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2 transition-transform ${isDragging ? 'scale-100' : 'scale-0 group-hover:scale-100 group-focus-visible:scale-100'}`}
           style={{ left: `${getPercentage(currentTime)}%` }}
         />
 
