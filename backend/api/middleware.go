@@ -18,7 +18,7 @@ func SecurityHeadersMiddleware() gin.HandlerFunc {
 		// - Allow inline scripts/styles for React/Tailwind (unsafe-inline is a trade-off for SPA)
 		// - Allow CartoDB basemaps for the map
 		// - Allow blob: for 3D video textures
-		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.basemaps.cartocdn.com; connect-src 'self'; media-src 'self' blob:; font-src 'self'; object-src 'none'; base-uri 'self';")
+		c.Writer.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.basemaps.cartocdn.com; connect-src 'self'; media-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self';")
 		c.Next()
 	}
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo } from 'react';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
 
 interface TelemetryPoint {
@@ -19,48 +19,21 @@ interface TelemetryOverlayProps {
 }
 
 const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTime }) => {
-  const [data, setData] = useState<TelemetryPoint[]>([]);
-  const [currentPoint, setCurrentPoint] = useState<TelemetryPoint | null>(null);
-
-  useEffect(() => {
+  // Memoize parsed data to avoid re-parsing on every render
+  const data = useMemo<TelemetryPoint[]>(() => {
     try {
-      if (dataJson) {
-        const parsed = JSON.parse(dataJson);
-        // Ensure it's an array
-        if (Array.isArray(parsed)) {
-            setData(parsed);
-        }
-      }
+      if (!dataJson) return [];
+      const parsed = JSON.parse(dataJson);
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
       console.error("Failed to parse telemetry data", e);
+      return [];
     }
   }, [dataJson]);
 
-  useEffect(() => {
-    if (data.length === 0) return;
-
-    // Estimate frame index based on time.
-    // Assuming 30fps roughly, or try to use frame_seq_no if we knew the start offset.
-    // Ideally, we'd map timestamps to data points.
-    // Since we don't have absolute timestamps for every frame in the JSON (only frame_seq_no which is just a counter),
-    // and we don't know the exact start time of the video vs the data log (though usually they align).
-    // Let's assume 30fps linear mapping for now.
-
-    // MP4 usually 30fps or variable? Tesla is usually 30fps.
-    // Index = floor(currentTime * 30)
-
-    // Correction: frame_seq_no might not start at 0.
-    // We should find the first frame's seq no and offset from there?
-    // Let's just assume index = currentTime * 34 (approx?) or just map by array index assuming 1-to-1 with video frames?
-    // SEI data is usually embedded per frame. So array index ~ frame number.
-    // But video.js currentTime is in seconds.
-    // So index = Math.floor(currentTime * 36? or 30?)
-    // Let's try 30 first.
-
-    // Tesla dashcam is often roughly 36fps? Or just 30.
-    // Let's dynamic check: duration / data.length?
-    // But we don't have duration passed in here easily, though we could.
-    // Let's stick to 30fps default.
+  // Derive current point directly from props and data
+  const currentPoint = useMemo(() => {
+    if (data.length === 0) return null;
 
     const fps = 30; // approx
     let index = Math.floor(currentTime * fps);
@@ -69,14 +42,14 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTi
     if (index < 0) index = 0;
     if (index >= data.length) index = data.length - 1;
 
-    setCurrentPoint(data[index]);
-
+    return data[index];
   }, [currentTime, data]);
 
   if (!currentPoint) return null;
 
   // Helpers
-  const toMph = (mps: number) => Math.round(mps * 2.23694);
+  // Default numeric values to 0 to handle omitempty
+  const toMph = (mps: number) => Math.round((mps || 0) * 2.23694);
   const getGearLabel = (g: number) => ['P', 'D', 'R', 'N'][g] || 'P';
   const getAutopilotLabel = (s: number) => {
       switch(s) {
@@ -87,12 +60,15 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTi
       }
   };
 
-  const isBlinkerLeft = currentPoint.blinker_on_left;
-  const isBlinkerRight = currentPoint.blinker_on_right;
+  // Safe Accessors with Defaults for omitted fields
+  const isBlinkerLeft = !!currentPoint.blinker_on_left;
+  const isBlinkerRight = !!currentPoint.blinker_on_right;
   const speed = toMph(currentPoint.vehicle_speed_mps);
   const gear = getGearLabel(currentPoint.gear_state);
-  const steering = currentPoint.steering_wheel_angle; // degrees?
+  const steering = currentPoint.steering_wheel_angle || 0;
   const apState = getAutopilotLabel(currentPoint.autopilot_state);
+  const brakeApplied = !!currentPoint.brake_applied;
+  const accelPos = currentPoint.accelerator_pedal_position || 0;
 
   return (
     <div className="absolute top-8 left-1/2 transform -translate-x-1/2 w-64 p-4 rounded-xl bg-gray-900 bg-opacity-80 backdrop-blur-md border border-gray-700 shadow-2xl text-white font-sans select-none z-50">
@@ -134,23 +110,29 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTi
            </div>
       </div>
 
-      {/* Accel/Brake Bar */}
-      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mb-2 relative">
-          {/* Center is 0? Or 0 to 100? */}
-          {/* Usually dashboard shows regen (left) vs power (right). */}
-          {/* We have accel pedal (0-100?) and brake (bool?). */}
-          {/* Let's just show accel for now as a bar filling from left? Or center? */}
-          {/* Image shows a grey bar in center. */}
+      {/* Split Accel/Brake Bar */}
+      {/*
+          Container: Gray background for "empty" space.
+          Flexbox with two children: Left (Brake) and Right (Accel).
+          Justify center.
+      */}
+      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mb-2 relative flex">
+          {/* Left Half: Brake Area */}
+          <div className="flex-1 flex justify-end bg-gray-700 border-r border-gray-600">
+             {/* Brake Fill - Fills from Right to Left (justify-end) */}
+             {brakeApplied && (
+                 <div className="h-full bg-red-500 w-full opacity-80" />
+             )}
+          </div>
 
-          {/* If brake applied, show red bar? */}
-          {currentPoint.brake_applied ? (
-               <div className="w-full h-full bg-red-500 opacity-50" />
-          ) : (
+          {/* Right Half: Accel Area */}
+          <div className="flex-1 flex justify-start bg-gray-700">
+              {/* Accel Fill - Fills from Left to Right */}
               <div
-                className="h-full bg-gray-400"
-                style={{ width: `${currentPoint.accelerator_pedal_position}%` }}
+                  className="h-full bg-green-500 opacity-80"
+                  style={{ width: `${accelPos}%` }}
               />
-          )}
+          </div>
       </div>
 
       {/* Autopilot Status */}
