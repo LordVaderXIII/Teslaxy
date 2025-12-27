@@ -20,6 +20,23 @@ var (
 	gpuCheckLock sync.Mutex
 )
 
+func init() {
+	// Start background cleanup for export jobs to prevent memory leaks
+	go func() {
+		for {
+			time.Sleep(10 * time.Minute)
+			exportQueueLock.Lock()
+			for id, job := range exportQueue {
+				// Remove jobs created more than 1 hour ago
+				if time.Since(job.CreatedAt) > 1*time.Hour {
+					delete(exportQueue, id)
+				}
+			}
+			exportQueueLock.Unlock()
+		}
+	}()
+}
+
 // ExportRequest defines the parameters for exporting a clip
 type ExportRequest struct {
 	ClipID    uint     `json:"clip_id"`
@@ -79,6 +96,18 @@ func QueueExport(req ExportRequest) (string, error) {
 	}
 
 	exportQueueLock.Lock()
+	// Security: Enforce concurrency limit to prevent DoS
+	activeCount := 0
+	for _, job := range exportQueue {
+		if job.Status == "pending" || job.Status == "processing" {
+			activeCount++
+		}
+	}
+	if activeCount >= 3 {
+		exportQueueLock.Unlock()
+		return "", fmt.Errorf("server busy: too many active exports (max 3)")
+	}
+
 	exportQueue[jobID] = status
 	exportQueueLock.Unlock()
 

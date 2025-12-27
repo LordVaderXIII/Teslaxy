@@ -38,3 +38,9 @@
 - `img-src`: `'self' data: blob: https://*.basemaps.cartocdn.com` (Maps & Thumbnails)
 - `media-src`: `'self' blob:` (Video playback & 3D textures)
 - `object-src`: `'none'` (Block plugins)
+## 2025-12-25 - Exporter Denial of Service & Memory Leak
+**Vulnerability:** The `/api/export` endpoint allowed unbounded concurrent FFmpeg processes, enabling a trivial DoS attack that could exhaust CPU/Memory. Additionally, the in-memory job status map had no cleanup mechanism, leading to a permanent memory leak.
+**Learning:** Background jobs (like video processing) must always be bounded. "Fire and forget" goroutines without limits are dangerous. In-memory state tracking must always have an eviction policy (TTL).
+**Prevention:**
+1. Enforced a hard limit of 3 concurrent exports. Rejected requests when busy.
+2. Added a background `init()` goroutine to prune export job history older than 1 hour.
