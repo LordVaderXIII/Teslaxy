@@ -9,7 +9,9 @@ interface VideoPlayerProps {
   options?: any;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, options }) => {
+// Bolt: Memoized to prevent re-renders when parent (Player) updates (e.g. currentTime changes).
+// Since onReady is now stable (from Player), and src/options are stable, this avoids 60Hz re-renders.
+const VideoPlayer: React.FC<VideoPlayerProps> = React.memo(({ src, className, onReady, options }) => {
   const videoRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const currentSrcRef = useRef<string | null>(null);
@@ -53,7 +55,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
         currentSrcRef.current = src;
       }
     }
-  }, [src, options, onReady]);
+    // Bolt: onReady removed from deps because it's only used in the constructor callback (run once).
+    // Updating it has no effect on an existing player, so we shouldn't trigger the effect.
+  }, [src, options]);
 
   useEffect(() => {
     return () => {
@@ -69,6 +73,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, className, onReady, opti
       <div ref={videoRef} className="w-full h-full" />
     </div>
   );
-};
+});
 
 export default VideoPlayer;

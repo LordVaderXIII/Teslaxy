@@ -32,6 +32,60 @@ const normalizeCameraName = (name: string) => {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '');
 };
 
+// Bolt: Extracted CameraView to a separate component to fix Hooks violation.
+// This allows `useCallback` to be used correctly at the top level.
+const CameraView = React.memo(({
+    camName,
+    className,
+    seg,
+    activeCamera,
+    clip,
+    currentTime,
+    quality,
+    handlePlayerReady,
+    getUrl
+}: {
+    camName: string,
+    className: string,
+    seg: CameraSegment | null,
+    activeCamera: string,
+    clip: Clip,
+    currentTime: number,
+    quality: string,
+    handlePlayerReady: (cam: string, p: any) => void,
+    getUrl: (path: string) => string
+}) => {
+    // Bolt: Use useCallback to create a STABLE handler for onReady.
+    // This combined with React.memo(VideoPlayer) prevents re-renders.
+    const onReady = useCallback((p: any) => {
+        handlePlayerReady(camName, p);
+    }, [camName, handlePlayerReady]);
+
+    return (
+        <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${className} ${activeCamera === camName ? 'block h-full' : 'hidden md:block'}`}>
+            {seg ? (
+                <VideoPlayer
+                    key={`${clip.ID}-${camName}-${seg.file_path}-${quality}`} // Key forces remount on segment change OR quality change
+                    src={getUrl(seg.file_path)}
+                    className="w-full h-full object-contain"
+                    onReady={onReady}
+                />
+            ) : (
+                <div className="flex items-center justify-center h-full text-gray-600">No {camName}</div>
+            )}
+             <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+                {camName}
+            </div>
+            {camName === 'Front' && clip.telemetry && clip.telemetry.full_data_json && (
+                 <TelemetryOverlay
+                     dataJson={clip.telemetry.full_data_json}
+                     currentTime={currentTime}
+                 />
+            )}
+        </div>
+    );
+});
+
 const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -39,6 +93,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [activeCamera, setActiveCamera] = useState<string>('Front');
   const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+
+  // Bolt: Ref to track current time without triggering re-renders in callbacks
+  const currentTimeRef = useRef(0);
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+  }, [currentTime]);
 
   // Transcoding State
   const [quality, setQuality] = useState<string>('original');
@@ -188,10 +248,34 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     playersRef.current[camera] = player;
 
     if (typeof player.playbackRate === 'function') {
-        player.playbackRate(playbackSpeed);
+        // Bolt: Use ref for current playback speed? Or just current state?
+        // State is fine here as it's not changing frequently.
+        // Actually, playbackSpeed is in deps, so this recreates when speed changes.
+        // That's acceptable.
     }
 
+    // Bolt: Perform INITIAL SEEK here instead of creating a transient closure in render.
+    // This allows onReady to be stable.
     const normCam = normalizeCameraName(camera);
+    const camSegments = segments[normCam];
+    if (camSegments) {
+         let src = player.currentSrc();
+         try { src = decodeURIComponent(src); } catch (e) {}
+         src = src.split('?')[0];
+
+         // Find which segment this player loaded
+         const seg = camSegments.find(s => src.endsWith(s.file_path));
+         if (seg) {
+             const globalTime = currentTimeRef.current;
+             const localTime = globalTime - seg.startTime;
+             // Only seek if needed (initial load)
+             if (Math.abs(player.currentTime() - localTime) > 0.5) {
+                 player.currentTime(localTime);
+             }
+             if (isPlaying) player.play().catch(() => {});
+         }
+    }
+
     const frontExists = !!segments['front'];
     // Set as main if it's Front, OR if Front doesn't exist and we don't have a main player yet.
     const isMain = normCam === 'front' || (!frontExists && !mainPlayerRef.current);
@@ -233,15 +317,15 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             if (seg) {
                 const global = seg.startTime + player.currentTime();
                 // Avoid state update loops if close enough?
-                if (Math.abs(global - currentTime) > 0.1) {
+                // Bolt: Use ref for current time check to avoid stale closures?
+                // Actually, here we WANT to update state if it drifts.
+                if (Math.abs(global - currentTimeRef.current) > 0.1) {
                      setCurrentTime(global);
                 }
             }
 
             // Check for end of segment manually (fallback for 'ended' event)
             if (player.duration() > 0 && player.currentTime() >= player.duration() - 0.2) {
-                // Debounce or ensure we don't spam?
-                // Actually, if we advance, component remounts.
                 if (!player.paused()) {
                     checkAdvance();
                 }
@@ -320,13 +404,13 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       });
   };
 
-  const getUrl = (path: string) => {
+  const getUrl = useCallback((path: string) => {
     let url = `/api/video${path}`;
     if (quality !== 'original') {
         url += `?quality=${quality}`;
     }
     return url;
-  };
+  }, [quality]);
 
   // Helper to get current segment for a camera
   const getCurrentSegment = (cameraName: string) => {
@@ -351,47 +435,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
   const cameras = ['Front', 'Left Repeater', 'Right Repeater', 'Back', 'Left Pillar', 'Right Pillar'];
   const qualities = ['original', '1080p', '720p', '480p'];
-
-  // Render a camera slot
-  const renderCamera = (camName: string, className: string) => {
-      const seg = getCurrentSegment(camName);
-
-      const onReady = (p: any) => {
-          handlePlayerReady(camName, p);
-          if (seg) {
-              const localTime = currentTime - seg.startTime;
-              // Seek if needed (initial load of segment)
-              if (Math.abs(p.currentTime() - localTime) > 0.5) {
-                  p.currentTime(localTime);
-              }
-              if (isPlaying) p.play().catch(() => {});
-          }
-      };
-
-      return (
-          <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${className} ${activeCamera === camName ? 'block h-full' : 'hidden md:block'}`}>
-              {seg ? (
-                  <VideoPlayer
-                      key={`${clip.ID}-${camName}-${seg.file_path}-${quality}`} // Key forces remount on segment change OR quality change
-                      src={getUrl(seg.file_path)}
-                      className="w-full h-full object-contain"
-                      onReady={onReady}
-                  />
-              ) : (
-                  <div className="flex items-center justify-center h-full text-gray-600">No {camName}</div>
-              )}
-               <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
-                  {camName}
-              </div>
-              {camName === 'Front' && clip.telemetry && clip.telemetry.full_data_json && (
-                   <TelemetryOverlay
-                       dataJson={clip.telemetry.full_data_json}
-                       currentTime={currentTime}
-                   />
-              )}
-          </div>
-      );
-  };
 
   return (
     <div className="flex flex-col h-full bg-black text-white relative group">
@@ -450,12 +493,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           </div>
       ) : (
           <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3 md:grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
-              {renderCamera('Front', 'md:col-span-3')}
-              {renderCamera('Left Pillar', '')}
-              {renderCamera('Back', 'md:row-span-2')}
-              {renderCamera('Right Pillar', '')}
-              {renderCamera('Left Repeater', '')}
-              {renderCamera('Right Repeater', '')}
+              <CameraView camName='Front' className='md:col-span-3' seg={getCurrentSegment('Front')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Left Pillar' className='' seg={getCurrentSegment('Left Pillar')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Back' className='md:row-span-2' seg={getCurrentSegment('Back')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Right Pillar' className='' seg={getCurrentSegment('Right Pillar')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Left Repeater' className='' seg={getCurrentSegment('Left Repeater')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Right Repeater' className='' seg={getCurrentSegment('Right Repeater')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
           </div>
       )}
 
