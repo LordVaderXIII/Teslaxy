@@ -12,6 +12,7 @@ type Clip struct {
 	EventTimestamp *time.Time  `json:"event_timestamp"` // Timestamp from event.json
 	Event          string      `json:"event"`           // e.g., "Sentry", "Saved", "Recent"
 	City           string      `json:"city"`
+	Reason         string      `json:"reason"`
 	VideoFiles     []VideoFile `json:"video_files"`
 	TelemetryID    uint        `json:"telemetry_id"`
 	Telemetry      Telemetry   `json:"telemetry"`

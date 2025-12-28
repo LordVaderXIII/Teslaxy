@@ -182,11 +182,12 @@ func TestScanner_EventGrouping(t *testing.T) {
 	var clips []models.Clip
 	db.Order("timestamp asc").Find(&clips)
 
-	if len(clips) != 2 {
-		t.Errorf("expected 2 clips, got %d", len(clips))
+	// With new logic, all files in the event folder are merged into ONE clip
+	if len(clips) != 1 {
+		t.Errorf("expected 1 clip, got %d", len(clips))
 	}
 
-	// Clip 1 (10:00:00) -> Should have EventTimestamp (Match)
+	// Clip 1 should contain all files
 	clip1 := clips[0]
 	if clip1.City != "TestCity" {
 		t.Errorf("expected Clip 1 City 'TestCity', got '%s'", clip1.City)
@@ -195,11 +196,10 @@ func TestScanner_EventGrouping(t *testing.T) {
 		t.Error("expected Clip 1 EventTimestamp to be set")
 	}
 
-	// Clip 2 (10:05:00) -> Should NOT have EventTimestamp (Mismatch)
-	// 10:05:00 is not within 60s of 10:00:01.
-	clip2 := clips[1]
-	if clip2.EventTimestamp != nil {
-		t.Error("Clip 2 should not match event.json timestamp")
+	var files []models.VideoFile
+	db.Model(&clip1).Related(&files)
+	if len(files) != 3 {
+		t.Errorf("expected 3 video files in clip, got %d", len(files))
 	}
 }
 

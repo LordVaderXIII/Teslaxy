@@ -16,8 +16,19 @@ interface Clip {
   event_timestamp?: string;
   event: string;
   city: string;
+  reason?: string;
   video_files?: VideoFile[];
   telemetry?: Record<string, unknown>;
+}
+
+interface FilterState {
+  recent: boolean;
+  dashcamHonk: boolean;
+  dashcamSaved: boolean;
+  dashcamOther: boolean;
+  sentryObject: boolean;
+  sentryAccel: boolean;
+  sentryOther: boolean;
 }
 
 interface SidebarProps {
@@ -116,7 +127,16 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
 });
 
 const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, onRefresh, loading, className }) => {
-  const [filterType, setFilterType] = useState<string>('All');
+  const [filters, setFilters] = useState<FilterState>({
+    recent: true,
+    dashcamHonk: true,
+    dashcamSaved: true,
+    dashcamOther: true,
+    sentryObject: true,
+    sentryAccel: true,
+    sentryOther: true,
+  });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
@@ -137,19 +157,60 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
     return clips.filter(clip => {
       // Date Filter
       const sameDay = clipDateMap.get(clip.ID) === targetDateStr;
+      if (!sameDay) return false;
 
-      // Type Filter
-      const typeMatch = filterType === 'All' || clip.event === filterType;
+      // Inclusive Filter Logic
 
-      return sameDay && typeMatch;
+      // Recent
+      if (clip.event === 'Recent') {
+          return filters.recent;
+      }
+
+      // Saved (Dashcam)
+      if (clip.event === 'Saved') {
+          // If Other is enabled, show all Saved clips (Override)
+          if (filters.dashcamOther) return true;
+
+          const reason = clip.reason || '';
+          if (reason === 'user_interaction_honk') {
+              return filters.dashcamHonk;
+          }
+          if (reason === 'user_interaction_dashcam_panel_save' || reason === 'user_interaction_dashcam_icon_tapped') {
+              return filters.dashcamSaved;
+          }
+          // If reason doesn't match known types, it falls under 'Other' (which is disabled here)
+          return false;
+      }
+
+      // Sentry
+      if (clip.event === 'Sentry') {
+          // If Other is enabled, show all Sentry clips (Override)
+          if (filters.sentryOther) return true;
+
+          const reason = clip.reason || '';
+          if (reason === 'sentry_aware_object_detection') {
+              return filters.sentryObject;
+          }
+          if (reason.startsWith('sentry_aware_accel_')) {
+              return filters.sentryAccel;
+          }
+          return false;
+      }
+
+      return false;
     });
-  }, [clips, clipDateMap, selectedDate, filterType]);
-
-  // Get unique event types for dropdown
-  const eventTypes = useMemo(() => ['All', ...Array.from(new Set(clips.map(c => c.event)))], [clips]);
+  }, [clips, clipDateMap, selectedDate, filters]);
 
   const handleResetFilters = () => {
-    setFilterType('All');
+    setFilters({
+        recent: true,
+        dashcamHonk: true,
+        dashcamSaved: true,
+        dashcamOther: true,
+        sentryObject: true,
+        sentryAccel: true,
+        sentryOther: true,
+    });
     setSelectedDate(new Date());
   };
 
@@ -212,19 +273,69 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
 
           {/* Filter */}
           <div className="relative">
-             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Filter size={14} className="text-gray-500" />
-             </div>
-             <select
-               aria-label="Filter events by type"
-               className="bg-gray-900 border border-gray-800 text-gray-300 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 p-2.5 outline-none focus-visible:ring-2"
-               value={filterType}
-               onChange={(e) => setFilterType(e.target.value)}
+             <button
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className="w-full bg-gray-900 border border-gray-800 text-gray-300 text-sm rounded-lg p-2.5 flex justify-between items-center hover:bg-gray-800 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
              >
-                {eventTypes.map(type => (
-                   <option key={type} value={type}>{type} Events</option>
-                ))}
-             </select>
+                <div className="flex items-center gap-2">
+                    <Filter size={14} className="text-gray-500" />
+                    <span>Filter Events</span>
+                </div>
+                <span className="text-xs text-gray-500">{filteredClips.length} shown</span>
+             </button>
+
+             {isFilterOpen && (
+                 <div className="absolute top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-800 rounded-lg shadow-xl z-20 p-3 flex flex-col gap-3">
+                     {/* Recent */}
+                     <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={filters.recent}
+                            onChange={e => setFilters(p => ({...p, recent: e.target.checked}))}
+                            className="rounded bg-gray-800 border-gray-700 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm text-gray-200">Recent Clips</span>
+                     </label>
+
+                     <div className="h-px bg-gray-800" />
+
+                     {/* Dashcam Group */}
+                     <div className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold text-gray-500 uppercase">Dashcam</span>
+                        <label className="flex items-center gap-2 cursor-pointer ml-2">
+                            <input type="checkbox" checked={filters.dashcamHonk} onChange={e => setFilters(p => ({...p, dashcamHonk: e.target.checked}))} className="rounded bg-gray-800 border-gray-700 text-green-600 focus:ring-green-500"/>
+                            <span className="text-sm text-gray-300">Honk</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer ml-2">
+                            <input type="checkbox" checked={filters.dashcamSaved} onChange={e => setFilters(p => ({...p, dashcamSaved: e.target.checked}))} className="rounded bg-gray-800 border-gray-700 text-green-600 focus:ring-green-500"/>
+                            <span className="text-sm text-gray-300">Saved (Icon/Panel)</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer ml-2">
+                            <input type="checkbox" checked={filters.dashcamOther} onChange={e => setFilters(p => ({...p, dashcamOther: e.target.checked}))} className="rounded bg-gray-800 border-gray-700 text-green-600 focus:ring-green-500"/>
+                            <span className="text-sm text-gray-300">Other (All Saved)</span>
+                        </label>
+                     </div>
+
+                     <div className="h-px bg-gray-800" />
+
+                     {/* Sentry Group */}
+                     <div className="flex flex-col gap-2">
+                        <span className="text-xs font-semibold text-gray-500 uppercase">Sentry</span>
+                        <label className="flex items-center gap-2 cursor-pointer ml-2">
+                            <input type="checkbox" checked={filters.sentryObject} onChange={e => setFilters(p => ({...p, sentryObject: e.target.checked}))} className="rounded bg-gray-800 border-gray-700 text-red-600 focus:ring-red-500"/>
+                            <span className="text-sm text-gray-300">Object Detection</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer ml-2">
+                            <input type="checkbox" checked={filters.sentryAccel} onChange={e => setFilters(p => ({...p, sentryAccel: e.target.checked}))} className="rounded bg-gray-800 border-gray-700 text-red-600 focus:ring-red-500"/>
+                            <span className="text-sm text-gray-300">Acceleration</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer ml-2">
+                            <input type="checkbox" checked={filters.sentryOther} onChange={e => setFilters(p => ({...p, sentryOther: e.target.checked}))} className="rounded bg-gray-800 border-gray-700 text-red-600 focus:ring-red-500"/>
+                            <span className="text-sm text-gray-300">Other (All Sentry)</span>
+                        </label>
+                     </div>
+                 </div>
+             )}
           </div>
        </div>
 
@@ -243,13 +354,11 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                 <div>
                   <p className="font-medium text-gray-400">No clips found</p>
                   <p className="text-sm mt-1 opacity-70">
-                    {filterType !== 'All'
-                      ? `No ${filterType} events on this day.`
-                      : `No footage available for ${selectedDate.toLocaleDateString()}`}
+                    No clips match your current filters for {selectedDate.toLocaleDateString()}.
                   </p>
                 </div>
 
-                {(filterType !== 'All' || !isToday(selectedDate)) && (
+                {(!isToday(selectedDate) || clips.length > 0) && (
                   <button
                     onClick={handleResetFilters}
                     className="text-sm text-blue-400 hover:text-blue-300 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-2 py-1 outline-none transition-colors"

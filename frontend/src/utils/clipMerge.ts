@@ -9,6 +9,7 @@ export interface Clip {
   timestamp: string;
   event: string;
   city: string;
+  reason?: string;
   video_files?: VideoFile[];
   telemetry?: any;
   event_timestamp?: string;
@@ -35,10 +36,11 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
         const currTime = new Date(curr.timestamp).getTime();
         const diffSeconds = (currTime - prevTime) / 1000;
 
-        // Criteria: Same event type, Gap < 90s
-        // We treat 'Recent' and 'Saved'/'Sentry' similarly, but usually only Recent needs stitching.
-        // However, strictly adhering to event type prevents merging a Sentry event into a Recent drive accidentally.
-        if (curr.event === prev.event && diffSeconds < 90 && diffSeconds >= 0) {
+        // Criteria: Same event type, Gap < 5s logic (Start-to-Start < 65s)
+        // Since we are comparing CLIP timestamps (start times), if they are continuous 1-min segments:
+        // Diff should be ~60s.
+        // If we set threshold to 65s, it allows standard continuity.
+        if (curr.event === prev.event && diffSeconds < 65 && diffSeconds >= 0) {
             currentGroup.push(curr);
         } else {
             groups.push(currentGroup);
