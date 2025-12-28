@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback, useMemo } fr
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause } from 'lucide-react';
+import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings } from 'lucide-react';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -39,6 +39,19 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [activeCamera, setActiveCamera] = useState<string>('Front');
   const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+
+  // Transcoding State
+  const [quality, setQuality] = useState<string>('original');
+  const [encoderStatus, setEncoderStatus] = useState<{encoder: string, hw_accel: boolean} | null>(null);
+  const [isQualityMenuOpen, setIsQualityMenuOpen] = useState(false);
+
+  // Fetch transcoder status on mount
+  useEffect(() => {
+    fetch('/api/transcode/status')
+      .then(res => res.json())
+      .then(data => setEncoderStatus(data))
+      .catch(err => console.error("Failed to fetch encoder status", err));
+  }, []);
 
   // Group segments by camera
   const segments = useMemo(() => {
@@ -177,6 +190,9 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
              // Try to decode in case video.js encoded it
              try { src = decodeURIComponent(src); } catch (e) {}
 
+             // Remove query params for matching
+             src = src.split('?')[0];
+
              const idx = camSegments.findIndex(s => src.endsWith(s.file_path));
              if (idx !== -1 && idx < camSegments.length - 1) {
                  // Advance to next segment
@@ -194,6 +210,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
         if (camSegments) {
             let src = player.currentSrc();
             try { src = decodeURIComponent(src); } catch (e) {}
+            // Remove query params
+            src = src.split('?')[0];
 
             const seg = camSegments.find(s => src.endsWith(s.file_path));
             if (seg) {
@@ -272,6 +290,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                    // Check if player src matches target segment
                    let src = p.currentSrc();
                    try { src = decodeURIComponent(src); } catch (e) {}
+                   src = src.split('?')[0];
 
                    if (src && src.endsWith(info.segment.file_path)) {
                        const localTime = newTime - info.segment.startTime;
@@ -286,7 +305,11 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   };
 
   const getUrl = (path: string) => {
-    return `/api/video${path}`;
+    let url = `/api/video${path}`;
+    if (quality !== 'original') {
+        url += `?quality=${quality}`;
+    }
+    return url;
   };
 
   // Helper to get current segment for a camera
@@ -311,6 +334,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   }
 
   const cameras = ['Front', 'Left Repeater', 'Right Repeater', 'Back', 'Left Pillar', 'Right Pillar'];
+  const qualities = ['original', '1080p', '720p', '480p'];
 
   // Render a camera slot
   const renderCamera = (camName: string, className: string) => {
@@ -332,7 +356,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${className} ${activeCamera === camName ? 'block h-full' : 'hidden md:block'}`}>
               {seg ? (
                   <VideoPlayer
-                      key={`${clip.ID}-${camName}-${seg.file_path}`} // Key forces remount on segment change
+                      key={`${clip.ID}-${camName}-${seg.file_path}-${quality}`} // Key forces remount on segment change OR quality change
                       src={getUrl(seg.file_path)}
                       className="w-full h-full object-contain"
                       onReady={onReady}
@@ -464,6 +488,36 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               >
                   {playbackSpeed}x
               </button>
+
+              {/* Quality Selector */}
+              <div className="relative">
+                  <button
+                      onClick={() => setIsQualityMenuOpen(!isQualityMenuOpen)}
+                      aria-label={`Quality: ${quality}`}
+                      title={`Quality: ${quality}`}
+                      className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none group/settings"
+                  >
+                      <Settings size={20} />
+                  </button>
+                  {isQualityMenuOpen && (
+                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-gray-900 border border-gray-700 rounded-lg shadow-xl overflow-hidden min-w-[120px]">
+                           {encoderStatus && (
+                               <div className="px-4 py-2 text-[10px] text-gray-500 border-b border-gray-800 uppercase font-bold tracking-wider">
+                                   Encoder: {encoderStatus.encoder}
+                               </div>
+                           )}
+                           {qualities.map(q => (
+                               <button
+                                   key={q}
+                                   onClick={() => { setQuality(q); setIsQualityMenuOpen(false); }}
+                                   className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-800 transition ${quality === q ? 'text-blue-400 font-bold bg-gray-800' : 'text-gray-300'}`}
+                               >
+                                   {q.toUpperCase()}
+                               </button>
+                           ))}
+                      </div>
+                  )}
+              </div>
           </div>
        </div>
     </div>

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"io"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"
@@ -33,6 +34,9 @@ func SetupRoutes(r *gin.Engine) {
 		// Apply CORS only to video serving to support 3D textures (crossOrigin)
 		api.GET("/video/*path", CORSMiddleware(), serveVideo)
 		api.GET("/thumbnail/*path", getThumbnail)
+
+		// Transcoding Status
+		api.GET("/transcode/status", getTranscodeStatus)
 
 		// Export Routes
 		api.POST("/export", createExportJob)
@@ -72,8 +76,14 @@ func getClipDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, clip)
 }
 
+func getTranscodeStatus(c *gin.Context) {
+	status := services.GetTranscoderStatus()
+	c.JSON(http.StatusOK, status)
+}
+
 func serveVideo(c *gin.Context) {
 	videoPath := c.Param("path")
+	quality := c.Query("quality")
 
 	footagePath := os.Getenv("FOOTAGE_PATH")
 	if footagePath == "" {
@@ -83,8 +93,6 @@ func serveVideo(c *gin.Context) {
 	cleanRequestPath := filepath.Clean(videoPath)
 
 	// Determine full path
-	// If the request path already starts with the footage path, assume it's absolute
-	// Otherwise, join it with the footage path
 	var fullPath string
 	if strings.HasPrefix(cleanRequestPath, cleanFootagePath) {
 		fullPath = cleanRequestPath
@@ -93,17 +101,36 @@ func serveVideo(c *gin.Context) {
 	}
 
 	// Security Check
-	// Ensure the resolved full path is strictly inside the footage path
 	if fullPath != cleanFootagePath && !strings.HasPrefix(fullPath, cleanFootagePath+string(os.PathSeparator)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
 
-	// Verify file exists (add logging for debugging)
+	// Verify file exists
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		// Log error for debugging
 		log.Printf("Error: Video file not found at %s", fullPath)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Video file not found"})
+		return
+	}
+
+	// If quality is requested and not original, transcode
+	if quality != "" && quality != "original" {
+		cmd, stdout, err := services.GetTranscodeStream(c.Request.Context(), fullPath, quality)
+		if err != nil {
+			log.Printf("Transcode error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Transcoding failed"})
+			return
+		}
+
+		c.Header("Content-Type", "video/mp4")
+		c.Status(http.StatusOK)
+
+		if _, err := io.Copy(c.Writer, stdout); err != nil {
+			log.Printf("Stream error: %v", err)
+		}
+
+		// Ensure process is cleaned up
+		cmd.Wait()
 		return
 	}
 
