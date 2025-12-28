@@ -418,7 +418,7 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 			}
 		}
 
-		// Fallback Telemetry setup
+		// Fallback Telemetry setup (coordinates only)
 		if clip.TelemetryID == 0 && (estLat != 0 || estLon != 0) {
 			telemetry := models.Telemetry{
 				ClipID:    clip.ID,
@@ -431,6 +431,8 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 		}
 
 		s.addFilesToClip(clip, group)
+		// Aggregate Telemetry
+		s.aggregateTelemetry(&clip, group)
 	}
 }
 
@@ -515,10 +517,17 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 			s.DB.Create(&clip)
 		}
 
+		// Flatten the clip group to get all files for telemetry aggregation
+		var allFiles []fileInfo
+
 		// Add ALL segments in this continuous block to the clip
 		for _, segment := range clipGroup {
 			s.addFilesToClip(clip, segment)
+			allFiles = append(allFiles, segment...)
 		}
+
+		// Aggregate Telemetry
+		s.aggregateTelemetry(&clip, allFiles)
 	}
 }
 
@@ -540,35 +549,86 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 				Timestamp: f.timestamp,
 			}
 			s.DB.Create(&vf)
-
-			// Telemetry extraction (Front camera only)
-			if cameraName == "Front" && clip.TelemetryID == 0 {
-				meta, err := s.SEIExtractor(f.path)
-				if err == nil && len(meta) > 0 {
-					jsonData, _ := json.Marshal(meta)
-					telemetry := models.Telemetry{
-						ClipID:       clip.ID,
-						FullDataJson: string(jsonData),
-					}
-					mid := len(meta) / 2
-					if mid < len(meta) {
-						m := meta[mid]
-						telemetry.Speed = m.VehicleSpeedMps * 2.23694
-						telemetry.Gear = m.GearState.String()
-						telemetry.Latitude = m.LatitudeDeg
-						telemetry.Longitude = m.LongitudeDeg
-						telemetry.SteeringAngle = m.SteeringWheelAngle
-						telemetry.AutopilotState = m.AutopilotState.String()
-					}
-					s.DB.Create(&telemetry)
-					s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
-					if clip.City == "" && (telemetry.Latitude != 0 || telemetry.Longitude != 0) {
-						newCity := fmt.Sprintf("%.4f, %.4f", telemetry.Latitude, telemetry.Longitude)
-						s.DB.Model(&clip).Update("city", newCity)
-					}
-				}
-			}
 		}
+	}
+}
+
+// aggregateTelemetry iterates through all 'Front' files in the clip, extracts SEI, and updates the Telemetry record.
+func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo) {
+	var frontFiles []fileInfo
+
+	// 1. Filter for Front camera and Sort
+	for _, f := range files {
+		matches := fileRegex.FindStringSubmatch(filepath.Base(f.path))
+		cameraName := ""
+		if len(matches) == 3 {
+			cameraName = matches[2]
+		}
+		if normalizeCameraName(cameraName) == "Front" {
+			frontFiles = append(frontFiles, f)
+		}
+	}
+
+	sort.Slice(frontFiles, func(i, j int) bool {
+		return frontFiles[i].timestamp.Before(frontFiles[j].timestamp)
+	})
+
+	if len(frontFiles) == 0 {
+		return
+	}
+
+	// 2. Extract and Aggregate SEI
+	var aggregatedMeta []*pb.SeiMetadata
+
+	for _, f := range frontFiles {
+		meta, err := s.SEIExtractor(f.path)
+		if err == nil && len(meta) > 0 {
+			aggregatedMeta = append(aggregatedMeta, meta...)
+		}
+	}
+
+	if len(aggregatedMeta) == 0 {
+		return
+	}
+
+	// 3. Marshal to JSON
+	jsonData, _ := json.Marshal(aggregatedMeta)
+
+	// 4. Create or Update Telemetry
+	var telemetry models.Telemetry
+
+	if clip.TelemetryID != 0 {
+		// Fetch existing
+		s.DB.First(&telemetry, clip.TelemetryID)
+	}
+
+	// Update fields
+	telemetry.ClipID = clip.ID
+	telemetry.FullDataJson = string(jsonData)
+
+	// Update summary fields from the middle of the *entire* clip (approx)
+	mid := len(aggregatedMeta) / 2
+	if mid < len(aggregatedMeta) {
+		m := aggregatedMeta[mid]
+		telemetry.Speed = m.VehicleSpeedMps * 2.23694
+		telemetry.Gear = m.GearState.String()
+		telemetry.Latitude = m.LatitudeDeg
+		telemetry.Longitude = m.LongitudeDeg
+		telemetry.SteeringAngle = m.SteeringWheelAngle
+		telemetry.AutopilotState = m.AutopilotState.String()
+	}
+
+	if telemetry.ID != 0 {
+		s.DB.Save(&telemetry)
+	} else {
+		s.DB.Create(&telemetry)
+		s.DB.Model(clip).Update("telemetry_id", telemetry.ID)
+	}
+
+	// 5. Update City if missing
+	if clip.City == "" && (telemetry.Latitude != 0 || telemetry.Longitude != 0) {
+		newCity := fmt.Sprintf("%.4f, %.4f", telemetry.Latitude, telemetry.Longitude)
+		s.DB.Model(clip).Update("city", newCity)
 	}
 }
 
