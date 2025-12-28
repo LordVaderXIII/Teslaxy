@@ -154,6 +154,22 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     }
   }, [playbackSpeed]);
 
+  // Sync play/pause state across all players
+  useEffect(() => {
+      Object.values(playersRef.current).forEach((p: any) => {
+          if (!p) return;
+          if (isPlaying) {
+              if (p.paused()) {
+                  p.play().catch(() => {});
+              }
+          } else {
+              if (!p.paused()) {
+                  p.pause();
+              }
+          }
+      });
+  }, [isPlaying]);
+
   const handlePlayerReady = useCallback((camera: string, player: any) => {
     if (!player) return;
     playersRef.current[camera] = player;
