@@ -1,6 +1,10 @@
 package api
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
 
 // SecurityHeadersMiddleware adds common security headers to the response
 func SecurityHeadersMiddleware() gin.HandlerFunc {
@@ -35,6 +39,14 @@ func CORSMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		c.Next()
+	}
+}
+
+// MaxBodySizeMiddleware limits the size of the request body to prevent DoS via memory exhaustion
+func MaxBodySizeMiddleware(limit int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		c.Next()
 	}
 }

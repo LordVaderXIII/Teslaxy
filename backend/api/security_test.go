@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -154,6 +155,52 @@ func TestCORS(t *testing.T) {
 
 		if w.Header().Get("Access-Control-Allow-Origin") != "*" {
 			t.Errorf("Expected Access-Control-Allow-Origin: * for /api/video, got '%s'", w.Header().Get("Access-Control-Allow-Origin"))
+		}
+	})
+}
+
+func TestMaxBodySize(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	SetupRoutes(r)
+
+	// We'll test /api/login which uses ShouldBindJSON
+	// ShouldBindJSON reads the body
+	// Our middleware restricts the body reader
+
+	t.Run("Request within limit", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		// Small JSON
+		body := bytes.NewBufferString(`{"username":"admin", "password":"password"}`)
+		req, _ := http.NewRequest("POST", "/api/login", body)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+
+		// 401 means it processed the body and failed auth (expected)
+		// If it failed to read, it would likely be 400
+		if w.Code != 401 && w.Code != 200 {
+			t.Errorf("Expected 401 (auth failure) or 200, got %d. Body: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("Request exceeding limit", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		// 2MB string
+		largeString := strings.Repeat("a", 2*1024*1024)
+		body := bytes.NewBufferString(`{"username":"` + largeString + `", "password":"password"}`)
+		req, _ := http.NewRequest("POST", "/api/login", body)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+
+		// Gin's ShouldBindJSON returns error if read fails
+		// Our middleware will cause Read to fail or return partial?
+		// http.MaxBytesReader: "The server will close the underlying connection if the limit is exceeded."
+		// And Read returns "request body too large".
+		// Gin ShouldBindJSON will catch this error.
+		// The handler says: if err := c.ShouldBindJSON(&creds); err != nil { c.JSON(400, ... }
+
+		if w.Code != 400 {
+			t.Errorf("Expected 400 (Bad Request due to body size), got %d. Body: %s", w.Code, w.Body.String())
 		}
 	})
 }
