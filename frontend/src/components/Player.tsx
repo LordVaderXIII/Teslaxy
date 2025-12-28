@@ -278,15 +278,15 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     setPlaybackSpeed(speeds[nextIndex]);
   };
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
       const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
       if (player) {
           if (player.paused()) player.play();
           else player.pause();
       }
-  };
+  }, []);
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
       const newTime = Math.max(0, Math.min(time, totalDuration));
       setCurrentTime(newTime);
 
@@ -318,7 +318,46 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                }
           }
       });
-  };
+  }, [totalDuration, segments, getSegmentAtTime]);
+
+  // Global Keyboard Shortcuts
+  const currentTimeRef = useRef(currentTime);
+  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+        // Skip if timeline is focused (it handles its own keys)
+        if ((e.target as HTMLElement).getAttribute('role') === 'slider') return;
+
+        switch(e.key.toLowerCase()) {
+            case ' ':
+            case 'k':
+                e.preventDefault();
+                togglePlay();
+                break;
+            case 'arrowleft':
+                e.preventDefault();
+                handleSeek(currentTimeRef.current - 5);
+                break;
+            case 'arrowright':
+                e.preventDefault();
+                handleSeek(currentTimeRef.current + 5);
+                break;
+            case 'j':
+                e.preventDefault();
+                handleSeek(currentTimeRef.current - 15);
+                break;
+            case 'l':
+                e.preventDefault();
+                handleSeek(currentTimeRef.current + 15);
+                break;
+        }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, handleSeek]);
 
   const getUrl = (path: string) => {
     let url = `/api/video${path}`;
@@ -471,7 +510,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={() => handleSeek(Math.max(0, currentTime - 15))}
                   aria-label="Rewind 15 seconds"
-                  title="Rewind 15 seconds"
+                  title="Rewind 15s (J)"
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCcw size={20} />
@@ -479,7 +518,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={togglePlay}
                   aria-label={isPlaying ? "Pause" : "Play"}
-                  title={isPlaying ? "Pause" : "Play"}
+                  title={isPlaying ? "Pause (Space/K)" : "Play (Space/K)"}
                   className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   {isPlaying ? (
@@ -491,7 +530,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={() => handleSeek(Math.min(totalDuration, currentTime + 15))}
                   aria-label="Skip forward 15 seconds"
-                  title="Skip forward 15 seconds"
+                  title="Skip 15s (L)"
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCw size={20} />
