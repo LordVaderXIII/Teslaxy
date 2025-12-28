@@ -319,6 +319,11 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 			if err := json.Unmarshal(content, &eventData); err == nil {
 				city = eventData.City
 
+				// Update Reason in Clip
+				if eventData.Reason != "" {
+					// We'll update the clip with this reason later
+				}
+
 				toFloat := func(v interface{}) float64 {
 					switch val := v.(type) {
 					case float64:
@@ -364,76 +369,85 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 		}
 	}
 
-	// Group by timestamp to handle multiple events in one folder or split segments
-	groups := groupFilesByTimestamp(files)
+	// Sort files by timestamp
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].timestamp.Before(files[j].timestamp)
+	})
 
-	for _, group := range groups {
-		if len(group) == 0 {
-			continue
-		}
-		minTime := group[0].timestamp
-
-		eventType := "Recent"
-		if strings.Contains(dirPath, "SentryClips") {
-			eventType = "Sentry"
-		} else if strings.Contains(dirPath, "SavedClips") {
-			eventType = "Saved"
-		}
-
-		var clip models.Clip
-		if err := s.DB.Where("timestamp = ?", minTime).First(&clip).Error; err != nil {
-			if gorm.IsRecordNotFoundError(err) {
-				clip = models.Clip{
-					Timestamp: minTime,
-					Event:     eventType,
-					City:      city, // Default city from folder's event.json
-				}
-
-				// Relaxed Event Timestamp Check:
-				// Check if the event timestamp is within the 60s duration of this clip
-				if eventJsonTimestamp != nil {
-					// event time >= start time AND event time < start time + 60s
-					endTime := minTime.Add(60 * time.Second)
-					if (eventJsonTimestamp.Equal(minTime) || eventJsonTimestamp.After(minTime)) && eventJsonTimestamp.Before(endTime) {
-						clip.EventTimestamp = eventJsonTimestamp
-					}
-				}
-
-				s.DB.Create(&clip)
-			}
-		} else {
-			// Update existing
-			updates := map[string]interface{}{}
-			if clip.EventTimestamp == nil && eventJsonTimestamp != nil {
-				endTime := minTime.Add(60 * time.Second)
-				if (eventJsonTimestamp.Equal(minTime) || eventJsonTimestamp.After(minTime)) && eventJsonTimestamp.Before(endTime) {
-					updates["event_timestamp"] = eventJsonTimestamp
-				}
-			}
-			if city != "" {
-				updates["city"] = city
-			}
-			if len(updates) > 0 {
-				s.DB.Model(&clip).Updates(updates)
-			}
-		}
-
-		// Fallback Telemetry setup (coordinates only)
-		if clip.TelemetryID == 0 && (estLat != 0 || estLon != 0) {
-			telemetry := models.Telemetry{
-				ClipID:    clip.ID,
-				Latitude:  estLat,
-				Longitude: estLon,
-			}
-			if err := s.DB.Create(&telemetry).Error; err == nil {
-				s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
-			}
-		}
-
-		s.addFilesToClip(clip, group)
-		// Aggregate Telemetry
-		s.aggregateTelemetry(&clip, group)
+	if len(files) == 0 {
+		return
 	}
+
+	// Use the timestamp of the FIRST file as the Clip timestamp
+	minTime := files[0].timestamp
+
+	eventType := "Recent"
+	if strings.Contains(dirPath, "SentryClips") {
+		eventType = "Sentry"
+	} else if strings.Contains(dirPath, "SavedClips") {
+		eventType = "Saved"
+	}
+
+	// Helper to read reason
+	var eventReason string
+	if _, err := os.Stat(eventJsonPath); err == nil {
+		content, _ := os.ReadFile(eventJsonPath)
+		var ed struct {
+			Reason string `json:"reason"`
+		}
+		json.Unmarshal(content, &ed)
+		eventReason = ed.Reason
+	}
+
+	// Create or Find ONE clip for this folder (using minTime as key for now,
+	// though strictly we might want a unique key per folder.
+	// But usually a folder starts at minTime so it's consistent).
+	var clip models.Clip
+	if err := s.DB.Where("timestamp = ? AND event = ?", minTime, eventType).First(&clip).Error; err != nil {
+		if gorm.IsRecordNotFoundError(err) {
+			clip = models.Clip{
+				Timestamp:      minTime,
+				Event:          eventType,
+				City:           city,
+				Reason:         eventReason,
+				EventTimestamp: eventJsonTimestamp, // Set directly for the folder-based clip
+			}
+			s.DB.Create(&clip)
+		}
+	} else {
+		// Update existing
+		updates := map[string]interface{}{}
+		if clip.EventTimestamp == nil && eventJsonTimestamp != nil {
+			updates["event_timestamp"] = eventJsonTimestamp
+		}
+		if city != "" {
+			updates["city"] = city
+		}
+		if eventReason != "" {
+			updates["reason"] = eventReason
+		}
+		if len(updates) > 0 {
+			s.DB.Model(&clip).Updates(updates)
+		}
+	}
+
+	// Fallback Telemetry setup
+	if clip.TelemetryID == 0 && (estLat != 0 || estLon != 0) {
+		telemetry := models.Telemetry{
+			ClipID:    clip.ID,
+			Latitude:  estLat,
+			Longitude: estLon,
+		}
+		if err := s.DB.Create(&telemetry).Error; err == nil {
+			s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
+		}
+	}
+
+	// Add ALL files in the directory to this single clip
+	s.addFilesToClip(clip, files)
+
+	// Aggregate Telemetry (will process all front files sorted by time)
+	s.aggregateTelemetry(&clip, files)
 }
 
 func (s *ScannerService) processRecentGroup(filePaths []string) {
@@ -468,8 +482,9 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 		prevTime := timeGroups[i-1][0].timestamp
 		currTime := timeGroups[i][0].timestamp
 
-		// If gap is > 90 seconds, split
-		if currTime.Sub(prevTime) > 90*time.Second {
+		// If gap is > 5 seconds (assuming ~60s duration for prev clip), split
+		// StartDiff > 65s implies Gap > 5s
+		if currTime.Sub(prevTime) > 65*time.Second {
 			clipGroups = append(clipGroups, currentClipGroup)
 			currentClipGroup = [][]fileInfo{timeGroups[i]}
 		} else {
@@ -492,8 +507,8 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 
 		// Merge Strategy:
 		// We look for any Recent clip that ends just before `minTime`.
-		// Lookback window matches the 90s split logic.
-		startTime := minTime.Add(-90 * time.Second)
+		// Lookback window matches the 5s split logic (Start-to-Start ~ 65s).
+		startTime := minTime.Add(-65 * time.Second)
 
 		var lastVf models.VideoFile
 		if err := s.DB.Table("video_files").
