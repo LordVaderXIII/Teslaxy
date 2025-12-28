@@ -19,6 +19,9 @@ func SetupRoutes(r *gin.Engine) {
 	// Apply global security headers
 	r.Use(SecurityHeadersMiddleware())
 
+	// Limit request body size to 1MB to prevent DoS
+	r.Use(MaxBodySizeMiddleware(1024 * 1024))
+
 	api := r.Group("/api")
 
 	// Login endpoint (public)
