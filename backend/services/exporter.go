@@ -41,6 +41,18 @@ type ExportStatus struct {
 var exportQueue = make(map[string]*ExportStatus)
 var exportQueueLock sync.Mutex
 
+// Sentinel: Added concurrency limit
+const MaxConcurrentExports = 3
+
+var (
+	activeJobs     int
+	activeJobsLock sync.Mutex
+)
+
+func init() {
+	go cleanupExportHistory()
+}
+
 // CheckForNvidiaGPU checks if an NVIDIA GPU is available via nvidia-smi
 func CheckForNvidiaGPU() bool {
 	gpuCheckLock.Lock()
@@ -71,6 +83,15 @@ func QueueExport(req ExportRequest) (string, error) {
 		return "", err
 	}
 
+	// Sentinel: Concurrency Control
+	activeJobsLock.Lock()
+	if activeJobs >= MaxConcurrentExports {
+		activeJobsLock.Unlock()
+		return "", fmt.Errorf("server busy: too many concurrent exports")
+	}
+	activeJobs++
+	activeJobsLock.Unlock()
+
 	jobID := fmt.Sprintf("export_%d_%d", req.ClipID, time.Now().Unix())
 	status := &ExportStatus{
 		JobID:     jobID,
@@ -82,7 +103,14 @@ func QueueExport(req ExportRequest) (string, error) {
 	exportQueue[jobID] = status
 	exportQueueLock.Unlock()
 
-	go processExport(jobID, req, clip)
+	go func() {
+		defer func() {
+			activeJobsLock.Lock()
+			activeJobs--
+			activeJobsLock.Unlock()
+		}()
+		processExport(jobID, req, clip)
+	}()
 
 	return jobID, nil
 }
@@ -93,6 +121,19 @@ func GetExportStatus(jobID string) (*ExportStatus, bool) {
 	defer exportQueueLock.Unlock()
 	status, exists := exportQueue[jobID]
 	return status, exists
+}
+
+func cleanupExportHistory() {
+	for {
+		time.Sleep(10 * time.Minute)
+		exportQueueLock.Lock()
+		for id, status := range exportQueue {
+			if time.Since(status.CreatedAt) > 1*time.Hour {
+				delete(exportQueue, id)
+			}
+		}
+		exportQueueLock.Unlock()
+	}
 }
 
 func processExport(jobID string, req ExportRequest, clip models.Clip) {
