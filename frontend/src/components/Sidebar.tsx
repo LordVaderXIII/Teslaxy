@@ -48,36 +48,46 @@ interface SidebarItemProps {
 
 const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemProps) => {
   const thumbnailUrl = useMemo(() => {
-    if (!clip.video_files) return '';
+    if (!clip.video_files || clip.video_files.length === 0) return '';
 
-    // Find all front videos
-    const frontVideos = clip.video_files.filter(v => v.camera === 'Front');
-    if (frontVideos.length === 0) return '';
+    // Bolt Optimization: clip.video_files are already sorted by timestamp (ASC).
+    // Instead of filtering and sorting (O(N log N) + alloc), we iterate backwards (O(N))
+    // to find the latest Front camera segment that starts before the event.
 
-    // Sort by timestamp
-    frontVideos.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-    let targetVideo = frontVideos[0];
+    let targetVideo: VideoFile | null = null;
     let seekTime = 0;
+    const eventTime = clip.event_timestamp ? new Date(clip.event_timestamp).getTime() : 0;
 
     if (clip.event_timestamp) {
-        const eventTime = new Date(clip.event_timestamp).getTime();
-        // Find segment containing event
-        // We want the latest segment that starts before or at eventTime
-        const match = frontVideos.reduce((prev, curr) => {
-             const currTime = new Date(curr.timestamp).getTime();
-             if (currTime <= eventTime) return curr;
-             return prev;
-        }, frontVideos[0]);
-
-        targetVideo = match;
-        const startTime = new Date(targetVideo.timestamp).getTime();
-        const diff = (eventTime - startTime) / 1000;
-
-        // Only apply offset if it's positive and reasonable (e.g. within 600s)
-        if (diff >= 0 && diff < 600) {
-            seekTime = diff;
+      // Find the latest Front video that starts before or at eventTime.
+      for (let i = clip.video_files.length - 1; i >= 0; i--) {
+        const v = clip.video_files[i];
+        if (v.camera === 'Front') {
+          const vTime = new Date(v.timestamp).getTime();
+          if (vTime <= eventTime) {
+            targetVideo = v;
+            break;
+          }
         }
+      }
+    }
+
+    // Fallback: If no match found (or no event timestamp), use the FIRST Front video.
+    if (!targetVideo) {
+      targetVideo = clip.video_files.find(v => v.camera === 'Front') || null;
+    }
+
+    if (!targetVideo) return '';
+
+    // Calculate seek time
+    if (clip.event_timestamp) {
+      const startTime = new Date(targetVideo.timestamp).getTime();
+      const diff = (eventTime - startTime) / 1000;
+
+      // Only apply offset if it's positive and reasonable (e.g. within 600s)
+      if (diff >= 0 && diff < 600) {
+        seekTime = diff;
+      }
     }
 
     return `/api/thumbnail${targetVideo.file_path}?time=${seekTime.toFixed(1)}&w=160`;
