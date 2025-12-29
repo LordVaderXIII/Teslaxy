@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CircleAlert } from 'lucide-react';
 
 interface TelemetryPoint {
   frame_seq_no: number;
@@ -49,7 +49,8 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTi
 
   // Helpers
   // Default numeric values to 0 to handle omitempty
-  const toMph = (mps: number) => Math.round((mps || 0) * 2.23694);
+  // Convert m/s to km/h: m/s * 3.6
+  const toKph = (mps: number) => Math.round((mps || 0) * 3.6);
   const getGearLabel = (g: number) => ['P', 'D', 'R', 'N'][g] || 'P';
   const getAutopilotLabel = (s: number) => {
       switch(s) {
@@ -63,7 +64,7 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTi
   // Safe Accessors with Defaults for omitted fields
   const isBlinkerLeft = !!currentPoint.blinker_on_left;
   const isBlinkerRight = !!currentPoint.blinker_on_right;
-  const speed = toMph(currentPoint.vehicle_speed_mps);
+  const speed = toKph(currentPoint.vehicle_speed_mps);
   const gear = getGearLabel(currentPoint.gear_state);
   const steering = currentPoint.steering_wheel_angle || 0;
   const apState = getAutopilotLabel(currentPoint.autopilot_state);
@@ -71,73 +72,67 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTi
   const accelPos = currentPoint.accelerator_pedal_position || 0;
 
   return (
-    <div className="absolute top-8 left-1/2 transform -translate-x-1/2 w-64 p-4 rounded-xl bg-gray-900 bg-opacity-80 backdrop-blur-md border border-gray-700 shadow-2xl text-white font-sans select-none z-50">
+    <div className="absolute top-8 left-1/2 transform -translate-x-1/2 w-80 p-4 rounded-xl bg-gray-900 bg-opacity-80 backdrop-blur-md border border-gray-700 shadow-2xl text-white font-sans select-none z-50">
 
-      {/* Top Row: Gear - Arrows - Steering */}
-      <div className="flex justify-between items-center mb-2">
-          {/* Gear */}
-          <div className={`text-xl font-bold ${gear === 'D' || gear === 'R' ? 'text-blue-500' : 'text-gray-400'}`}>
-              {gear}
+      {/* Top Row: Gear - Brake - Arrows - Speed - Arrows - Steering */}
+      <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center space-x-2">
+            {/* Gear */}
+            <div className={`text-xl font-bold ${gear === 'D' || gear === 'R' ? 'text-blue-500' : 'text-gray-400'}`}>
+                {gear}
+            </div>
+            {/* Brake Indicator */}
+            <CircleAlert
+                size={20}
+                className={`${brakeApplied ? 'text-red-500 animate-pulse fill-red-500/20' : 'text-gray-700'}`}
+            />
           </div>
 
-          {/* Left Blinker */}
-          <ArrowLeft
-            size={24}
-            className={`${isBlinkerLeft ? 'text-green-500 animate-pulse' : 'text-gray-600'}`}
-          />
+          <div className="flex items-center space-x-4">
+              {/* Left Blinker */}
+              <ArrowLeft
+                size={24}
+                className={`${isBlinkerLeft ? 'text-green-500 animate-pulse' : 'text-gray-600'}`}
+              />
 
-          {/* Speed */}
-          <div className="text-5xl font-light tracking-tighter">
-              {speed}
+              {/* Speed */}
+              <div className="flex flex-col items-center">
+                <div className="text-5xl font-light tracking-tighter leading-none">
+                    {speed}
+                </div>
+                <div className="text-xs text-gray-400 font-medium tracking-wider uppercase mt-1">
+                    km/h
+                </div>
+              </div>
+
+              {/* Right Blinker */}
+              <ArrowRight
+                size={24}
+                className={`${isBlinkerRight ? 'text-green-500 animate-pulse' : 'text-gray-600'}`}
+              />
           </div>
-
-          {/* Right Blinker */}
-          <ArrowRight
-            size={24}
-            className={`${isBlinkerRight ? 'text-green-500 animate-pulse' : 'text-gray-600'}`}
-          />
 
            {/* Steering Wheel Icon (Rotated) */}
            <div style={{ transform: `rotate(${steering}deg)`, transition: 'transform 0.1s' }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
-                    <circle cx="12" cy="12" r="10" />
-                    <circle cx="12" cy="12" r="4" />
-                    <path d="M12 8v-4" />
-                    <path d="M12 16v4" />
-                    <path d="M4 12h4" />
-                    <path d="M16 12h4" />
-                </svg>
+                <img
+                    src="/steering_wheel.png"
+                    alt="Steering Wheel"
+                    className="w-16 h-16 object-contain drop-shadow-lg"
+                />
            </div>
       </div>
 
-      {/* Split Accel/Brake Bar */}
-      {/*
-          Container: Gray background for "empty" space.
-          Flexbox with two children: Left (Brake) and Right (Accel).
-          Justify center.
-      */}
-      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mb-2 relative flex">
-          {/* Left Half: Brake Area */}
-          <div className="flex-1 flex justify-end bg-gray-700 border-r border-gray-600">
-             {/* Brake Fill - Fills from Right to Left (justify-end) */}
-             {brakeApplied && (
-                 <div className="h-full bg-red-500 w-full opacity-80" />
-             )}
-          </div>
-
-          {/* Right Half: Accel Area */}
-          <div className="flex-1 flex justify-start bg-gray-700">
-              {/* Accel Fill - Fills from Left to Right */}
-              <div
-                  className="h-full bg-green-500 opacity-80"
-                  style={{ width: `${accelPos}%` }}
-              />
-          </div>
+      {/* Accelerator Bar */}
+      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mb-2 relative">
+          <div
+              className="h-full bg-green-500 opacity-90 transition-all duration-75 ease-out"
+              style={{ width: `${accelPos}%` }}
+          />
       </div>
 
       {/* Autopilot Status */}
       {apState && (
-          <div className="text-center text-blue-500 font-semibold text-sm uppercase tracking-wide">
+          <div className="text-center text-blue-500 font-semibold text-sm uppercase tracking-wide mt-2">
               {apState}
           </div>
       )}
