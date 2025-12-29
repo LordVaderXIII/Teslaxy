@@ -23,6 +23,7 @@ const Timeline: React.FC<TimelineProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
 
   const getPercentage = (time: number) => {
     if (duration <= 0) return 0;
@@ -39,6 +40,18 @@ const Timeline: React.FC<TimelineProps> = ({
 
     onSeek(newTime);
   }, [duration, onSeek]);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!containerRef.current || duration <= 0) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const percentage = x / rect.width;
+    setHoverTime(percentage * duration);
+  };
+
+  const handleMouseLeave = () => {
+    setHoverTime(null);
+  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
@@ -106,6 +119,8 @@ const Timeline: React.FC<TimelineProps> = ({
         ref={containerRef}
         className="relative h-6 flex items-center cursor-pointer group outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
         onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
         onKeyDown={handleKeyDown}
         tabIndex={0}
         role="slider"
@@ -122,13 +137,39 @@ const Timeline: React.FC<TimelineProps> = ({
              className="h-full bg-blue-500 rounded-full"
              style={{ width: `${getPercentage(currentTime)}%` }}
            />
+           {/* Hover Ghost Bar */}
+           {!isDragging && hoverTime !== null && (
+             <div
+               className="absolute top-0 h-full bg-white/20 transition-none"
+               style={{
+                 left: 0,
+                 width: `${getPercentage(hoverTime)}%`,
+               }}
+             />
+           )}
         </div>
 
         {/* Handle */}
         <div
-          className="absolute h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2 scale-0 group-hover:scale-100 transition-transform"
+          className="absolute h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2 scale-0 group-hover:scale-100 transition-transform z-10"
           style={{ left: `${getPercentage(currentTime)}%` }}
         />
+
+        {/* Hover Tooltip & Handle */}
+        {!isDragging && hoverTime !== null && (
+          <>
+            <div
+              className="absolute h-3 w-3 bg-white/50 rounded-full transform -translate-x-1/2 pointer-events-none top-1/2 -translate-y-1/2"
+              style={{ left: `${getPercentage(hoverTime)}%` }}
+            />
+            <div
+              className="absolute bottom-full mb-3 bg-gray-800 text-white text-[10px] font-mono px-1.5 py-0.5 rounded border border-gray-600 shadow-xl transform -translate-x-1/2 pointer-events-none whitespace-nowrap z-20"
+              style={{ left: `${getPercentage(hoverTime)}%` }}
+            >
+              {formatTime(hoverTime)}
+            </div>
+          </>
+        )}
 
         {/* Markers */}
         {markers.map((marker, idx) => (
