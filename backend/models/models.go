@@ -2,12 +2,14 @@ package models
 
 import (
 	"time"
-
-	"github.com/jinzhu/gorm"
 )
 
 type Clip struct {
-	gorm.Model
+	ID        uint       `gorm:"primary_key" json:"ID"`
+	CreatedAt time.Time  `json:"-"`
+	UpdatedAt time.Time  `json:"-"`
+	DeletedAt *time.Time `sql:"index" json:"-"`
+
 	Timestamp      time.Time   `json:"timestamp" gorm:"index"`
 	EventTimestamp *time.Time  `json:"event_timestamp"` // Timestamp from event.json
 	Event          string      `json:"event"`           // e.g., "Sentry", "Saved", "Recent"
@@ -19,7 +21,11 @@ type Clip struct {
 }
 
 type VideoFile struct {
-	gorm.Model
+	ID        uint       `gorm:"primary_key" json:"ID"`
+	CreatedAt time.Time  `json:"-"`
+	UpdatedAt time.Time  `json:"-"`
+	DeletedAt *time.Time `sql:"index" json:"-"`
+
 	ClipID    uint      `json:"clip_id" gorm:"index"`
 	Camera    string    `json:"camera"` // "Front", "Left Repeater", etc.
 	FilePath  string    `json:"file_path"`
@@ -27,7 +33,11 @@ type VideoFile struct {
 }
 
 type Telemetry struct {
-	gorm.Model
+	ID        uint       `gorm:"primary_key" json:"ID"`
+	CreatedAt time.Time  `json:"-"`
+	UpdatedAt time.Time  `json:"-"`
+	DeletedAt *time.Time `sql:"index" json:"-"`
+
 	ClipID         uint    `json:"clip_id" gorm:"index"`
 	Speed          float32 `json:"speed"`
 	Gear           string  `json:"gear"`
