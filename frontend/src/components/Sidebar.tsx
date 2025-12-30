@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox } from 'lucide-react';
 import Calendar from './Calendar';
 import MapModal from './MapModal';
 import VersionDisplay from './VersionDisplay';
+import { useClickOutside } from '../hooks/useClickOutside';
 
 interface VideoFile {
   camera: string;
@@ -151,6 +152,10 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
 
+  // Click outside to close filter
+  const filterRef = useRef<HTMLDivElement>(null);
+  useClickOutside(filterRef, () => setIsFilterOpen(false));
+
   // Optimization: Memoize date strings to avoid re-parsing on every render/filter change
   const clipDateMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -282,9 +287,12 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
           </div>
 
           {/* Filter */}
-          <div className="relative">
+          <div className="relative" ref={filterRef}>
              <button
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
+                aria-expanded={isFilterOpen}
+                aria-controls="filter-dropdown"
+                aria-label={isFilterOpen ? "Hide filters" : "Show filters"}
                 className="w-full bg-gray-900 border border-gray-800 text-gray-300 text-sm rounded-lg p-2.5 flex justify-between items-center hover:bg-gray-800 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
              >
                 <div className="flex items-center gap-2">
@@ -295,7 +303,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
              </button>
 
              {isFilterOpen && (
-                 <div className="absolute top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-800 rounded-lg shadow-xl z-20 p-3 flex flex-col gap-3">
+                 <div id="filter-dropdown" className="absolute top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-800 rounded-lg shadow-xl z-20 p-3 flex flex-col gap-3">
                      {/* Recent */}
                      <label className="flex items-center gap-2 cursor-pointer">
                         <input
