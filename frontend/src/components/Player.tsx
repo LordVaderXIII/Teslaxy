@@ -3,6 +3,7 @@ import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
 import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings } from 'lucide-react';
+import { useClickOutside } from '../hooks/useClickOutside';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -93,6 +94,13 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [activeCamera, setActiveCamera] = useState<string>('Front');
   const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+
+  // Click outside handlers
+  const cameraMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(cameraMenuRef, () => setIsCameraMenuOpen(false));
+
+  const qualityMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(qualityMenuRef, () => setIsQualityMenuOpen(false));
 
   // Bolt: Ref to track current time without triggering re-renders in callbacks
   const currentTimeRef = useRef(0);
@@ -441,11 +449,12 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
       {/* Overlays */}
       <div className="absolute top-4 right-4 z-20 flex gap-2">
-            <div className="relative md:hidden">
+            <div className="relative md:hidden" ref={cameraMenuRef}>
                 <button
                     onClick={() => setIsCameraMenuOpen(!isCameraMenuOpen)}
                     aria-label={isCameraMenuOpen ? "Close camera menu" : "Open camera menu"}
                     aria-expanded={isCameraMenuOpen}
+                    aria-haspopup="true"
                     className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
                 >
                     <Video size={20} />
@@ -549,11 +558,13 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               </button>
 
               {/* Quality Selector */}
-              <div className="relative">
+              <div className="relative" ref={qualityMenuRef}>
                   <button
                       onClick={() => setIsQualityMenuOpen(!isQualityMenuOpen)}
                       aria-label={`Quality: ${quality}`}
                       title={`Quality: ${quality}`}
+                      aria-expanded={isQualityMenuOpen}
+                      aria-haspopup="true"
                       className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none group/settings"
                   >
                       <Settings size={20} />
