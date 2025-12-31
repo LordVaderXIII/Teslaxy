@@ -364,21 +364,21 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
   }, [segments, isPlaying]); // Removed currentTime from deps to avoid re-binding
 
-  const cyclePlaybackSpeed = () => {
+  const cyclePlaybackSpeed = useCallback(() => {
     const speeds = [0.5, 1, 1.5, 2, 4];
     const nextIndex = (speeds.indexOf(playbackSpeed) + 1) % speeds.length;
     setPlaybackSpeed(speeds[nextIndex]);
-  };
+  }, [playbackSpeed]);
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
       const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
       if (player) {
-          if (player.paused()) player.play();
+          if (player.paused()) player.play().catch(() => {});
           else player.pause();
       }
-  };
+  }, []);
 
-  const handleSeek = (time: number) => {
+  const handleSeek = useCallback((time: number) => {
       const newTime = Math.max(0, Math.min(time, totalDuration));
       setCurrentTime(newTime);
 
@@ -410,7 +410,46 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                }
           }
       });
-  };
+  }, [totalDuration, segments, getSegmentAtTime]);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input
+      if (document.activeElement instanceof HTMLInputElement ||
+          document.activeElement instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch(e.key) {
+        case ' ':
+        case 'k':
+        case 'K':
+          e.preventDefault();
+          togglePlay();
+          break;
+        case 'ArrowLeft':
+           if (!e.defaultPrevented) handleSeek(currentTimeRef.current - 5);
+           break;
+        case 'ArrowRight':
+           if (!e.defaultPrevented) handleSeek(currentTimeRef.current + 5);
+           break;
+        case 'j':
+        case 'J':
+           e.preventDefault();
+           handleSeek(currentTimeRef.current - 15);
+           break;
+        case 'l':
+        case 'L':
+           e.preventDefault();
+           handleSeek(currentTimeRef.current + 15);
+           break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [togglePlay, handleSeek]);
 
   const getUrl = useCallback((path: string) => {
     let url = `/api/video${path}`;
@@ -523,7 +562,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={() => handleSeek(Math.max(0, currentTime - 15))}
                   aria-label="Rewind 15 seconds"
-                  title="Rewind 15 seconds"
+                  title="Rewind 15 seconds (J)"
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCcw size={20} />
@@ -531,7 +570,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={togglePlay}
                   aria-label={isPlaying ? "Pause" : "Play"}
-                  title={isPlaying ? "Pause" : "Play"}
+                  title={isPlaying ? "Pause (Space)" : "Play (Space)"}
                   className="w-12 h-12 flex items-center justify-center bg-white text-black rounded-full hover:bg-gray-200 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   {isPlaying ? (
@@ -543,7 +582,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               <button
                   onClick={() => handleSeek(Math.min(totalDuration, currentTime + 15))}
                   aria-label="Skip forward 15 seconds"
-                  title="Skip forward 15 seconds"
+                  title="Skip forward 15 seconds (L)"
                   className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
               >
                   <RotateCw size={20} />
