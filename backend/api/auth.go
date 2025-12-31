@@ -167,8 +167,10 @@ func Login(c *gin.Context) {
 
 	if userMatch && passMatch {
 		token, _ := generateToken(creds.Username)
+		log.Printf("AUTH: Successful login for user %q from IP %s", creds.Username, c.ClientIP())
 		c.JSON(200, gin.H{"token": token})
 	} else {
+		log.Printf("AUTH: Failed login attempt for user %q from IP %s", creds.Username, c.ClientIP())
 		c.JSON(401, gin.H{"error": "Invalid credentials"})
 	}
 }
