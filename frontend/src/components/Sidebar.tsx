@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, Suspense } from 'react';
 import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox } from 'lucide-react';
 import Calendar from './Calendar';
-import MapModal from './MapModal';
 import VersionDisplay from './VersionDisplay';
 import { useClickOutside } from '../hooks/useClickOutside';
+
+const MapModal = React.lazy(() => import('./MapModal'));
 
 interface VideoFile {
   camera: string;
@@ -404,12 +405,17 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
             <VersionDisplay />
        </div>
 
-       <MapModal
-          isOpen={isMapOpen}
-          onClose={() => setIsMapOpen(false)}
-          clips={clips}
-          onClipSelect={onClipSelect}
-       />
+       {/* Bolt: Wrap MapModal in Suspense to support lazy loading */}
+       <Suspense fallback={null}>
+         {isMapOpen && (
+            <MapModal
+              isOpen={isMapOpen}
+              onClose={() => setIsMapOpen(false)}
+              clips={clips}
+              onClipSelect={onClipSelect}
+            />
+         )}
+       </Suspense>
     </div>
   );
 };
