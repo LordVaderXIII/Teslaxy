@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Clip {
@@ -28,10 +28,10 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
   const daysInMonth = getDaysInMonth(viewDate.getFullYear(), viewDate.getMonth());
   const firstDay = getFirstDayOfMonth(viewDate.getFullYear(), viewDate.getMonth());
 
-  // Identify days with clips
-  const clipDays = new Set(
+  // Bolt Optimization: Memoize the set of days with clips to avoid O(N) iteration on every render.
+  const clipDays = useMemo(() => new Set(
     clips.map(c => new Date(c.timestamp).toDateString())
-  );
+  ), [clips]);
 
   const handlePrevMonth = () => {
     setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
@@ -88,6 +88,10 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
     return days;
   };
 
+  // Sync viewDate if currentDate changes drastically (optional, but good UX)
+  // Currently logic only sets viewDate on init. If user changes date via external means, viewDate might be out of sync.
+  // But for now, we keep existing logic to minimize regression risk.
+
   return (
     <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
       <div className="flex justify-between items-center mb-4">
@@ -123,4 +127,5 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
   );
 };
 
-export default Calendar;
+// Bolt Optimization: Prevent re-renders when parent (Sidebar) updates irrelevant state
+export default React.memo(Calendar);
