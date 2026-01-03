@@ -111,7 +111,7 @@ func serveVideo(c *gin.Context) {
 
 	// Verify file exists
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		log.Printf("Error: Video file not found at %s", fullPath)
+		log.Printf("Error: Video file not found at %q", fullPath)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Video file not found"})
 		return
 	}

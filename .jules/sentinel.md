@@ -38,3 +38,7 @@
 - `img-src`: `'self' data: blob: https://*.basemaps.cartocdn.com` (Maps & Thumbnails)
 - `media-src`: `'self' blob:` (Video playback & 3D textures)
 - `object-src`: `'none'` (Block plugins)
+## 2026-01-03 - Log Injection (Log Forging) Vulnerability
+**Vulnerability:** The application was logging user-controlled input (file paths, ffmpeg output) using the `%s` format verb in `log.Printf`. This allowed malicious actors to inject newline characters (`\n`) into input, potentially forging fake log entries to mislead auditors or automated log monitors (CWE-117).
+**Learning:** Standard string formatting (`%s`, `%v`) does not sanitize control characters. Trusting file paths or external command output in logs without escaping is a security risk, even if the application logic itself handles the file operations safely.
+**Prevention:** Always use the `%q` formatting verb when logging user-supplied data or external command output. This wraps the string in double quotes and escapes special characters (e.g., `\n` becomes `\n`), rendering the injection inert and clearly visible as a single log line.

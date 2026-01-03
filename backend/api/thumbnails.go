@@ -60,7 +60,7 @@ func getThumbnail(c *gin.Context) {
 
 	// Verify file exists at the full path
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-		log.Printf("Thumbnail source not found: %s", fullPath)
+		log.Printf("Thumbnail source not found: %q", fullPath)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Video file not found"})
 		return
 	}
@@ -103,7 +103,7 @@ func getThumbnail(c *gin.Context) {
 	vf := fmt.Sprintf("scale=%d:-1", width)
 	cmd := exec.Command("ffmpeg", "-y", "-ss", seekTime, "-i", fullPath, "-vframes", "1", "-vf", vf, "-q:v", "5", thumbPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("FFmpeg error: %v, Output: %s", err, string(out))
+		log.Printf("FFmpeg error: %v, Output: %q", err, string(out))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})
 		return
 	}

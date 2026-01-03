@@ -118,7 +118,7 @@ func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			log.Printf("FFmpeg Error: %s", scanner.Text())
+			log.Printf("FFmpeg Error: %q", scanner.Text())
 		}
 	}()
 
