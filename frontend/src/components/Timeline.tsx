@@ -23,6 +23,7 @@ const Timeline: React.FC<TimelineProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
 
   const getPercentage = (time: number) => {
     if (duration <= 0) return 0;
@@ -39,6 +40,15 @@ const Timeline: React.FC<TimelineProps> = ({
 
     onSeek(newTime);
   }, [duration, onSeek]);
+
+  const handleHover = useCallback((e: React.MouseEvent) => {
+    if (!containerRef.current || duration <= 0) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const percentage = x / rect.width;
+    const time = percentage * duration;
+    setHoverTime(time);
+  }, [duration]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
@@ -106,6 +116,8 @@ const Timeline: React.FC<TimelineProps> = ({
         ref={containerRef}
         className="relative h-6 flex items-center cursor-pointer group outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
         onMouseDown={handleMouseDown}
+        onMouseMove={(e) => !isDragging && handleHover(e)}
+        onMouseLeave={() => setHoverTime(null)}
         onKeyDown={handleKeyDown}
         tabIndex={0}
         role="slider"
@@ -124,9 +136,27 @@ const Timeline: React.FC<TimelineProps> = ({
            />
         </div>
 
+        {/* Hover Preview (Ghost Handle & Tooltip) */}
+        {hoverTime !== null && !isDragging && (
+           <>
+              {/* Ghost Handle */}
+              <div
+                  className="absolute h-3 w-3 bg-white/50 rounded-full transform -translate-x-1/2 -translate-y-1/2 top-1/2 pointer-events-none z-10"
+                  style={{ left: `${getPercentage(hoverTime)}%` }}
+              />
+              {/* Tooltip */}
+              <div
+                  className="absolute bottom-full mb-2 bg-gray-800 text-white text-[10px] font-mono py-1 px-2 rounded border border-gray-700 shadow-xl transform -translate-x-1/2 pointer-events-none whitespace-nowrap z-20"
+                  style={{ left: `${getPercentage(hoverTime)}%` }}
+              >
+                  {formatTime(hoverTime)}
+              </div>
+           </>
+        )}
+
         {/* Handle */}
         <div
-          className={`absolute h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2 transition-transform ${
+          className={`absolute z-30 h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2 transition-transform ${
             isDragging ? 'scale-100' : 'scale-0 group-hover:scale-100 group-focus-visible:scale-100'
           }`}
           style={{ left: `${getPercentage(currentTime)}%` }}
