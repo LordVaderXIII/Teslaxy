@@ -41,7 +41,12 @@ func main() {
 	scanner.Start()
 
 	// Setup Server
-	r := gin.Default()
+	r := gin.New()
+
+	// Middleware
+	// Replace default Logger with SecureLogger to scrub sensitive params
+	r.Use(api.SecureLogger())
+	r.Use(gin.Recovery())
 
 	// Trusted Proxies (Fix IP spoofing)
 	// Trust no proxies by default. If running behind Nginx/Traefik, this should be configured.

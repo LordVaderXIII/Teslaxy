@@ -1,10 +1,40 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+// Include ? or & before token to avoid matching part of a path or another param name suffix
+var tokenRegex = regexp.MustCompile(`([?&]token=)[^&]*`)
+
+// scrubLogPath removes sensitive query parameters from the log path
+func scrubLogPath(path string) string {
+	if !strings.Contains(path, "token=") {
+		return path
+	}
+	// Use regex to replace value of token parameter until next & or end of string
+	return tokenRegex.ReplaceAllString(path, "${1}***")
+}
+
+// SecureLogger returns a Gin Logger middleware that masks sensitive query params
+func SecureLogger() gin.HandlerFunc {
+	return gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		return fmt.Sprintf("[GIN] %s | %3d | %13v | %15s | %-7s %s\n%s",
+			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
+			param.StatusCode,
+			param.Latency,
+			param.ClientIP,
+			param.Method,
+			scrubLogPath(param.Path),
+			param.ErrorMessage,
+		)
+	})
+}
 
 // SecurityHeadersMiddleware adds common security headers to the response
 func SecurityHeadersMiddleware() gin.HandlerFunc {
