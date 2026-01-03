@@ -157,6 +157,11 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   const filterRef = useRef<HTMLDivElement>(null);
   useClickOutside(filterRef, () => setIsFilterOpen(false));
 
+  // Bolt Optimization: Stabilize the onDateSelect handler to allow Calendar to stay memoized
+  const handleDateSelect = React.useCallback((date: Date) => {
+    setSelectedDate(date);
+  }, []);
+
   // Optimization: Memoize date strings to avoid re-parsing on every render/filter change
   const clipDateMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -280,9 +285,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
           <div className={`${isCalendarOpen ? 'block' : 'hidden'} md:block transition-all duration-300 ease-in-out`}>
             <Calendar
                 currentDate={selectedDate}
-                onDateSelect={(date) => {
-                    setSelectedDate(date);
-                }}
+                onDateSelect={handleDateSelect}
                 clips={clips}
             />
           </div>
