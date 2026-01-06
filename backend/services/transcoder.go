@@ -17,6 +17,28 @@ var (
 	hasNvenc     bool
 )
 
+// Sentinel: Limit concurrent transcoding to prevent DoS
+const MaxConcurrentTranscodes = 4
+
+var transcodeSem = make(chan struct{}, MaxConcurrentTranscodes)
+
+func TryAcquireTranscode() bool {
+	select {
+	case transcodeSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func ReleaseTranscode() {
+	select {
+	case <-transcodeSem:
+	default:
+		// Should not happen if logic is correct
+	}
+}
+
 type TranscodeQuality struct {
 	Height  int
 	Bitrate string
