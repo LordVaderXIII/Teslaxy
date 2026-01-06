@@ -25,3 +25,7 @@
 ## 2025-12-21 - Consistent Focus States
 **Learning:** While some components (Sidebar, Player) had excellent focus states, others (Calendar, MapModal) relied on browser defaults or had none, creating a disjointed keyboard navigation experience.
 **Action:** Audit all interactive elements and enforce a consistent `focus-visible` ring style (e.g., `ring-2 ring-blue-500`) to ensure users always know where they are, regardless of the component.
+
+## 2026-05-23 - Active Filter Visibility
+**Learning:** Users often forget active filters, leading to confusion when items seem "missing". A subtle visual cue (like a colored icon or border) on the filter trigger is essential for state awareness.
+**Action:** When filters are active (non-default), style the trigger element distinctively (e.g., blue text/border) and provide a quick "Reset" action within the filter menu itself.
