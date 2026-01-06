@@ -172,6 +172,10 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   }, [clips]);
 
   // Filter Logic
+  const hasActiveFilters = useMemo(() => {
+    return Object.values(filters).some(v => !v);
+  }, [filters]);
+
   const filteredClips = useMemo(() => {
     const targetDateStr = selectedDate.toDateString();
 
@@ -233,6 +237,18 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
         sentryOther: true,
     });
     setSelectedDate(new Date());
+  };
+
+  const handleResetCheckboxes = () => {
+    setFilters({
+        recent: true,
+        dashcamHonk: true,
+        dashcamSaved: true,
+        dashcamOther: true,
+        sentryObject: true,
+        sentryAccel: true,
+        sentryOther: true,
+    });
   };
 
   const isToday = (date: Date) => {
@@ -297,10 +313,10 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                 aria-expanded={isFilterOpen}
                 aria-controls="filter-dropdown"
                 aria-label={isFilterOpen ? "Hide filters" : "Show filters"}
-                className="w-full bg-gray-900 border border-gray-800 text-gray-300 text-sm rounded-lg p-2.5 flex justify-between items-center hover:bg-gray-800 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
+                className={`w-full bg-gray-900 border ${hasActiveFilters ? 'border-blue-500/50' : 'border-gray-800'} text-gray-300 text-sm rounded-lg p-2.5 flex justify-between items-center hover:bg-gray-800 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none`}
              >
                 <div className="flex items-center gap-2">
-                    <Filter size={14} className="text-gray-500" />
+                    <Filter size={14} className={hasActiveFilters ? "text-blue-500" : "text-gray-500"} />
                     <span>Filter Events</span>
                 </div>
                 <span className="text-xs text-gray-500">{filteredClips.length} shown</span>
@@ -308,6 +324,18 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
 
              {isFilterOpen && (
                  <div id="filter-dropdown" className="absolute top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-800 rounded-lg shadow-xl z-20 p-3 flex flex-col gap-3">
+                     <div className="flex justify-between items-center pb-2 border-b border-gray-800">
+                        <span className="text-xs font-semibold text-gray-500 uppercase">Filters</span>
+                        {hasActiveFilters && (
+                            <button
+                                onClick={handleResetCheckboxes}
+                                className="text-xs text-blue-400 hover:text-white transition-colors outline-none focus-visible:underline"
+                            >
+                                Reset
+                            </button>
+                        )}
+                     </div>
+
                      {/* Recent */}
                      <label className="flex items-center gap-2 cursor-pointer">
                         <input
