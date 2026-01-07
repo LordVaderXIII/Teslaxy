@@ -541,12 +541,14 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           </div>
       ) : (
           <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3 md:grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
+              {/* Bolt Optimization: Pass currentTime only to Front camera (for TelemetryOverlay).
+                  Others receive 0 to keep props stable and prevent re-renders on every frame. */}
               <CameraView camName='Front' className='md:col-span-3' seg={getCurrentSegment('Front')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Left Pillar' className='' seg={getCurrentSegment('Left Pillar')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Back' className='md:row-span-2' seg={getCurrentSegment('Back')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Right Pillar' className='' seg={getCurrentSegment('Right Pillar')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Left Repeater' className='' seg={getCurrentSegment('Left Repeater')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Right Repeater' className='' seg={getCurrentSegment('Right Repeater')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Left Pillar' className='' seg={getCurrentSegment('Left Pillar')} activeCamera={activeCamera} clip={clip} currentTime={0} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Back' className='md:row-span-2' seg={getCurrentSegment('Back')} activeCamera={activeCamera} clip={clip} currentTime={0} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Right Pillar' className='' seg={getCurrentSegment('Right Pillar')} activeCamera={activeCamera} clip={clip} currentTime={0} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Left Repeater' className='' seg={getCurrentSegment('Left Repeater')} activeCamera={activeCamera} clip={clip} currentTime={0} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              <CameraView camName='Right Repeater' className='' seg={getCurrentSegment('Right Repeater')} activeCamera={activeCamera} clip={clip} currentTime={0} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
           </div>
       )}
 
