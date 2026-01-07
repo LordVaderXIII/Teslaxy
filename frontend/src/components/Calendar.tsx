@@ -51,6 +51,17 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
     return clipDays.has(d.toDateString());
   };
 
+  const handleJumpToToday = () => {
+    const now = new Date();
+    setViewDate(now);
+    onDateSelect(now);
+  };
+
+  const isCurrentMonth = () => {
+    const now = new Date();
+    return viewDate.getMonth() === now.getMonth() && viewDate.getFullYear() === now.getFullYear();
+  };
+
   const renderDays = () => {
     const days = [];
     // Padding for first week
@@ -102,9 +113,20 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
         >
           <ChevronLeft size={16} />
         </button>
-        <span className="font-semibold text-sm">
-          {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-sm">
+            {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+          </span>
+          {!isCurrentMonth() && (
+            <button
+              onClick={handleJumpToToday}
+              aria-label="Jump to today"
+              className="text-[10px] uppercase font-bold tracking-wider text-blue-400 hover:text-blue-300 border border-blue-900/50 bg-blue-900/20 px-1.5 py-0.5 rounded hover:bg-blue-900/40 transition outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+              Today
+            </button>
+          )}
+        </div>
         <button
           onClick={handleNextMonth}
           className="p-1 hover:bg-gray-800 rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
