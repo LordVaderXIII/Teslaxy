@@ -4,6 +4,7 @@ import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
 import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings } from 'lucide-react';
 import { useClickOutside } from '../hooks/useClickOutside';
+import { useLocalStorage } from '../hooks/useLocalStorage';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -93,7 +94,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [is3D, setIs3D] = useState(false);
   const [activeCamera, setActiveCamera] = useState<string>('Front');
   const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
-  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [playbackSpeed, setPlaybackSpeed] = useLocalStorage<number>('player.playbackSpeed', 1);
 
   // Click outside handlers
   const cameraMenuRef = useRef<HTMLDivElement>(null);
