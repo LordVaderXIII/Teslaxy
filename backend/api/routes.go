@@ -56,7 +56,8 @@ func getClips(c *gin.Context) {
 	// Bolt: Optimize query by selecting only necessary fields for Clip, VideoFiles, and Telemetry.
 	// This reduces payload size by excluding model timestamps (CreatedAt, UpdatedAt, DeletedAt)
 	// and heavy fields (FullDataJson) from the list view.
-	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, telemetry_id").
+	// Bolt Optimization: Added 'reason' to Select to fix frontend filtering logic.
+	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
 			return db.Select("clip_id, camera, file_path, timestamp").Order("timestamp asc")
 		}).
