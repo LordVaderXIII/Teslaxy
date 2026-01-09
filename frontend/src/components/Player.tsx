@@ -44,7 +44,8 @@ const CameraView = React.memo(({
     currentTime,
     quality,
     handlePlayerReady,
-    getUrl
+    getUrl,
+    onSelect
 }: {
     camName: string,
     className: string,
@@ -54,7 +55,8 @@ const CameraView = React.memo(({
     currentTime: number,
     quality: string,
     handlePlayerReady: (cam: string, p: any) => void,
-    getUrl: (path: string) => string
+    getUrl: (path: string) => string,
+    onSelect: (cam: string) => void
 }) => {
     // Bolt: Use useCallback to create a STABLE handler for onReady.
     // This combined with React.memo(VideoPlayer) prevents re-renders.
@@ -63,18 +65,21 @@ const CameraView = React.memo(({
     }, [camName, handlePlayerReady]);
 
     return (
-        <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${className} ${activeCamera === camName ? 'block h-full' : 'hidden md:block'}`}>
+        <div
+            onClick={() => onSelect(camName)}
+            className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 cursor-pointer ${className} ${activeCamera === camName ? 'block h-full' : 'hidden md:block'}`}
+        >
             {seg ? (
                 <VideoPlayer
                     key={`${clip.ID}-${camName}-${seg.file_path}-${quality}`} // Key forces remount on segment change OR quality change
                     src={getUrl(seg.file_path)}
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-contain pointer-events-none" // pointer-events-none allows click to bubble to parent
                     onReady={onReady}
                 />
             ) : (
                 <div className="flex items-center justify-center h-full text-gray-600">No {camName}</div>
             )}
-             <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
+             <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none z-10">
                 {camName}
             </div>
             {camName === 'Front' && clip.telemetry && clip.telemetry.full_data_json && (
@@ -193,12 +198,24 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       setIsPlaying(false);
       mainPlayerRef.current = null;
       playersRef.current = {};
-      setActiveCamera('Front');
+
+      // Check if the current active camera exists in the new clip. If not, default to Front.
+      // Or if it's the initial load, default to Front.
+      // But we want to persist if possible.
+      if (clip?.video_files) {
+         const hasCamera = clip.video_files.some(f => normalizeCameraName(f.camera) === normalizeCameraName(activeCamera));
+         if (!hasCamera) {
+             setActiveCamera('Front');
+         }
+      } else {
+         setActiveCamera('Front');
+      }
 
       return () => {
         playersRef.current = {};
         mainPlayerRef.current = null;
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clip?.ID]);
 
   // Determine current segment based on global time
@@ -483,6 +500,30 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const cameras = ['Front', 'Left Repeater', 'Right Repeater', 'Back', 'Left Pillar', 'Right Pillar'];
   const qualities = ['original', '1080p', '720p', '480p'];
 
+  const layoutClasses = [
+      'md:col-span-3', // Main
+      '',              // Left Pillar
+      'md:row-span-2', // Back
+      '',              // Right Pillar
+      '',              // Left Repeater
+      ''               // Right Repeater
+  ];
+
+  const defaultLayout = ['Front', 'Left Pillar', 'Back', 'Right Pillar', 'Left Repeater', 'Right Repeater'];
+
+  const currentLayout = useMemo(() => {
+      const layout = [...defaultLayout];
+      if (activeCamera !== 'Front') {
+          const idx = layout.indexOf(activeCamera);
+          if (idx !== -1) {
+              // Swap
+              layout[idx] = 'Front';
+              layout[0] = activeCamera;
+          }
+      }
+      return layout;
+  }, [activeCamera]);
+
   return (
     <div className="flex flex-col h-full bg-black text-white relative group">
 
@@ -541,12 +582,21 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           </div>
       ) : (
           <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3 md:grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
-              <CameraView camName='Front' className='md:col-span-3' seg={getCurrentSegment('Front')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Left Pillar' className='' seg={getCurrentSegment('Left Pillar')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Back' className='md:row-span-2' seg={getCurrentSegment('Back')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Right Pillar' className='' seg={getCurrentSegment('Right Pillar')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Left Repeater' className='' seg={getCurrentSegment('Left Repeater')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Right Repeater' className='' seg={getCurrentSegment('Right Repeater')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              {currentLayout.map((cam, idx) => (
+                  <CameraView
+                      key={cam}
+                      camName={cam}
+                      className={layoutClasses[idx]}
+                      seg={getCurrentSegment(cam)}
+                      activeCamera={activeCamera}
+                      clip={clip}
+                      currentTime={currentTime}
+                      quality={quality}
+                      handlePlayerReady={handlePlayerReady}
+                      getUrl={getUrl}
+                      onSelect={setActiveCamera}
+                  />
+              ))}
           </div>
       )}
 
