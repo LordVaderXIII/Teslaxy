@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo, useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'leaflet/dist/leaflet.css';
@@ -54,6 +54,41 @@ const MapAutoFit = ({ clips }: { clips: Clip[] }) => {
     }, [clips, map]);
 
     return null;
+};
+
+const ClipPopup = ({ clip, onSelect, getThumbnailUrl }: { clip: Clip, onSelect: () => void, getThumbnailUrl: (c: Clip) => string }) => {
+    const [imgError, setImgError] = useState(false);
+    const url = getThumbnailUrl(clip);
+
+    return (
+        <div className="w-48 text-gray-900">
+            <div className="font-bold mb-1">{clip.city || 'Unknown Location'}</div>
+            <div className="text-xs text-gray-600 mb-2">
+                {new Date(clip.timestamp).toLocaleString()}
+            </div>
+
+            <button
+                onClick={onSelect}
+                className="w-full group relative aspect-video bg-gray-200 rounded overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+                {url && !imgError ? (
+                    <img
+                        src={url}
+                        alt={`Thumbnail for ${clip.event} event at ${clip.city}`}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        onError={() => setImgError(true)}
+                    />
+                ) : (
+                    <div className="flex items-center justify-center h-full text-xs font-bold uppercase text-gray-500 bg-gray-800 text-gray-400">
+                        {clip.event}
+                    </div>
+                )}
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/0 transition-colors">
+                    <div className="bg-white/90 px-2 py-1 rounded text-xs font-bold shadow-sm">Play</div>
+                </div>
+            </button>
+        </div>
+    );
 };
 
 const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelect }) => {
@@ -150,42 +185,14 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                                     icon={customMarkerIcon}
                                 >
                                     <Popup className="custom-popup">
-                                        <div className="w-48 text-gray-900">
-                                            <div className="font-bold mb-1">{clip.city || 'Unknown Location'}</div>
-                                            <div className="text-xs text-gray-600 mb-2">
-                                                {new Date(clip.timestamp).toLocaleString()}
-                                            </div>
-
-                                            <button
-                                                onClick={() => {
-                                                    onClipSelect(clip);
-                                                    onClose();
-                                                }}
-                                                className="w-full group relative aspect-video bg-gray-200 rounded overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                                            >
-                                               {clip.video_files?.find((v:any) => v.camera === 'Front') ? (
-                                                   <img
-                                                       src={getThumbnailUrl(clip)}
-                                                       alt="Thumbnail"
-                                                       className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                                                       onError={(e) => {
-                                                           e.currentTarget.style.display = 'none';
-                                                           e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-gray-800', 'text-gray-400');
-                                                           if (e.currentTarget.parentElement) {
-                                                               e.currentTarget.parentElement.innerText = clip.event;
-                                                           }
-                                                       }}
-                                                   />
-                                               ) : (
-                                                   <div className="flex items-center justify-center h-full text-xs font-bold uppercase text-gray-500">
-                                                       {clip.event}
-                                                   </div>
-                                               )}
-                                               <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/0 transition-colors">
-                                                    <div className="bg-white/90 px-2 py-1 rounded text-xs font-bold shadow-sm">Play</div>
-                                               </div>
-                                            </button>
-                                        </div>
+                                        <ClipPopup
+                                            clip={clip}
+                                            onSelect={() => {
+                                                onClipSelect(clip);
+                                                onClose();
+                                            }}
+                                            getThumbnailUrl={getThumbnailUrl}
+                                        />
                                     </Popup>
                                 </Marker>
                             ))}

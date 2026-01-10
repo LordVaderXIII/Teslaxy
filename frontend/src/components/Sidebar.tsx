@@ -48,6 +48,32 @@ interface SidebarItemProps {
   onClipSelect: (clip: Clip) => void;
 }
 
+const ThumbnailImage = ({ url, alt, clip }: { url: string, alt: string, clip: Clip }) => {
+  const [error, setError] = useState(false);
+
+  if (url && !error) {
+    return (
+      <img
+        src={url}
+        alt={alt}
+        className="w-full h-full object-cover"
+        loading="lazy"
+        onError={() => setError(true)}
+      />
+    );
+  }
+
+  return (
+    <div title={url ? "Thumbnail unavailable" : undefined} className={`
+                  w-full h-full flex items-center justify-center
+                  ${clip.event === 'Sentry' ? 'bg-red-900/20 text-red-500' :
+        clip.event === 'Saved' ? 'bg-green-900/20 text-green-500' : 'bg-gray-800 text-gray-400'}
+              `}>
+      <div className="text-xs font-bold uppercase">{clip.event.substring(0, 2)}</div>
+    </div>
+  );
+};
+
 const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemProps) => {
   const thumbnailUrl = useMemo(() => {
     if (!clip.video_files || clip.video_files.length === 0) return '';
@@ -107,22 +133,12 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
     >
        {/* Thumbnail Placeholder or Icon */}
        <div className="w-12 h-12 rounded flex-shrink-0 overflow-hidden bg-gray-800 relative">
-          {thumbnailUrl ? (
-             <img
-                src={thumbnailUrl}
-                alt={`Thumbnail for ${clip.event} event at ${clip.city}`}
-                className="w-full h-full object-cover"
-                loading="lazy"
-             />
-          ) : (
-              <div className={`
-                  w-full h-full flex items-center justify-center
-                  ${clip.event === 'Sentry' ? 'bg-red-900/20 text-red-500' :
-                  clip.event === 'Saved' ? 'bg-green-900/20 text-green-500' : 'bg-gray-800 text-gray-400'}
-              `}>
-                  <div className="text-xs font-bold uppercase">{clip.event.substring(0,2)}</div>
-              </div>
-          )}
+          <ThumbnailImage
+            key={thumbnailUrl}
+            url={thumbnailUrl}
+            alt={`Thumbnail for ${clip.event} event at ${clip.city}`}
+            clip={clip}
+          />
        </div>
 
        <div className="flex-1 min-w-0">
