@@ -1,12 +1,32 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, Suspense } from 'react'
 import Player from './components/Player'
 import Sidebar from './components/Sidebar'
 import { mergeClips, type Clip } from './utils/clipMerge'
+
+const KeyboardShortcutsHelp = React.lazy(() => import('./components/KeyboardShortcutsHelp'));
 
 function App() {
   const [clips, setClips] = useState<Clip[]>([])
   const [selectedClip, setSelectedClip] = useState<Clip | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+
+  // Global Keyboard Listener for '?'
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore inputs
+      if (document.activeElement instanceof HTMLInputElement ||
+          document.activeElement instanceof HTMLTextAreaElement) {
+        return;
+      }
+      if (e.key === '?') {
+        e.preventDefault();
+        setIsShortcutsOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleClipSelect = useCallback((clip: Clip) => {
     // Optimistic update
@@ -92,9 +112,15 @@ function App() {
          selectedClipId={selectedClip?.ID || null}
          onClipSelect={handleClipSelect}
          onRefresh={handleRefresh}
+         onOpenShortcuts={() => setIsShortcutsOpen(true)}
          loading={loading}
          className="order-2 flex-1 md:h-full md:flex-none min-h-0 overflow-hidden"
       />
+
+      {/* Global Modals */}
+      <Suspense fallback={null}>
+         <KeyboardShortcutsHelp isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
+      </Suspense>
     </div>
   )
 }

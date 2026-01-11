@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, Suspense } from 'react';
-import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox } from 'lucide-react';
+import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox, Keyboard } from 'lucide-react';
 import Calendar from './Calendar';
 import VersionDisplay from './VersionDisplay';
 import { useClickOutside } from '../hooks/useClickOutside';
@@ -38,6 +38,7 @@ interface SidebarProps {
   selectedClipId: number | null;
   onClipSelect: (clip: Clip) => void;
   onRefresh?: () => void;
+  onOpenShortcuts?: () => void;
   loading: boolean;
   className?: string;
 }
@@ -138,7 +139,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
   );
 });
 
-const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, onRefresh, loading, className }) => {
+const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, onRefresh, onOpenShortcuts, loading, className }) => {
   const [filters, setFilters] = useState<FilterState>({
     recent: true,
     dashcamHonk: true,
@@ -254,6 +255,14 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                     title="View Map"
                   >
                      <MapIcon size={18} />
+                  </button>
+                  <button
+                    onClick={onOpenShortcuts}
+                    aria-label="Keyboard Shortcuts"
+                    className="p-1.5 bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
+                    title="Keyboard Shortcuts (?)"
+                  >
+                     <Keyboard size={18} />
                   </button>
               </div>
 
