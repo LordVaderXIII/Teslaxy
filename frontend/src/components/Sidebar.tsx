@@ -162,24 +162,33 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
     setSelectedDate(date);
   }, []);
 
-  // Optimization: Memoize date strings to avoid re-parsing on every render/filter change
-  const clipDateMap = useMemo(() => {
-    const map = new Map<number, string>();
+  // Bolt Optimization: Group clips by date string to allow O(1) access during filtering.
+  // This replaces the previous clipDateMap (Map<ID, string>) and removes the need to iterate
+  // over the entire clip library when applying filters.
+  const clipsByDate = useMemo(() => {
+    const map = new Map<string, Clip[]>();
     clips.forEach(clip => {
-      map.set(clip.ID, new Date(clip.timestamp).toDateString());
+      const dateStr = new Date(clip.timestamp).toDateString();
+      if (!map.has(dateStr)) {
+        map.set(dateStr, []);
+      }
+      map.get(dateStr)!.push(clip);
     });
     return map;
   }, [clips]);
 
+  // Compute available dates set for Calendar to avoid re-iterating over clips
+  const availableDates = useMemo(() => new Set(clipsByDate.keys()), [clipsByDate]);
+
   // Filter Logic
   const filteredClips = useMemo(() => {
     const targetDateStr = selectedDate.toDateString();
+    // Bolt Optimization: O(1) lookup for clips on the selected date.
+    // Falls back to empty array if no clips exist for that date.
+    const daysClips = clipsByDate.get(targetDateStr) || [];
 
-    return clips.filter(clip => {
-      // Date Filter
-      const sameDay = clipDateMap.get(clip.ID) === targetDateStr;
-      if (!sameDay) return false;
-
+    // Now we only iterate over the relevant day's clips, instead of the entire library.
+    return daysClips.filter(clip => {
       // Inclusive Filter Logic
 
       // Recent
@@ -220,7 +229,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
 
       return false;
     });
-  }, [clips, clipDateMap, selectedDate, filters]);
+  }, [clipsByDate, selectedDate, filters]);
 
   const handleResetFilters = () => {
     setFilters({
@@ -286,7 +295,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
             <Calendar
                 currentDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                clips={clips}
+                availableDates={availableDates}
             />
           </div>
 
