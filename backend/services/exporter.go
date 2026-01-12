@@ -28,6 +28,23 @@ type ExportRequest struct {
 	Duration  float64  `json:"duration"`   // Duration in seconds
 }
 
+// Validate ensures the request parameters are safe and logical
+func (r ExportRequest) Validate() error {
+	if r.StartTime < 0 {
+		return fmt.Errorf("start_time cannot be negative")
+	}
+	if r.Duration <= 0 {
+		return fmt.Errorf("duration must be positive")
+	}
+	if r.Duration > 3600 {
+		return fmt.Errorf("duration cannot exceed 1 hour")
+	}
+	if len(r.Cameras) == 0 {
+		return fmt.Errorf("at least one camera must be selected")
+	}
+	return nil
+}
+
 // ExportStatus tracks the status of an export job
 type ExportStatus struct {
 	JobID     string  `json:"job_id"`
@@ -78,6 +95,11 @@ func CheckForNvidiaGPU() bool {
 
 // QueueExport adds an export job to the queue
 func QueueExport(req ExportRequest) (string, error) {
+	// Sentinel: Validate Input to prevent DoS/Logic errors
+	if err := req.Validate(); err != nil {
+		return "", err
+	}
+
 	var clip models.Clip
 	if err := database.DB.Preload("VideoFiles").First(&clip, req.ClipID).Error; err != nil {
 		return "", err
