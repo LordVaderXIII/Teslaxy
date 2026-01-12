@@ -240,7 +240,7 @@ func processExport(jobID string, req ExportRequest, clip models.Clip) {
 	cmd := exec.Command("ffmpeg", args...)
 
 	// Log command for debug
-	log.Printf("Running FFmpeg: ffmpeg %v", strings.Join(args, " "))
+	log.Printf("Running FFmpeg: ffmpeg %q", strings.Join(args, " "))
 
 	err := cmd.Run()
 	if err != nil {
