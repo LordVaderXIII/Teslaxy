@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback, useMemo } fr
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings } from 'lucide-react';
+import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings, VideoOff } from 'lucide-react';
 import { useClickOutside } from '../hooks/useClickOutside';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
@@ -72,7 +72,10 @@ const CameraView = React.memo(({
                     onReady={onReady}
                 />
             ) : (
-                <div className="flex items-center justify-center h-full text-gray-600">No {camName}</div>
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 space-y-2 select-none">
+                    <VideoOff size={32} strokeWidth={1.5} />
+                    <span className="text-sm font-medium">No {camName}</span>
+                </div>
             )}
              <div className="absolute bottom-4 left-4 bg-black/50 px-3 py-1 rounded-full text-xs font-mono backdrop-blur border border-white/10 pointer-events-none">
                 {camName}
