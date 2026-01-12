@@ -162,24 +162,34 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
     setSelectedDate(date);
   }, []);
 
-  // Optimization: Memoize date strings to avoid re-parsing on every render/filter change
-  const clipDateMap = useMemo(() => {
-    const map = new Map<number, string>();
+  // Bolt Optimization: Group clips by date string to enable O(1) filtering instead of O(N) iteration
+  const { clipsByDate, availableDates } = useMemo(() => {
+    const grouped = new Map<string, Clip[]>();
+    const dates = new Set<string>();
+
     clips.forEach(clip => {
-      map.set(clip.ID, new Date(clip.timestamp).toDateString());
+      // Note: toDateString() is browser/locale dependent but consistent within the session.
+      const dateStr = new Date(clip.timestamp).toDateString();
+      if (!grouped.has(dateStr)) {
+        grouped.set(dateStr, []);
+        dates.add(dateStr);
+      }
+      grouped.get(dateStr)!.push(clip);
     });
-    return map;
+    return { clipsByDate: grouped, availableDates: dates };
   }, [clips]);
 
   // Filter Logic
   const filteredClips = useMemo(() => {
     const targetDateStr = selectedDate.toDateString();
 
-    return clips.filter(clip => {
-      // Date Filter
-      const sameDay = clipDateMap.get(clip.ID) === targetDateStr;
-      if (!sameDay) return false;
+    // Fast Lookup: Get clips for the selected date (O(1))
+    // This avoids iterating through the entire library for date filtering
+    const dayClips = clipsByDate.get(targetDateStr) || [];
 
+    if (dayClips.length === 0) return [];
+
+    return dayClips.filter(clip => {
       // Inclusive Filter Logic
 
       // Recent
@@ -220,7 +230,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
 
       return false;
     });
-  }, [clips, clipDateMap, selectedDate, filters]);
+  }, [clipsByDate, selectedDate, filters]);
 
   const handleResetFilters = () => {
     setFilters({
@@ -286,7 +296,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
             <Calendar
                 currentDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                clips={clips}
+                availableDates={availableDates}
             />
           </div>
 
