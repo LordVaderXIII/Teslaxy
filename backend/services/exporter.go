@@ -28,6 +28,23 @@ type ExportRequest struct {
 	Duration  float64  `json:"duration"`   // Duration in seconds
 }
 
+// Validate checks if the ExportRequest parameters are safe and valid
+func (r ExportRequest) Validate() error {
+	if r.StartTime < 0 {
+		return fmt.Errorf("start_time cannot be negative")
+	}
+	if r.Duration <= 0 {
+		return fmt.Errorf("duration must be greater than 0")
+	}
+	if r.Duration > 3600 {
+		return fmt.Errorf("duration cannot exceed 1 hour (3600 seconds)")
+	}
+	if len(r.Cameras) == 0 {
+		return fmt.Errorf("at least one camera must be selected")
+	}
+	return nil
+}
+
 // ExportStatus tracks the status of an export job
 type ExportStatus struct {
 	JobID     string  `json:"job_id"`

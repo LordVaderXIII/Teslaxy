@@ -38,3 +38,7 @@
 - `img-src`: `'self' data: blob: https://*.basemaps.cartocdn.com` (Maps & Thumbnails)
 - `media-src`: `'self' blob:` (Video playback & 3D textures)
 - `object-src`: `'none'` (Block plugins)
+## 2026-01-13 - Export Validation
+**Vulnerability:** Missing input validation on Export API allowed potential negative start times or excessive durations, leading to resource exhaustion or undefined behavior.
+**Learning:** Even internal APIs need validation. FFMPEG behavior with negative values can be unpredictable.
+**Prevention:** Always validate all fields of a struct bound from user input.
