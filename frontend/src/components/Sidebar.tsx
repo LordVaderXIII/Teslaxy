@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, Suspense } from 'react';
-import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox } from 'lucide-react';
+import { Filter, FilterX, RefreshCw, Calendar as CalendarIcon, Map as MapIcon } from 'lucide-react';
 import Calendar from './Calendar';
 import VersionDisplay from './VersionDisplay';
 import { useClickOutside } from '../hooks/useClickOutside';
@@ -171,15 +171,14 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
     return map;
   }, [clips]);
 
+  const clipsForDate = useMemo(() => {
+    const targetDateStr = selectedDate.toDateString();
+    return clips.filter(clip => clipDateMap.get(clip.ID) === targetDateStr);
+  }, [clips, clipDateMap, selectedDate]);
+
   // Filter Logic
   const filteredClips = useMemo(() => {
-    const targetDateStr = selectedDate.toDateString();
-
-    return clips.filter(clip => {
-      // Date Filter
-      const sameDay = clipDateMap.get(clip.ID) === targetDateStr;
-      if (!sameDay) return false;
-
+    return clipsForDate.filter(clip => {
       // Inclusive Filter Logic
 
       // Recent
@@ -220,20 +219,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
 
       return false;
     });
-  }, [clips, clipDateMap, selectedDate, filters]);
-
-  const handleResetFilters = () => {
-    setFilters({
-        recent: true,
-        dashcamHonk: true,
-        dashcamSaved: true,
-        dashcamOther: true,
-        sentryObject: true,
-        sentryAccel: true,
-        sentryOther: true,
-    });
-    setSelectedDate(new Date());
-  };
+  }, [clipsForDate, filters]);
 
   const isToday = (date: Date) => {
     const today = new Date();
@@ -369,25 +355,53 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                 <span>Loading footage...</span>
              </div>
           ) : filteredClips.length === 0 ? (
-             <div className="flex flex-col items-center justify-center p-8 text-center h-full text-gray-500 space-y-4">
+             <div className="flex flex-col items-center justify-center p-8 text-center h-full text-gray-500 space-y-4 animate-in fade-in duration-300">
                 <div className="bg-gray-900 p-4 rounded-full">
-                  <Inbox size={32} className="opacity-50" />
+                  {clipsForDate.length === 0 ? (
+                      <CalendarIcon size={32} className="opacity-50" />
+                  ) : (
+                      <FilterX size={32} className="opacity-50" />
+                  )}
                 </div>
                 <div>
                   <p className="font-medium text-gray-400">No clips found</p>
-                  <p className="text-sm mt-1 opacity-70">
-                    No clips match your current filters for {selectedDate.toLocaleDateString()}.
+                  <p className="text-sm mt-1 opacity-70 max-w-[200px] mx-auto">
+                    {clipsForDate.length === 0
+                        ? `No footage available for ${selectedDate.toLocaleDateString()}.`
+                        : `All ${clipsForDate.length} clips for this day are hidden by filters.`
+                    }
                   </p>
                 </div>
 
-                {(!isToday(selectedDate) || clips.length > 0) && (
-                  <button
-                    onClick={handleResetFilters}
-                    className="text-sm text-blue-400 hover:text-blue-300 hover:underline focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-2 py-1 outline-none transition-colors"
-                  >
-                    Reset filters
-                  </button>
-                )}
+                <div className="flex flex-col gap-2 w-full max-w-[200px]">
+                    {clipsForDate.length > 0 && (
+                         <button
+                            onClick={() => setFilters({
+                                recent: true,
+                                dashcamHonk: true,
+                                dashcamSaved: true,
+                                dashcamOther: true,
+                                sentryObject: true,
+                                sentryAccel: true,
+                                sentryOther: true,
+                            })}
+                            className="flex items-center justify-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors text-sm font-medium focus-visible:ring-2 focus-visible:ring-blue-500 outline-none w-full"
+                         >
+                            <FilterX size={16} />
+                            Clear Filters
+                         </button>
+                    )}
+
+                    {!isToday(selectedDate) && (
+                        <button
+                            onClick={() => setSelectedDate(new Date())}
+                            className="flex items-center justify-center gap-2 px-4 py-2 bg-transparent hover:bg-gray-800 text-blue-400 rounded-lg transition-colors text-sm font-medium focus-visible:ring-2 focus-visible:ring-blue-500 outline-none w-full"
+                        >
+                            <CalendarIcon size={16} />
+                            View Today
+                        </button>
+                    )}
+                </div>
              </div>
           ) : (
             <div className="grid grid-cols-1 divide-y divide-gray-900">
