@@ -1,12 +1,27 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react'
 import Player from './components/Player'
 import Sidebar from './components/Sidebar'
 import { mergeClips, type Clip } from './utils/clipMerge'
+
+const KeyboardShortcutsHelp = lazy(() => import('./components/KeyboardShortcutsHelp'))
 
 function App() {
   const [clips, setClips] = useState<Clip[]>([])
   const [selectedClip, setSelectedClip] = useState<Clip | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showShortcuts, setShowShortcuts] = useState(false)
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Allow ? or Shift+/
+      if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) {
+        setShowShortcuts(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const handleClipSelect = useCallback((clip: Clip) => {
     // Optimistic update
@@ -94,7 +109,12 @@ function App() {
          onRefresh={handleRefresh}
          loading={loading}
          className="order-2 flex-1 md:h-full md:flex-none min-h-0 overflow-hidden"
+         onShowShortcuts={() => setShowShortcuts(true)}
       />
+
+      <Suspense fallback={null}>
+         <KeyboardShortcutsHelp isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      </Suspense>
     </div>
   )
 }
