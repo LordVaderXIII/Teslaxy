@@ -17,6 +17,28 @@ var (
 	hasNvenc     bool
 )
 
+// Sentinel: Semaphore to limit concurrent transcoding sessions to prevent DoS
+var transcodingSem = make(chan struct{}, 4)
+
+// AcquireTranscodingSession attempts to acquire a transcoding slot. Returns true if successful.
+func AcquireTranscodingSession() bool {
+	select {
+	case transcodingSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// ReleaseTranscodingSession releases a transcoding slot.
+func ReleaseTranscodingSession() {
+	select {
+	case <-transcodingSem:
+	default:
+		// Should not happen if used correctly
+	}
+}
+
 type TranscodeQuality struct {
 	Height  int
 	Bitrate string
