@@ -1,12 +1,12 @@
 package api
 
 import (
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"io"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"

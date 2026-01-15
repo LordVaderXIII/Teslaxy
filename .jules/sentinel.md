@@ -38,3 +38,8 @@
 - `img-src`: `'self' data: blob: https://*.basemaps.cartocdn.com` (Maps & Thumbnails)
 - `media-src`: `'self' blob:` (Video playback & 3D textures)
 - `object-src`: `'none'` (Block plugins)
+
+## 2026-01-15 - Unvalidated Export Parameters
+**Vulnerability:** The `QueueExport` function accepted `ExportRequest` directly from the user without validation, allowing negative durations or extremely large durations that could crash FFmpeg or cause Denial of Service (DoS) by monopolizing the transcoder.
+**Learning:** Structs bound from JSON input are not automatically validated. Relying on the "happy path" or frontend validation leaves the backend exposed.
+**Prevention:** Always implement a `Validate()` method for input structs and call it immediately upon receiving the request, especially before resource-intensive operations like video processing.
