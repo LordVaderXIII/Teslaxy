@@ -26,10 +26,10 @@ type VideoFile struct {
 	UpdatedAt time.Time  `json:"-"`
 	DeletedAt *time.Time `sql:"index" json:"-"`
 
-	ClipID    uint      `json:"clip_id" gorm:"index"`
+	ClipID    uint      `json:"clip_id" gorm:"index:idx_vf_clip_tmst"`
 	Camera    string    `json:"camera"` // "Front", "Left Repeater", etc.
 	FilePath  string    `json:"file_path"`
-	Timestamp time.Time `json:"timestamp" gorm:"index"`
+	Timestamp time.Time `json:"timestamp" gorm:"index;index:idx_vf_clip_tmst"`
 }
 
 type Telemetry struct {
