@@ -12,9 +12,9 @@ import (
 )
 
 var (
-	encoder      string
-	encoderOnce  sync.Once
-	hasNvenc     bool
+	encoder     string
+	encoderOnce sync.Once
+	hasNvenc    bool
 )
 
 type TranscodeQuality struct {

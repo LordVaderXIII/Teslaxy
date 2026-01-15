@@ -76,8 +76,29 @@ func CheckForNvidiaGPU() bool {
 	return hasNvidiaGPU
 }
 
+// Validate checks the export request for valid parameters
+func (req ExportRequest) Validate() error {
+	if req.StartTime < 0 {
+		return fmt.Errorf("start_time cannot be negative")
+	}
+	if req.Duration <= 0 {
+		return fmt.Errorf("duration must be positive")
+	}
+	if req.Duration > 1200 { // 20 minutes max
+		return fmt.Errorf("duration cannot exceed 20 minutes")
+	}
+	if len(req.Cameras) == 0 {
+		return fmt.Errorf("at least one camera must be selected")
+	}
+	return nil
+}
+
 // QueueExport adds an export job to the queue
 func QueueExport(req ExportRequest) (string, error) {
+	if err := req.Validate(); err != nil {
+		return "", err
+	}
+
 	var clip models.Clip
 	if err := database.DB.Preload("VideoFiles").First(&clip, req.ClipID).Error; err != nil {
 		return "", err
