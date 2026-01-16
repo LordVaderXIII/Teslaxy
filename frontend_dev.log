@@ -1,0 +1,29 @@
+
+> frontend@0.1.17 dev /app/frontend
+> vite
+
+
+  VITE v7.2.7  ready in 411 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+3:08:19 PM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:08:19 PM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:08:19 PM [vite] http proxy error: /api/transcode/status
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:08:19 PM [vite] http proxy error: /api/transcode/status
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:08:19 PM [vite] http proxy error: /api/video/bad_path.mp4
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
