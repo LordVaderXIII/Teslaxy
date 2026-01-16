@@ -39,22 +39,22 @@ const CameraView = React.memo(({
     camName,
     className,
     seg,
-    activeCamera,
     clip,
     currentTime,
     quality,
     handlePlayerReady,
-    getUrl
+    getUrl,
+    onClick
 }: {
     camName: string,
     className: string,
     seg: CameraSegment | null,
-    activeCamera: string,
     clip: Clip,
     currentTime: number,
     quality: string,
     handlePlayerReady: (cam: string, p: any) => void,
-    getUrl: (path: string) => string
+    getUrl: (path: string) => string,
+    onClick: () => void
 }) => {
     // Bolt: Use useCallback to create a STABLE handler for onReady.
     // This combined with React.memo(VideoPlayer) prevents re-renders.
@@ -63,12 +63,15 @@ const CameraView = React.memo(({
     }, [camName, handlePlayerReady]);
 
     return (
-        <div className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 ${className} ${activeCamera === camName ? 'block h-full' : 'hidden md:block'}`}>
+        <div
+            onClick={onClick}
+            className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 cursor-pointer ${className}`}
+        >
             {seg ? (
                 <VideoPlayer
                     key={`${clip.ID}-${camName}-${seg.file_path}-${quality}`} // Key forces remount on segment change OR quality change
                     src={getUrl(seg.file_path)}
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-contain pointer-events-none"
                     onReady={onReady}
                 />
             ) : (
@@ -86,6 +89,17 @@ const CameraView = React.memo(({
         </div>
     );
 });
+
+const SLOT_CLASSES = [
+    'md:col-span-3', // Main
+    '',              // Side 1
+    'md:row-span-2', // Tall (Side 2)
+    '',              // Side 3
+    '',              // Side 4
+    ''               // Side 5
+];
+
+const DEFAULT_CAMERAS = ['Front', 'Left Pillar', 'Back', 'Right Pillar', 'Left Repeater', 'Right Repeater'];
 
 const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -465,6 +479,18 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       return info ? info.segment : null;
   };
 
+  const displayCameras = useMemo(() => {
+      const cams = [...DEFAULT_CAMERAS];
+      if (activeCamera !== 'Front') {
+           const idx = cams.indexOf(activeCamera);
+           if (idx !== -1) {
+               cams[idx] = 'Front';
+               cams[0] = activeCamera;
+           }
+      }
+      return cams;
+  }, [activeCamera]);
+
   if (!clip) return <div className="flex items-center justify-center h-full text-gray-500">Select a clip to play</div>;
 
   // Determine Incident Marker
@@ -541,12 +567,20 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
           </div>
       ) : (
           <div className="flex-1 overflow-hidden grid grid-cols-1 md:grid-cols-3 md:grid-rows-[3fr_1fr_1fr] gap-1 bg-black min-h-0">
-              <CameraView camName='Front' className='md:col-span-3' seg={getCurrentSegment('Front')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Left Pillar' className='' seg={getCurrentSegment('Left Pillar')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Back' className='md:row-span-2' seg={getCurrentSegment('Back')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Right Pillar' className='' seg={getCurrentSegment('Right Pillar')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Left Repeater' className='' seg={getCurrentSegment('Left Repeater')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
-              <CameraView camName='Right Repeater' className='' seg={getCurrentSegment('Right Repeater')} activeCamera={activeCamera} clip={clip} currentTime={currentTime} quality={quality} handlePlayerReady={handlePlayerReady} getUrl={getUrl} />
+              {displayCameras.map((camName, index) => (
+                  <CameraView
+                      key={camName}
+                      camName={camName}
+                      className={`${index === 0 ? 'block h-full' : 'hidden md:block'} ${SLOT_CLASSES[index]}`}
+                      seg={getCurrentSegment(camName)}
+                      clip={clip}
+                      currentTime={currentTime}
+                      quality={quality}
+                      handlePlayerReady={handlePlayerReady}
+                      getUrl={getUrl}
+                      onClick={() => setActiveCamera(camName)}
+                  />
+              ))}
           </div>
       )}
 
