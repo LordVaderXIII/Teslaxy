@@ -28,6 +28,36 @@ type ExportRequest struct {
 	Duration  float64  `json:"duration"`   // Duration in seconds
 }
 
+// Validate checks if the export request parameters are valid
+func (r *ExportRequest) Validate() error {
+	if r.StartTime < 0 {
+		return fmt.Errorf("start time must be non-negative")
+	}
+	if r.Duration <= 0 {
+		return fmt.Errorf("duration must be positive")
+	}
+	// Limit duration to 20 minutes to prevent DoS
+	if r.Duration > 20*60 {
+		return fmt.Errorf("duration exceeds maximum allowed limit (20 minutes)")
+	}
+	if len(r.Cameras) == 0 {
+		return fmt.Errorf("at least one camera must be selected")
+	}
+	// Validate camera names to prevent potential injection or invalid inputs
+	validCameras := map[string]bool{
+		"front":          true,
+		"back":           true,
+		"left_repeater":  true,
+		"right_repeater": true,
+	}
+	for _, cam := range r.Cameras {
+		if !validCameras[cam] {
+			return fmt.Errorf("invalid camera: %s", cam)
+		}
+	}
+	return nil
+}
+
 // ExportStatus tracks the status of an export job
 type ExportStatus struct {
 	JobID     string  `json:"job_id"`
