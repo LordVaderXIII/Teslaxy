@@ -25,3 +25,7 @@
 ## 2025-12-21 - Consistent Focus States
 **Learning:** While some components (Sidebar, Player) had excellent focus states, others (Calendar, MapModal) relied on browser defaults or had none, creating a disjointed keyboard navigation experience.
 **Action:** Audit all interactive elements and enforce a consistent `focus-visible` ring style (e.g., `ring-2 ring-blue-500`) to ensure users always know where they are, regardless of the component.
+
+## 2025-10-27 - Graceful Image Degradation
+**Learning:** Relying on the browser's default broken image icon for missing thumbnails creates a jarring, unpolished experience, especially in a media-centric app. Using a semantic, colored fallback matching the empty state maintains visual consistency and trust.
+**Action:** Implement a reusable `ThumbnailImage` component with `onError` handling to automatically swap failed images for a branded placeholder.
