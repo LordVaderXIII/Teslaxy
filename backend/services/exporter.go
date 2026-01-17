@@ -28,6 +28,48 @@ type ExportRequest struct {
 	Duration  float64  `json:"duration"`   // Duration in seconds
 }
 
+// Validate enforces security constraints on the export request
+func (r *ExportRequest) Validate() error {
+	// 1. Duration Limits (DoS prevention)
+	const MaxDuration = 20 * 60 // 20 minutes
+	if r.Duration <= 0 {
+		return fmt.Errorf("duration must be positive")
+	}
+	if r.Duration > MaxDuration {
+		return fmt.Errorf("duration cannot exceed 20 minutes")
+	}
+
+	// 2. Start Time Validation
+	if r.StartTime < 0 {
+		return fmt.Errorf("start_time cannot be negative")
+	}
+
+	// 3. Camera Allowlist (Injection prevention)
+	validCameras := map[string]bool{
+		"front":          true,
+		"back":           true,
+		"left_repeater":  true,
+		"right_repeater": true,
+		// Support potential variations
+		"Front":          true,
+		"Back":           true,
+		"Left Repeater":  true,
+		"Right Repeater": true,
+	}
+
+	if len(r.Cameras) == 0 {
+		return fmt.Errorf("at least one camera must be selected")
+	}
+
+	for _, cam := range r.Cameras {
+		if !validCameras[cam] {
+			return fmt.Errorf("invalid camera name: %s", cam)
+		}
+	}
+
+	return nil
+}
+
 // ExportStatus tracks the status of an export job
 type ExportStatus struct {
 	JobID     string  `json:"job_id"`
