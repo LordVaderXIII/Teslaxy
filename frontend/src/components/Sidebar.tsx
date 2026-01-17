@@ -162,23 +162,28 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
     setSelectedDate(date);
   }, []);
 
-  // Optimization: Memoize date strings to avoid re-parsing on every render/filter change
-  const clipDateMap = useMemo(() => {
-    const map = new Map<number, string>();
+  // Bolt Optimization: Group clips by date for O(1) access
+  // This reduces filtering complexity from O(N) to O(1) + O(M) where M is clips per day.
+  const clipsByDate = useMemo(() => {
+    const groups = new Map<string, Clip[]>();
     clips.forEach(clip => {
-      map.set(clip.ID, new Date(clip.timestamp).toDateString());
+      // Use Date.parse for faster timestamp parsing if possible, but new Date() is robust
+      const dateStr = new Date(clip.timestamp).toDateString();
+      if (!groups.has(dateStr)) {
+        groups.set(dateStr, []);
+      }
+      groups.get(dateStr)!.push(clip);
     });
-    return map;
+    return groups;
   }, [clips]);
 
   // Filter Logic
   const filteredClips = useMemo(() => {
     const targetDateStr = selectedDate.toDateString();
+    const dayClips = clipsByDate.get(targetDateStr) || [];
 
-    return clips.filter(clip => {
-      // Date Filter
-      const sameDay = clipDateMap.get(clip.ID) === targetDateStr;
-      if (!sameDay) return false;
+    return dayClips.filter(clip => {
+      // Date Filter is implicit via map lookup
 
       // Inclusive Filter Logic
 
@@ -220,7 +225,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
 
       return false;
     });
-  }, [clips, clipDateMap, selectedDate, filters]);
+  }, [clipsByDate, selectedDate, filters]);
 
   const handleResetFilters = () => {
     setFilters({
