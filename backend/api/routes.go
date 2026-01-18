@@ -118,12 +118,17 @@ func serveVideo(c *gin.Context) {
 
 	// If quality is requested and not original, transcode
 	if quality != "" && quality != "original" {
-		cmd, stdout, err := services.GetTranscodeStream(c.Request.Context(), fullPath, quality)
+		cmd, stdout, release, err := services.GetTranscodeStream(c.Request.Context(), fullPath, quality)
 		if err != nil {
-			log.Printf("Transcode error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Transcoding failed"})
+			if err == services.ErrServerBusy {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			} else {
+				log.Printf("Transcode error: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Transcoding failed"})
+			}
 			return
 		}
+		defer release()
 
 		c.Header("Content-Type", "video/mp4")
 		c.Status(http.StatusOK)
