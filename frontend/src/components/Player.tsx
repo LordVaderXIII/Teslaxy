@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, Suspense, useCallback, useMemo } fr
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings } from 'lucide-react';
+import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings, Keyboard } from 'lucide-react';
 import { useClickOutside } from '../hooks/useClickOutside';
+import KeyboardShortcuts from './KeyboardShortcuts';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -108,6 +109,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [activeCamera, setActiveCamera] = useState<string>('Front');
   const [isCameraMenuOpen, setIsCameraMenuOpen] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
 
   // Click outside handlers
   const cameraMenuRef = useRef<HTMLDivElement>(null);
@@ -547,6 +549,17 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             >
                 {is3D ? <Layers size={20} /> : <Box size={20} />}
             </button>
+
+            <button
+                onClick={() => setIsShortcutsOpen(true)}
+                aria-label="Keyboard Shortcuts"
+                title="Keyboard Shortcuts"
+                className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
+            >
+                <Keyboard size={20} />
+            </button>
+
+            <KeyboardShortcuts isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
       </div>
 
       {is3D ? (
