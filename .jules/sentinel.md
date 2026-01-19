@@ -38,3 +38,8 @@
 - `img-src`: `'self' data: blob: https://*.basemaps.cartocdn.com` (Maps & Thumbnails)
 - `media-src`: `'self' blob:` (Video playback & 3D textures)
 - `object-src`: `'none'` (Block plugins)
+
+## 2026-01-19 - Unbounded SEI NAL Allocation (DoS)
+**Vulnerability:** The MP4 parser allocated memory based on the `nalSize` field without validation, allowing a malicious 4GB NAL unit to crash the server via OOM (Denial of Service).
+**Learning:** Never trust size fields in binary formats/protocols to dictate memory allocation directly. Malicious inputs can declare huge sizes to exhaust resources.
+**Prevention:** Implement strict upper bounds on all allocations triggered by user input (e.g., `MaxSEINalSize = 1MB`). Use `Seek` to skip over oversized or irrelevant data segments instead of reading them into memory.
