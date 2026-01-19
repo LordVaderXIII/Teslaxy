@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"log"
 	"os"
 
 	"google.golang.org/protobuf/proto"
@@ -14,6 +15,8 @@ import (
 const (
 	NAL_ID_SEI                        = 6
 	NAL_SEI_ID_USER_DATA_UNREGISTERED = 5
+	// MaxSEINalSize limits memory allocation for SEI NALs to prevent DoS (1MB)
+	MaxSEINalSize = 1024 * 1024
 )
 
 // ExtractSEI extracts all SeiMetadata messages from an MP4 file.
@@ -166,7 +169,15 @@ func iterNals(fp *os.File, offset int64, size int64) <-chan []byte {
 				continue
 			}
 
-			rest := make([]byte, nalSize-2)
+			// Sentinel: DoS Prevention - Check size before allocation
+			if nalSize > MaxSEINalSize {
+				log.Printf("SECURITY WARNING: Skipped oversized SEI NAL (%d bytes). Limit is %d bytes.", nalSize, MaxSEINalSize)
+				fp.Seek(nalSize-2, 1)
+				consumed += 4 + nalSize
+				continue
+			}
+
+			rest := make([]byte, int(nalSize-2))
 			n, _ = fp.Read(rest)
 			if int64(n) != nalSize-2 {
 				break
