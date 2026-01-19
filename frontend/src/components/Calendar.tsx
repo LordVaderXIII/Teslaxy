@@ -41,6 +41,20 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
     setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
   };
 
+  const handleJumpToToday = () => {
+    const today = new Date();
+    setViewDate(today);
+    onDateSelect(today);
+  };
+
+  const isCurrentMonth = () => {
+    const today = new Date();
+    return (
+      viewDate.getMonth() === today.getMonth() &&
+      viewDate.getFullYear() === today.getFullYear()
+    );
+  };
+
   const isSelected = (day: number) => {
     const d = new Date(viewDate.getFullYear(), viewDate.getMonth(), day);
     return d.toDateString() === currentDate.toDateString();
@@ -105,13 +119,25 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
         <span className="font-semibold text-sm">
           {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
         </span>
-        <button
-          onClick={handleNextMonth}
-          className="p-1 hover:bg-gray-800 rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-          aria-label="Next Month"
-        >
-          <ChevronRight size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          {!isCurrentMonth() && (
+            <button
+              onClick={handleJumpToToday}
+              className="px-2 py-0.5 text-xs font-bold text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              aria-label="Jump to Today"
+              title="Jump to Today"
+            >
+              Today
+            </button>
+          )}
+          <button
+            onClick={handleNextMonth}
+            className="p-1 hover:bg-gray-800 rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            aria-label="Next Month"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-7 gap-1 text-center mb-2">
