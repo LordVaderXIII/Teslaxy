@@ -16,7 +16,7 @@ type Clip struct {
 	City           string      `json:"city"`
 	Reason         string      `json:"reason"`
 	VideoFiles     []VideoFile `json:"video_files"`
-	TelemetryID    uint        `json:"telemetry_id"`
+	TelemetryID    uint        `json:"-"`
 	Telemetry      Telemetry   `json:"telemetry"`
 }
 
@@ -26,7 +26,7 @@ type VideoFile struct {
 	UpdatedAt time.Time  `json:"-"`
 	DeletedAt *time.Time `sql:"index" json:"-"`
 
-	ClipID    uint      `json:"clip_id" gorm:"index"`
+	ClipID    uint      `json:"-" gorm:"index"`
 	Camera    string    `json:"camera"` // "Front", "Left Repeater", etc.
 	FilePath  string    `json:"file_path"`
 	Timestamp time.Time `json:"timestamp" gorm:"index"`
@@ -38,7 +38,7 @@ type Telemetry struct {
 	UpdatedAt time.Time  `json:"-"`
 	DeletedAt *time.Time `sql:"index" json:"-"`
 
-	ClipID         uint    `json:"clip_id" gorm:"index"`
+	ClipID         uint    `json:"-" gorm:"index"`
 	Speed          float32 `json:"speed"`
 	Gear           string  `json:"gear"`
 	Latitude       float64 `json:"latitude"`
