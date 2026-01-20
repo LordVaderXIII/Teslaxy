@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,12 @@ var (
 	encoder      string
 	encoderOnce  sync.Once
 	hasNvenc     bool
+)
+
+// Sentinel: Concurrency Limit (DoS Prevention)
+var (
+	transcodeSemaphore = make(chan struct{}, 4)
+	ErrServerBusy      = errors.New("server busy: too many active transcoding sessions")
 )
 
 type TranscodeQuality struct {
@@ -64,8 +71,31 @@ func GetTranscoderStatus() map[string]interface{} {
 	}
 }
 
-// GetTranscodeStream starts an ffmpeg process to transcode the file and returns the command and stdout pipe
-func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (*exec.Cmd, io.ReadCloser, error) {
+// AcquireTranscodeSlot attempts to acquire a concurrency slot
+func AcquireTranscodeSlot() bool {
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// ReleaseTranscodeSlot releases a concurrency slot
+func ReleaseTranscodeSlot() {
+	select {
+	case <-transcodeSemaphore:
+	default:
+		// Should not happen if used correctly
+	}
+}
+
+// GetTranscodeStream starts an ffmpeg process to transcode the file and returns the command, stdout pipe, and a release function
+func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (*exec.Cmd, io.ReadCloser, func(), error) {
+	if !AcquireTranscodeSlot() {
+		return nil, nil, nil, ErrServerBusy
+	}
+
 	AutoDetectEncoder()
 
 	q, ok := qualityMap[quality]
@@ -110,7 +140,8 @@ func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, nil, err
+		ReleaseTranscodeSlot()
+		return nil, nil, nil, err
 	}
 
 	// Capture stderr for debugging (in a separate goroutine)
@@ -123,8 +154,10 @@ func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (
 	}()
 
 	if err := cmd.Start(); err != nil {
-		return nil, nil, err
+		ReleaseTranscodeSlot()
+		return nil, nil, nil, err
 	}
 
-	return cmd, stdout, nil
+	// Return the release function which the caller MUST ensure is called
+	return cmd, stdout, ReleaseTranscodeSlot, nil
 }
