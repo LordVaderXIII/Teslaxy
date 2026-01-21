@@ -547,7 +547,37 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 }
 
 func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
+	if len(files) == 0 {
+		return
+	}
+
+	// Bolt Optimization: Bulk fetch existing files to prevent N+1 queries.
+	// Instead of querying for each file (N queries), we query once for all relevant paths.
+
+	// 1. Collect paths
+	var filePaths []string
 	for _, f := range files {
+		filePaths = append(filePaths, f.path)
+	}
+
+	// 2. Fetch existing VideoFiles for this clip matching these paths
+	var existingFiles []models.VideoFile
+	s.DB.Select("file_path").
+		Where("clip_id = ? AND file_path IN (?)", clip.ID, filePaths).
+		Find(&existingFiles)
+
+	// 3. Create Map for O(1) lookup
+	existsMap := make(map[string]bool)
+	for _, vf := range existingFiles {
+		existsMap[vf.FilePath] = true
+	}
+
+	// 4. Insert only new files
+	for _, f := range files {
+		if existsMap[f.path] {
+			continue
+		}
+
 		matches := fileRegex.FindStringSubmatch(filepath.Base(f.path))
 		cameraName := "Unknown"
 		if len(matches) == 3 {
@@ -555,16 +585,13 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 		}
 		cameraName = normalizeCameraName(cameraName)
 
-		var vf models.VideoFile
-		if err := s.DB.Where("clip_id = ? AND camera = ? AND file_path = ?", clip.ID, cameraName, f.path).First(&vf).Error; gorm.IsRecordNotFoundError(err) {
-			vf = models.VideoFile{
-				ClipID:    clip.ID,
-				Camera:    cameraName,
-				FilePath:  f.path,
-				Timestamp: f.timestamp,
-			}
-			s.DB.Create(&vf)
+		vf := models.VideoFile{
+			ClipID:    clip.ID,
+			Camera:    cameraName,
+			FilePath:  f.path,
+			Timestamp: f.timestamp,
 		}
+		s.DB.Create(&vf)
 	}
 }
 
