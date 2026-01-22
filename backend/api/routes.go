@@ -118,6 +118,14 @@ func serveVideo(c *gin.Context) {
 
 	// If quality is requested and not original, transcode
 	if quality != "" && quality != "original" {
+		// Sentinel: Enforce concurrency limit
+		if err := services.AcquireTranscodeSlot(); err != nil {
+			// Do not log as error, this is expected load shedding
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server busy: too many active transcoding sessions. Please try again later."})
+			return
+		}
+		defer services.ReleaseTranscodeSlot()
+
 		cmd, stdout, err := services.GetTranscodeStream(c.Request.Context(), fullPath, quality)
 		if err != nil {
 			log.Printf("Transcode error: %v", err)
