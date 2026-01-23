@@ -9,7 +9,30 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"errors"
 )
+
+var (
+	ErrServerBusy = errors.New("server is busy: too many transcoding sessions")
+	transcodeSemaphore = make(chan struct{}, 4)
+)
+
+func AcquireTranscodeSlot() error {
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		return nil
+	default:
+		return ErrServerBusy
+	}
+}
+
+func ReleaseTranscodeSlot() {
+	select {
+	case <-transcodeSemaphore:
+	default:
+		// Should not happen if used correctly
+	}
+}
 
 var (
 	encoder      string
