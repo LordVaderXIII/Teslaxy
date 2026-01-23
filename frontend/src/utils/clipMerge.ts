@@ -11,7 +11,7 @@ export interface Clip {
   city: string;
   reason?: string;
   video_files?: VideoFile[];
-  telemetry?: any;
+  telemetry?: Record<string, unknown>;
   event_timestamp?: string;
 }
 
@@ -27,14 +27,17 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
 
     // Start with the last item (Oldest)
     let currentGroup: Clip[] = [clips[len - 1]];
+    // Bolt: Cache timestamp to avoid redundant parsing in the loop.
+    // Represents the timestamp of the LAST added clip (prev in the loop context)
+    let prevTime = new Date(clips[len - 1].timestamp).getTime();
 
     for (let i = len - 2; i >= 0; i--) {
-        const prev = currentGroup[currentGroup.length - 1];
         const curr = clips[i];
-
-        const prevTime = new Date(prev.timestamp).getTime();
         const currTime = new Date(curr.timestamp).getTime();
         const diffSeconds = (currTime - prevTime) / 1000;
+
+        // We still need the actual previous clip object for event comparison
+        const prev = currentGroup[currentGroup.length - 1];
 
         // Criteria: Same event type, Gap < 5s logic (Start-to-Start < 65s)
         // Since we are comparing CLIP timestamps (start times), if they are continuous 1-min segments:
@@ -42,9 +45,11 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
         // If we set threshold to 65s, it allows standard continuity.
         if (curr.event === prev.event && diffSeconds < 65 && diffSeconds >= 0) {
             currentGroup.push(curr);
+            prevTime = currTime; // Update cached timestamp
         } else {
             groups.push(currentGroup);
             currentGroup = [curr];
+            prevTime = currTime; // Update cached timestamp
         }
     }
     groups.push(currentGroup);
@@ -56,10 +61,12 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
         const first = group[0];
 
         // Concatenate all video files
-        let allFiles: VideoFile[] = [];
+        // Bolt: Use push instead of concat to avoid O(N^2) array allocation for large groups
+        const allFiles: VideoFile[] = [];
         group.forEach(c => {
             if (c.video_files) {
-                allFiles = allFiles.concat(c.video_files);
+                // Use explicit loop or spread. Spread is fine here as video_files is small per clip.
+                allFiles.push(...c.video_files);
             }
         });
 
