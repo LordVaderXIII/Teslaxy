@@ -12,6 +12,9 @@ interface TimelineProps {
   onSeek: (time: number) => void;
   markers?: Marker[];
   className?: string;
+  exportStart?: number | null;
+  exportEnd?: number | null;
+  onExportRangeChange?: (start: number, end: number) => void;
 }
 
 const Timeline: React.FC<TimelineProps> = ({
@@ -19,41 +22,65 @@ const Timeline: React.FC<TimelineProps> = ({
   duration,
   onSeek,
   markers = [],
-  className = ""
+  className = "",
+  exportStart = null,
+  exportEnd = null,
+  onExportRangeChange
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+
+  // Export Dragging State
+  const [dragTarget, setDragTarget] = useState<'start' | 'end' | null>(null);
 
   const getPercentage = (time: number) => {
     if (duration <= 0) return 0;
     return Math.min(100, Math.max(0, (time / duration) * 100));
   };
 
-  const handleSeek = useCallback((e: MouseEvent | React.MouseEvent) => {
-    if (!containerRef.current || duration <= 0) return;
-
+  const getTimeFromEvent = useCallback((e: MouseEvent | React.MouseEvent) => {
+    if (!containerRef.current || duration <= 0) return 0;
     const rect = containerRef.current.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
     const percentage = x / rect.width;
-    const newTime = percentage * duration;
+    return percentage * duration;
+  }, [duration]);
 
+  const handleSeek = useCallback((e: MouseEvent | React.MouseEvent) => {
+    const newTime = getTimeFromEvent(e);
     onSeek(newTime);
-  }, [duration, onSeek]);
+  }, [getTimeFromEvent, onSeek]);
 
   const handleHover = useCallback((e: React.MouseEvent) => {
-    if (!containerRef.current || duration <= 0) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const percentage = x / rect.width;
-    const time = percentage * duration;
+    const time = getTimeFromEvent(e);
     setHoverTime(time);
-  }, [duration]);
+  }, [getTimeFromEvent]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
     handleSeek(e);
   };
+
+  const handleExportDrag = useCallback((e: MouseEvent) => {
+     if (!onExportRangeChange || exportStart === null || exportEnd === null || !dragTarget) return;
+
+     const time = getTimeFromEvent(e);
+
+     if (dragTarget === 'start') {
+         // Clamp start: 0 <= start <= end - 1
+         const newStart = Math.min(Math.max(0, time), exportEnd - 1);
+         if (newStart !== exportStart) {
+             onExportRangeChange(newStart, exportEnd);
+         }
+     } else {
+         // Clamp end: start + 1 <= end <= duration
+         const newEnd = Math.max(exportStart + 1, Math.min(duration, time));
+         if (newEnd !== exportEnd) {
+             onExportRangeChange(exportStart, newEnd);
+         }
+     }
+  }, [exportStart, exportEnd, dragTarget, getTimeFromEvent, onExportRangeChange, duration]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (duration <= 0) return;
@@ -83,16 +110,20 @@ const Timeline: React.FC<TimelineProps> = ({
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
-        handleSeek(e);
+      if (dragTarget) {
+          e.preventDefault(); // Prevent text selection
+          handleExportDrag(e);
+      } else if (isDragging) {
+          handleSeek(e);
       }
     };
 
     const handleMouseUp = () => {
       setIsDragging(false);
+      setDragTarget(null);
     };
 
-    if (isDragging) {
+    if (isDragging || dragTarget) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
     }
@@ -101,7 +132,7 @@ const Timeline: React.FC<TimelineProps> = ({
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, handleSeek]);
+  }, [isDragging, dragTarget, handleSeek, handleExportDrag]);
 
   const formatTime = (seconds: number) => {
     if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -116,7 +147,7 @@ const Timeline: React.FC<TimelineProps> = ({
         ref={containerRef}
         className="relative h-6 flex items-center cursor-pointer group outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
         onMouseDown={handleMouseDown}
-        onMouseMove={(e) => !isDragging && handleHover(e)}
+        onMouseMove={(e) => !isDragging && !dragTarget && handleHover(e)}
         onMouseLeave={() => setHoverTime(null)}
         onKeyDown={handleKeyDown}
         tabIndex={0}
@@ -134,10 +165,20 @@ const Timeline: React.FC<TimelineProps> = ({
              className="h-full bg-blue-500 rounded-full"
              style={{ width: `${getPercentage(currentTime)}%` }}
            />
+           {/* Export Highlight Region */}
+           {exportStart !== null && exportEnd !== null && (
+             <div
+                className="absolute top-0 bottom-0 bg-green-500/50 pointer-events-none"
+                style={{
+                    left: `${getPercentage(exportStart)}%`,
+                    width: `${getPercentage(exportEnd - exportStart)}%`
+                }}
+             />
+           )}
         </div>
 
         {/* Hover Preview (Ghost Handle & Tooltip) */}
-        {hoverTime !== null && !isDragging && (
+        {hoverTime !== null && !isDragging && !dragTarget && (
            <>
               {/* Ghost Handle */}
               <div
@@ -154,7 +195,28 @@ const Timeline: React.FC<TimelineProps> = ({
            </>
         )}
 
-        {/* Handle */}
+        {/* Export Brackets */}
+        {exportStart !== null && exportEnd !== null && (
+            <>
+                {/* Start Bracket (Green) */}
+                <div
+                    className="absolute top-1/2 -translate-y-1/2 w-4 h-6 border-l-4 border-t-2 border-b-2 border-green-500 cursor-ew-resize z-40 hover:scale-110 transition-transform shadow-lg bg-black/20"
+                    style={{ left: `${getPercentage(exportStart)}%` }}
+                    onMouseDown={(e) => { e.stopPropagation(); setDragTarget('start'); }}
+                    title="Drag to adjust start time"
+                />
+
+                {/* End Bracket (Red) */}
+                <div
+                    className="absolute top-1/2 -translate-y-1/2 w-4 h-6 border-r-4 border-t-2 border-b-2 border-red-500 cursor-ew-resize z-40 hover:scale-110 transition-transform transform -translate-x-full shadow-lg bg-black/20"
+                    style={{ left: `${getPercentage(exportEnd)}%` }}
+                    onMouseDown={(e) => { e.stopPropagation(); setDragTarget('end'); }}
+                    title="Drag to adjust end time"
+                />
+            </>
+        )}
+
+        {/* Playhead Handle */}
         <div
           className={`absolute z-30 h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2 transition-transform ${
             isDragging ? 'scale-100' : 'scale-0 group-hover:scale-100 group-focus-visible:scale-100'

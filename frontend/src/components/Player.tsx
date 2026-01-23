@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback, useMemo } fr
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings } from 'lucide-react';
+import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings, Scissors, Check, X } from 'lucide-react';
 import { useClickOutside } from '../hooks/useClickOutside';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
@@ -127,6 +127,10 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [encoderStatus, setEncoderStatus] = useState<{encoder: string, hw_accel: boolean} | null>(null);
   const [isQualityMenuOpen, setIsQualityMenuOpen] = useState(false);
 
+  // Export State
+  const [isExportMode, setIsExportMode] = useState(false);
+  const [exportRange, setExportRange] = useState<{ start: number, end: number } | null>(null);
+
   // Fetch transcoder status on mount
   useEffect(() => {
     fetch('/api/transcode/status')
@@ -208,6 +212,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       mainPlayerRef.current = null;
       playersRef.current = {};
       setActiveCamera('Front');
+      setIsExportMode(false);
+      setExportRange(null);
 
       return () => {
         playersRef.current = {};
@@ -426,6 +432,56 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       });
   }, [totalDuration, segments, getSegmentAtTime]);
 
+  const toggleExportMode = useCallback(() => {
+    if (isExportMode) {
+        setIsExportMode(false);
+        setExportRange(null);
+    } else {
+        setIsExportMode(true);
+        // Default range: current time + 10s (clamped to duration)
+        const start = currentTimeRef.current;
+        const end = Math.min(totalDuration, start + 10);
+        setExportRange({ start, end });
+        // Pause playback when entering export mode to make it easier
+        if (isPlaying) togglePlay();
+    }
+  }, [isExportMode, totalDuration, isPlaying, togglePlay]);
+
+  const handleExportRangeChange = useCallback((start: number, end: number) => {
+      setExportRange({ start, end });
+  }, []);
+
+  const handleStartExport = useCallback(async () => {
+      if (!clip || !exportRange) return;
+
+      const payload = {
+          clip_id: clip.ID,
+          cameras: [activeCamera], // Send active camera
+          start_time: exportRange.start,
+          duration: exportRange.end - exportRange.start
+      };
+
+      try {
+          const res = await fetch('/api/export', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Export failed');
+          }
+
+          const data = await res.json();
+          alert(`Export started! Job ID: ${data.job_id}. Check the exports folder.`);
+          setIsExportMode(false);
+          setExportRange(null);
+      } catch (error: any) {
+          alert(`Export error: ${error.message}`);
+      }
+  }, [clip, exportRange, activeCamera]);
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -591,6 +647,9 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             duration={totalDuration}
             onSeek={handleSeek}
             markers={markers}
+            exportStart={isExportMode && exportRange ? exportRange.start : null}
+            exportEnd={isExportMode && exportRange ? exportRange.end : null}
+            onExportRangeChange={handleExportRangeChange}
           />
           <div className="flex items-center justify-center gap-4 mt-2">
               <button
@@ -659,6 +718,39 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                                </button>
                            ))}
                       </div>
+                  )}
+              </div>
+
+               {/* Export Toggle */}
+              <div className="flex items-center gap-2 border-l border-gray-800 pl-4 ml-2">
+                  {!isExportMode ? (
+                      <button
+                          onClick={toggleExportMode}
+                          aria-label="Export Clip Snippet"
+                          title="Export Clip Snippet"
+                          className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
+                      >
+                          <Scissors size={20} />
+                      </button>
+                  ) : (
+                      <>
+                          <button
+                              onClick={handleStartExport}
+                              aria-label="Confirm Export"
+                              title="Confirm Export"
+                              className="w-10 h-10 flex items-center justify-center bg-green-600 text-white rounded-full hover:bg-green-500 transition focus-visible:ring-2 focus-visible:ring-green-500 outline-none"
+                          >
+                              <Check size={20} />
+                          </button>
+                          <button
+                              onClick={toggleExportMode}
+                              aria-label="Cancel Export"
+                              title="Cancel Export"
+                              className="w-10 h-10 flex items-center justify-center bg-red-600 text-white rounded-full hover:bg-red-500 transition focus-visible:ring-2 focus-visible:ring-red-500 outline-none"
+                          >
+                              <X size={20} />
+                          </button>
+                      </>
                   )}
               </div>
           </div>
