@@ -547,6 +547,22 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 }
 
 func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
+	// Optimization: Fetch all existing files for this clip once to avoid N+1 queries
+	existingMap := make(map[string]bool)
+	var existingFiles []models.VideoFile
+	if err := s.DB.Select("camera, file_path").Where("clip_id = ?", clip.ID).Find(&existingFiles).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+		// If DB fails, we can either return or log. Since this is an optimization,
+		// failing here means existingMap is empty, so we might get duplicate key errors on insert.
+		// However, scanner is robust to duplicates (usually).
+		// Best to just proceed, potentially hitting DB more.
+		fmt.Printf("Warning: failed to batch fetch video files: %v\n", err)
+	}
+
+	for _, vf := range existingFiles {
+		// Key format: Camera|FilePath
+		existingMap[vf.Camera+"|"+vf.FilePath] = true
+	}
+
 	for _, f := range files {
 		matches := fileRegex.FindStringSubmatch(filepath.Base(f.path))
 		cameraName := "Unknown"
@@ -555,15 +571,18 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 		}
 		cameraName = normalizeCameraName(cameraName)
 
-		var vf models.VideoFile
-		if err := s.DB.Where("clip_id = ? AND camera = ? AND file_path = ?", clip.ID, cameraName, f.path).First(&vf).Error; gorm.IsRecordNotFoundError(err) {
-			vf = models.VideoFile{
+		// Check against map instead of DB
+		key := cameraName + "|" + f.path
+		if !existingMap[key] {
+			vf := models.VideoFile{
 				ClipID:    clip.ID,
 				Camera:    cameraName,
 				FilePath:  f.path,
 				Timestamp: f.timestamp,
 			}
 			s.DB.Create(&vf)
+			// Update map so subsequent duplicates in the same batch are also skipped
+			existingMap[key] = true
 		}
 	}
 }
