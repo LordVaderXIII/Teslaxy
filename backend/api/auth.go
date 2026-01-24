@@ -162,10 +162,17 @@ func Login(c *gin.Context) {
 	}
 
 	// Verify using constant time compare to prevent timing attacks
-	userMatch := subtle.ConstantTimeCompare([]byte(creds.Username), []byte(adminUser)) == 1
-	passMatch := subtle.ConstantTimeCompare([]byte(creds.Password), []byte(adminPass)) == 1
+	// Sentinel: Use SHA256 to hash inputs to ensure constant length comparison and prevent length leaking
+	userHash := sha256.Sum256([]byte(creds.Username))
+	targetUserHash := sha256.Sum256([]byte(adminUser))
+	userMatch := subtle.ConstantTimeCompare(userHash[:], targetUserHash[:])
 
-	if userMatch && passMatch {
+	passHash := sha256.Sum256([]byte(creds.Password))
+	targetPassHash := sha256.Sum256([]byte(adminPass))
+	passMatch := subtle.ConstantTimeCompare(passHash[:], targetPassHash[:])
+
+	// Use bitwise AND to avoid short-circuiting
+	if (userMatch & passMatch) == 1 {
 		token, _ := generateToken(creds.Username)
 		log.Printf("AUTH: Successful login for user %q from IP %s", creds.Username, c.ClientIP())
 		c.JSON(200, gin.H{"token": token})
