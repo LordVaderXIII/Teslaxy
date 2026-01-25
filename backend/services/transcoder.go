@@ -4,11 +4,18 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"errors"
 	"io"
 	"log"
 	"os/exec"
 	"strings"
 	"sync"
+)
+
+var (
+	// Sentinel: Concurrency Limit (DoS Prevention)
+	transcodeSemaphore = make(chan struct{}, 4)
+	ErrServerBusy      = errors.New("server busy: too many active transcoding sessions")
 )
 
 var (
@@ -26,6 +33,26 @@ var qualityMap = map[string]TranscodeQuality{
 	"1080p": {Height: 1080, Bitrate: "4M"},
 	"720p":  {Height: 720, Bitrate: "2M"},
 	"480p":  {Height: 480, Bitrate: "1M"},
+}
+
+// AcquireTranscodeSlot attempts to acquire a concurrency slot. Returns error if busy.
+func AcquireTranscodeSlot() error {
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		return nil
+	default:
+		return ErrServerBusy
+	}
+}
+
+// ReleaseTranscodeSlot releases a concurrency slot.
+func ReleaseTranscodeSlot() {
+	select {
+	case <-transcodeSemaphore:
+	default:
+		// Should not happen if used correctly
+		log.Println("Warning: ReleaseTranscodeSlot called on empty semaphore")
+	}
 }
 
 // AutoDetectEncoder determines the best available encoder (NVENC vs CPU)
