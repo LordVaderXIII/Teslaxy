@@ -13,10 +13,24 @@ export interface Clip {
   video_files?: VideoFile[];
   telemetry?: any;
   event_timestamp?: string;
+  // Bolt Optimization: Cached date objects to avoid repeated parsing
+  start_time?: Date;
+  date_key?: string;
 }
 
-export const mergeClips = (clips: Clip[]): Clip[] => {
-    if (!clips || clips.length === 0) return [];
+export const mergeClips = (rawClips: Clip[]): Clip[] => {
+    if (!rawClips || rawClips.length === 0) return [];
+
+    // Bolt Optimization: Enrich clips with parsed dates once to avoid redundant parsing in loops and rendering components.
+    // This reduces overhead in Sidebar (grouping) and Calendar (filtering).
+    const clips = rawClips.map(c => {
+        const d = new Date(c.timestamp);
+        return {
+            ...c,
+            start_time: d,
+            date_key: d.toDateString()
+        };
+    });
 
     // Optimization: The backend returns clips sorted by Timestamp DESC.
     // Instead of re-sorting them ASC (O(N log N)), we iterate backwards (O(N)).
@@ -32,8 +46,8 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
         const prev = currentGroup[currentGroup.length - 1];
         const curr = clips[i];
 
-        const prevTime = new Date(prev.timestamp).getTime();
-        const currTime = new Date(curr.timestamp).getTime();
+        const prevTime = prev.start_time!.getTime();
+        const currTime = curr.start_time!.getTime();
         const diffSeconds = (currTime - prevTime) / 1000;
 
         // Criteria: Same event type, Gap < 5s logic (Start-to-Start < 65s)
