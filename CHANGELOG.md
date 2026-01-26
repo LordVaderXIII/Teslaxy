@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.18] - 2026-01-26
+### Security
+- Implemented concurrency limits for video transcoding to prevent Denial of Service (DoS) attacks via resource exhaustion.
+
 ## [0.1.17] - 2025-12-21
 ### Accessibility
 - Added consistent focus indicators for keyboard navigation in Calendar, Map, and Changelog components.
