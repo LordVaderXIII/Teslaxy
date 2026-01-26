@@ -29,3 +29,7 @@
 ## 2025-10-27 - Graceful Image Degradation
 **Learning:** Relying on the browser's default broken image icon for missing thumbnails creates a jarring, unpolished experience, especially in a media-centric app. Using a semantic, colored fallback matching the empty state maintains visual consistency and trust.
 **Action:** Implement a reusable `ThumbnailImage` component with `onError` handling to automatically swap failed images for a branded placeholder.
+
+## 2025-05-29 - Interactive Media Grids
+**Learning:** Grids of media items (like camera views) often use `div`s with `onClick` but lack keyboard accessibility. Using `<button>` makes them natively focusable and actionable.
+**Action:** Use `<button>` for any selectable media tile.
