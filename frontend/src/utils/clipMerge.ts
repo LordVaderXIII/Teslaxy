@@ -13,6 +13,9 @@ export interface Clip {
   video_files?: VideoFile[];
   telemetry?: any;
   event_timestamp?: string;
+  // Bolt Optimization: Pre-calculated values to avoid redundant parsing
+  start_time?: Date;
+  date_key?: string;
 }
 
 export const mergeClips = (clips: Clip[]): Clip[] => {
@@ -51,7 +54,15 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
 
     // 3. Create Super Clips
     return groups.map(group => {
-        if (group.length === 1) return group[0];
+        if (group.length === 1) {
+            const single = group[0];
+            // Bolt Optimization: Ensure single clips are also enriched
+            if (!single.start_time) {
+                single.start_time = new Date(single.timestamp);
+                single.date_key = single.start_time.toDateString();
+            }
+            return single;
+        }
 
         const first = group[0];
 
@@ -67,11 +78,17 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
         const bestCity = group.find(c => c.city && c.city !== 'Unknown Location')?.city || first.city;
         const bestEventTimestamp = group.find(c => c.event_timestamp)?.event_timestamp || first.event_timestamp;
 
+        // Bolt Optimization: Pre-calculate date objects and keys
+        const startTime = new Date(first.timestamp);
+        const dateKey = startTime.toDateString();
+
         return {
             ...first,
             city: bestCity,
             event_timestamp: bestEventTimestamp,
             video_files: allFiles,
+            start_time: startTime,
+            date_key: dateKey,
             // Note: Telemetry ID/Data is kept from the first clip.
             // Since we can't easily merge telemetry objects on the client without deep logic,
             // this is a known acceptable limitation for "One Long Timeline" support.

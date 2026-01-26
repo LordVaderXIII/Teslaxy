@@ -1,11 +1,6 @@
 import React, { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-
-interface Clip {
-  ID: number;
-  timestamp: string;
-  event: string;
-}
+import { type Clip } from '../utils/clipMerge';
 
 interface CalendarProps {
   currentDate: Date;
@@ -30,7 +25,7 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
 
   // Bolt Optimization: Memoize the set of days with clips to avoid O(N) iteration on every render.
   const clipDays = useMemo(() => new Set(
-    clips.map(c => new Date(c.timestamp).toDateString())
+    clips.map(c => c.date_key || new Date(c.timestamp).toDateString())
   ), [clips]);
 
   const handlePrevMonth = () => {
