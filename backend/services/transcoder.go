@@ -11,7 +11,13 @@ import (
 	"sync"
 )
 
+// ErrServerBusy is returned when the server is at capacity
+var ErrServerBusy = fmt.Errorf("server busy: too many concurrent transcode sessions")
+
 var (
+	// Limit concurrent transcode sessions to prevent resource exhaustion
+	transcodeSemaphore = make(chan struct{}, 4)
+
 	encoder      string
 	encoderOnce  sync.Once
 	hasNvenc     bool
@@ -54,6 +60,26 @@ func AutoDetectEncoder() string {
 	return encoder
 }
 
+// AcquireTranscodeSlot attempts to acquire a transcoding slot.
+// Returns ErrServerBusy if the limit is reached.
+func AcquireTranscodeSlot() error {
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		return nil
+	default:
+		return ErrServerBusy
+	}
+}
+
+// ReleaseTranscodeSlot releases a transcoding slot.
+func ReleaseTranscodeSlot() {
+	select {
+	case <-transcodeSemaphore:
+	default:
+		log.Println("Warning: ReleaseTranscodeSlot called on empty semaphore")
+	}
+}
+
 // GetTranscoderStatus returns a user-friendly status string
 func GetTranscoderStatus() map[string]interface{} {
 	AutoDetectEncoder()
@@ -61,6 +87,8 @@ func GetTranscoderStatus() map[string]interface{} {
 		"encoder":   encoder,
 		"hw_accel":  hasNvenc,
 		"supported": true, // Assume ffmpeg is always present
+		"active_sessions": len(transcodeSemaphore),
+		"max_sessions": cap(transcodeSemaphore),
 	}
 }
 
