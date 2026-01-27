@@ -1,0 +1,14 @@
+
+> frontend@0.1.17 preview /app/frontend
+> vite preview
+
+  ➜  Local:   http://localhost:4173/
+  ➜  Network: use --host to expose
+3:36:08 PM [vite] http proxy error: /api/clips/1
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:36:34 PM [vite] http proxy error: /api/clips/1
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
