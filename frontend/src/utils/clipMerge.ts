@@ -11,12 +11,25 @@ export interface Clip {
   city: string;
   reason?: string;
   video_files?: VideoFile[];
-  telemetry?: any;
+  telemetry?: Record<string, unknown>;
   event_timestamp?: string;
+  start_time?: Date;
+  date_key?: string;
 }
 
-export const mergeClips = (clips: Clip[]): Clip[] => {
-    if (!clips || clips.length === 0) return [];
+export const mergeClips = (rawClips: Clip[]): Clip[] => {
+    if (!rawClips || rawClips.length === 0) return [];
+
+    // Optimization: Enrich clips with pre-calculated Date objects and keys (O(N))
+    // This avoids repeated date parsing in downstream components (Sidebar, Calendar)
+    const clips = rawClips.map(c => {
+         const d = new Date(c.timestamp);
+         return {
+             ...c,
+             start_time: d,
+             date_key: d.toDateString()
+         };
+    });
 
     // Optimization: The backend returns clips sorted by Timestamp DESC.
     // Instead of re-sorting them ASC (O(N log N)), we iterate backwards (O(N)).
@@ -32,8 +45,9 @@ export const mergeClips = (clips: Clip[]): Clip[] => {
         const prev = currentGroup[currentGroup.length - 1];
         const curr = clips[i];
 
-        const prevTime = new Date(prev.timestamp).getTime();
-        const currTime = new Date(curr.timestamp).getTime();
+        // Use pre-calculated Date objects
+        const prevTime = prev.start_time!.getTime();
+        const currTime = curr.start_time!.getTime();
         const diffSeconds = (currTime - prevTime) / 1000;
 
         // Criteria: Same event type, Gap < 5s logic (Start-to-Start < 65s)

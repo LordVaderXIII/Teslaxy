@@ -21,6 +21,8 @@ interface Clip {
   reason?: string;
   video_files?: VideoFile[];
   telemetry?: Record<string, unknown>;
+  start_time?: Date;
+  date_key?: string;
 }
 
 interface FilterState {
@@ -139,10 +141,10 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
        <div className="flex-1 min-w-0">
           <div className="flex justify-between items-baseline mb-1">
              <span className="font-medium text-gray-200 truncate">{clip.city || 'Unknown Location'}</span>
-             <span className="text-xs text-gray-500 font-mono">{new Date(clip.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+             <span className="text-xs text-gray-500 font-mono">{(clip.start_time || new Date(clip.timestamp)).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
           </div>
           <div className="text-xs text-gray-500 truncate">
-             {clip.event} Event • {new Date(clip.timestamp).toLocaleDateString()}
+             {clip.event} Event • {(clip.start_time || new Date(clip.timestamp)).toLocaleDateString()}
           </div>
        </div>
     </button>
@@ -178,8 +180,8 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
   const clipsByDate = useMemo(() => {
     const groups = new Map<string, Clip[]>();
     clips.forEach(clip => {
-      // Use Date.parse for faster timestamp parsing if possible, but new Date() is robust
-      const dateStr = new Date(clip.timestamp).toDateString();
+      // Use pre-calculated date_key if available to avoid parsing overhead
+      const dateStr = clip.date_key || new Date(clip.timestamp).toDateString();
       if (!groups.has(dateStr)) {
         groups.set(dateStr, []);
       }

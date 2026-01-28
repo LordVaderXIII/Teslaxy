@@ -5,6 +5,8 @@ interface Clip {
   ID: number;
   timestamp: string;
   event: string;
+  start_time?: Date;
+  date_key?: string;
 }
 
 interface CalendarProps {
@@ -29,8 +31,9 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
   const firstDay = getFirstDayOfMonth(viewDate.getFullYear(), viewDate.getMonth());
 
   // Bolt Optimization: Memoize the set of days with clips to avoid O(N) iteration on every render.
+  // Use pre-calculated date_key if available.
   const clipDays = useMemo(() => new Set(
-    clips.map(c => new Date(c.timestamp).toDateString())
+    clips.map(c => c.date_key || new Date(c.timestamp).toDateString())
   ), [clips]);
 
   const handlePrevMonth = () => {
