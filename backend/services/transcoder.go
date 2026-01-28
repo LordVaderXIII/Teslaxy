@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,9 +13,11 @@ import (
 )
 
 var (
-	encoder      string
-	encoderOnce  sync.Once
-	hasNvenc     bool
+	encoder            string
+	encoderOnce        sync.Once
+	hasNvenc           bool
+	ErrServerBusy      = errors.New("server busy: too many active transcoding sessions")
+	transcodeSemaphore = make(chan struct{}, 4)
 )
 
 type TranscodeQuality struct {
@@ -54,13 +57,39 @@ func AutoDetectEncoder() string {
 	return encoder
 }
 
+// AcquireTranscodeSlot attempts to acquire a transcoding slot. Returns ErrServerBusy if full.
+func AcquireTranscodeSlot() error {
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		return nil
+	default:
+		return ErrServerBusy
+	}
+}
+
+// ReleaseTranscodeSlot releases a transcoding slot.
+func ReleaseTranscodeSlot() {
+	select {
+	case <-transcodeSemaphore:
+	default:
+		// Should not happen if used correctly
+		log.Println("Warning: ReleaseTranscodeSlot called on empty semaphore")
+	}
+}
+
 // GetTranscoderStatus returns a user-friendly status string
 func GetTranscoderStatus() map[string]interface{} {
 	AutoDetectEncoder()
+	slotsUsed := len(transcodeSemaphore)
+	slotsTotal := cap(transcodeSemaphore)
+
 	return map[string]interface{}{
-		"encoder":   encoder,
-		"hw_accel":  hasNvenc,
-		"supported": true, // Assume ffmpeg is always present
+		"encoder":     encoder,
+		"hw_accel":    hasNvenc,
+		"supported":   true, // Assume ffmpeg is always present
+		"slots_total": slotsTotal,
+		"slots_used":  slotsUsed,
+		"slots_free":  slotsTotal - slotsUsed,
 	}
 }
 
