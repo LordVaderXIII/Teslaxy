@@ -43,3 +43,8 @@
 **Vulnerability:** The MP4 parser allocated memory based on the `nalSize` field without validation, allowing a malicious 4GB NAL unit to crash the server via OOM (Denial of Service).
 **Learning:** Never trust size fields in binary formats/protocols to dictate memory allocation directly. Malicious inputs can declare huge sizes to exhaust resources.
 **Prevention:** Implement strict upper bounds on all allocations triggered by user input (e.g., `MaxSEINalSize = 1MB`). Use `Seek` to skip over oversized or irrelevant data segments instead of reading them into memory.
+
+## 2026-01-29 - Database Error Leakage
+**Vulnerability:** The application was returning raw database errors (e.g., "sql: database is closed") to the API client in `getClips` and `createExportJob` endpoints.
+**Learning:** Returning `err.Error()` directly to the client exposes internal infrastructure details, such as database type, table names, or connection status (CWE-209). This aids attackers in reconnaissance.
+**Prevention:** Catch errors server-side, log the full details using `log.Printf` or a structured logger for debugging, and return a generic "Internal Server Error" message to the user.
