@@ -64,8 +64,17 @@ const CameraView = React.memo(({
 
     return (
         <div
+            role="button"
+            tabIndex={0}
             onClick={onClick}
-            className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 cursor-pointer ${className}`}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onClick();
+                }
+            }}
+            aria-label={`Switch to ${camName} view`}
+            className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 cursor-pointer text-left p-0 border-0 focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset outline-none ${className}`}
         >
             {seg ? (
                 <VideoPlayer

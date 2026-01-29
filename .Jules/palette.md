@@ -29,3 +29,7 @@
 ## 2025-10-27 - Graceful Image Degradation
 **Learning:** Relying on the browser's default broken image icon for missing thumbnails creates a jarring, unpolished experience, especially in a media-centric app. Using a semantic, colored fallback matching the empty state maintains visual consistency and trust.
 **Action:** Implement a reusable `ThumbnailImage` component with `onError` handling to automatically swap failed images for a branded placeholder.
+
+## 2025-02-21 - Interactive Div Anti-Pattern
+**Learning:** Found critical accessibility gap in custom video player grid where interactive camera selectors were implemented as `div`s with `onClick`, completely blocking keyboard users.
+**Action:** Audit all `onClick` handlers during component review; prefer semantic `<button>` with style resets over `div`s for any clickable regions.
