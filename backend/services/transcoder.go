@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,10 +13,33 @@ import (
 )
 
 var (
-	encoder      string
-	encoderOnce  sync.Once
-	hasNvenc     bool
+	encoder     string
+	encoderOnce sync.Once
+	hasNvenc    bool
+
+	// Sentinel: Limit concurrent transcoding to 4 sessions
+	transcodeSemaphore = make(chan struct{}, 4)
+	ErrServerBusy      = errors.New("server busy: too many active transcode sessions")
 )
+
+// AcquireTranscodeSlot attempts to acquire a semaphore slot. Returns error if full.
+func AcquireTranscodeSlot() error {
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		return nil
+	default:
+		return ErrServerBusy
+	}
+}
+
+// ReleaseTranscodeSlot releases a semaphore slot.
+func ReleaseTranscodeSlot() {
+	select {
+	case <-transcodeSemaphore:
+	default:
+		// Should never happen if paired correctly
+	}
+}
 
 type TranscodeQuality struct {
 	Height  int
@@ -58,9 +82,12 @@ func AutoDetectEncoder() string {
 func GetTranscoderStatus() map[string]interface{} {
 	AutoDetectEncoder()
 	return map[string]interface{}{
-		"encoder":   encoder,
-		"hw_accel":  hasNvenc,
-		"supported": true, // Assume ffmpeg is always present
+		"encoder":     encoder,
+		"hw_accel":    hasNvenc,
+		"supported":   true, // Assume ffmpeg is always present
+		"slots_total": cap(transcodeSemaphore),
+		"slots_used":  len(transcodeSemaphore),
+		"slots_free":  cap(transcodeSemaphore) - len(transcodeSemaphore),
 	}
 }
 

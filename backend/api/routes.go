@@ -1,12 +1,12 @@
 package api
 
 import (
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"io"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"
@@ -118,6 +118,17 @@ func serveVideo(c *gin.Context) {
 
 	// If quality is requested and not original, transcode
 	if quality != "" && quality != "original" {
+		// Sentinel: Enforce concurrency limit
+		if err := services.AcquireTranscodeSlot(); err != nil {
+			if err == services.ErrServerBusy {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server busy: too many transcoding sessions"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
+			return
+		}
+		defer services.ReleaseTranscodeSlot()
+
 		cmd, stdout, err := services.GetTranscodeStream(c.Request.Context(), fullPath, quality)
 		if err != nil {
 			log.Printf("Transcode error: %v", err)
