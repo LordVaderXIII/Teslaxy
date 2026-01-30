@@ -25,16 +25,16 @@ func TestExtractSEI_DoS_Protection(t *testing.T) {
 	// forces the SERVER to allocate it on read.
 	nalContent := make([]byte, nalSize)
 
-    // Header: NAL Unit Type SEI (6) | User Data Unregistered (5)
-    // First byte: (0 << 7) | (3 << 5) | 6 = 6 (assuming ref_idc=0)
-    nalContent[0] = 6
-    nalContent[1] = 5
+	// Header: NAL Unit Type SEI (6) | User Data Unregistered (5)
+	// First byte: (0 << 7) | (3 << 5) | 6 = 6 (assuming ref_idc=0)
+	nalContent[0] = 6
+	nalContent[1] = 5
 
-    // Add signature 0x42 ... 0x69 to trigger extraction attempt if read
-    if len(nalContent) > 10 {
-        nalContent[3] = 0x42
-        nalContent[4] = 0x69
-    }
+	// Add signature 0x42 ... 0x69 to trigger extraction attempt if read
+	if len(nalContent) > 10 {
+		nalContent[3] = 0x42
+		nalContent[4] = 0x69
+	}
 
 	// mdat atom construction
 	// Size (4) + Type (4) + NAL Len (4) + NAL Content
@@ -59,11 +59,11 @@ func TestExtractSEI_DoS_Protection(t *testing.T) {
 	meta, err := ExtractSEI(tmpFile.Name())
 
 	if err != nil && err.Error() != "mdat atom not found" {
-        // It's acceptable for it to fail parsing, but not crash
+		// It's acceptable for it to fail parsing, but not crash
 	}
 
-    // If logic worked, meta should be empty because parsing failed or was skipped
-    if len(meta) > 0 {
-        t.Errorf("Unexpected metadata found")
-    }
+	// If logic worked, meta should be empty because parsing failed or was skipped
+	if len(meta) > 0 {
+		t.Errorf("Unexpected metadata found")
+	}
 }
