@@ -15,11 +15,10 @@ THIS APP IS IN HEAVY DEVELOPMENT AND MOST FEATURES ARE IN SOME SORT OF BROKEN ST
 - **Playback Controls:** Skip and rewind 5 seconds during playback.
 - **Playback Speed:** Cycle through 0.5x, 1x, 1.5x, 2x, and 4x playback speeds.
 - **Dynamic Camera Grid:** Click any camera view to swap it with the main view, allowing focus on specific angles.
+- **Export Clips:** Select cameras and trim footage to export custom MP4s.
 
 ## Upcoming Features
 
-- Export functionality stage 1, snip a section of a clip using red and green bracket from one camera and export to mp4
-- Export funcxtionality stage 2, pick which camera view is included and they are stiched together in the export
 - Basic authentication (optional Docker variable of auth=true/false to reset), off by default, user can set password in app. User account area created to support this
 - Logs now visable in User account
 - Logs have self healing reporting built in, this flags errors and asks the user to send to Jules via Jules API, will require API key

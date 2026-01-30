@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, Suspense, useCallback, useMemo } fr
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings } from 'lucide-react';
+import ExportModal from './ExportModal';
+import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings, Scissors } from 'lucide-react';
 import { useClickOutside } from '../hooks/useClickOutside';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
@@ -126,6 +127,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [quality, setQuality] = useState<string>('original');
   const [encoderStatus, setEncoderStatus] = useState<{encoder: string, hw_accel: boolean} | null>(null);
   const [isQualityMenuOpen, setIsQualityMenuOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // Fetch transcoder status on mount
   useEffect(() => {
@@ -630,6 +632,15 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                   {playbackSpeed}x
               </button>
 
+              <button
+                  onClick={() => setIsExportModalOpen(true)}
+                  aria-label="Export Clip"
+                  title="Export Clip"
+                  className="w-10 h-10 flex items-center justify-center bg-gray-800 text-white rounded-full hover:bg-gray-700 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
+              >
+                  <Scissors size={20} />
+              </button>
+
               {/* Quality Selector */}
               <div className="relative" ref={qualityMenuRef}>
                   <button
@@ -663,6 +674,16 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               </div>
           </div>
        </div>
+
+       {clip && (
+        <ExportModal
+            isOpen={isExportModalOpen}
+            onClose={() => setIsExportModalOpen(false)}
+            clip={clip as any}
+            currentTime={currentTime}
+            totalDuration={totalDuration}
+        />
+      )}
     </div>
   );
 };
