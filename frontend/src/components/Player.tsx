@@ -82,7 +82,7 @@ const CameraView = React.memo(({
             </div>
             {camName === 'Front' && clip.telemetry && clip.telemetry.full_data_json && (
                  <TelemetryOverlay
-                     dataJson={clip.telemetry.full_data_json}
+                     data={clip.telemetry.full_data_json}
                      currentTime={currentTime}
                  />
             )}
