@@ -63,7 +63,8 @@ func getClips(c *gin.Context) {
 		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, clip_id, latitude, longitude")
 		}).Order("timestamp desc").Find(&clips).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Database error in getClips: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
 		return
 	}
 	c.JSON(http.StatusOK, clips)
@@ -155,7 +156,14 @@ func createExportJob(c *gin.Context) {
 
 	jobID, err := services.QueueExport(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if strings.Contains(err.Error(), "server busy") {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server busy, please try again later"})
+		} else if gorm.IsRecordNotFoundError(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Clip not found"})
+		} else {
+			log.Printf("Export queue error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
+		}
 		return
 	}
 
