@@ -619,7 +619,7 @@ func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo)
 
 	// Update fields
 	telemetry.ClipID = clip.ID
-	telemetry.FullDataJson = string(jsonData)
+	telemetry.FullDataJson = json.RawMessage(jsonData)
 
 	// Update summary fields from the middle of the *entire* clip (approx)
 	mid := len(aggregatedMeta) / 2

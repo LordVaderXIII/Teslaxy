@@ -1,7 +1,3 @@
-## 2025-10-27 - Lazy Loading Large Modals
-**Learning:** Heavy libraries like `leaflet` and `react-leaflet` can significantly impact initial bundle size if statically imported, even if the component (e.g., `MapModal`) is only conditionally rendered.
-**Action:** Use `React.lazy` and `Suspense` for large, infrequent components like map modals or dashboards to split them into separate chunks that only load on demand.
-
-## 2025-10-28 - JSON Payload Optimization
-**Learning:** Redundant foreign keys (e.g., `clip_id` inside a nested `VideoFile` object) can bloat JSON payloads significantly. However, removing Primary Keys (`ID`) is unsafe as frontend apps may rely on them for list keys.
-**Action:** Audit Go struct JSON tags to hide (`json:"-"`) redundant foreign keys in nested relationships while preserving Primary Keys (`json:"ID"`).
+## 2025-10-29 - JSON Payload Optimization (Implemented)
+**Learning:** Storing JSON as `string` in Go structs (`string` field with `json` tag) causes double-encoding when marshaled (e.g., `"{\"key\":\"val\"}"`), increasing payload size and requiring `JSON.parse` on the frontend.
+**Action:** Use `json.RawMessage` for such fields. This embeds the raw JSON bytes directly into the output (e.g., `{"key":"val"}`), reducing size (no escaping) and CPU overhead (no frontend parsing). Verified with GORM/SQLite that `json.RawMessage` correctly maps to TEXT columns.

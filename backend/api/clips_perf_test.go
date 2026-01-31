@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"teslaxy/database"
 	"teslaxy/models"
 	"testing"
@@ -32,7 +33,7 @@ func TestGetClipsPerformance(t *testing.T) {
 		ClipID:       clip.ID,
 		Latitude:     37.7749,
 		Longitude:    -122.4194,
-		FullDataJson: largeJson,
+		FullDataJson: json.RawMessage(largeJson),
 	}
 	database.DB.Create(&telemetry)
 
@@ -75,8 +76,8 @@ func TestGetClipsPerformance(t *testing.T) {
 	if tClip.Telemetry.Latitude != 37.7749 {
 		t.Errorf("Expected Latitude 37.7749, got %f", tClip.Telemetry.Latitude)
 	}
-	if tClip.Telemetry.FullDataJson != "" {
-		t.Errorf("Expected FullDataJson to be empty, got '%s'", tClip.Telemetry.FullDataJson)
+	if len(tClip.Telemetry.FullDataJson) > 0 {
+		t.Errorf("Expected FullDataJson to be empty, got '%s'", string(tClip.Telemetry.FullDataJson))
 	}
 	if !tClip.Telemetry.CreatedAt.IsZero() {
 		t.Errorf("Expected Telemetry.CreatedAt to be zero, got %v", tClip.Telemetry.CreatedAt)

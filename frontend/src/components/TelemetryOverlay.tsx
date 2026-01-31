@@ -14,26 +14,14 @@ interface TelemetryPoint {
 }
 
 interface TelemetryOverlayProps {
-  dataJson: string;
+  data: TelemetryPoint[];
   currentTime: number;
 }
 
-const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTime }) => {
-  // Memoize parsed data to avoid re-parsing on every render
-  const data = useMemo<TelemetryPoint[]>(() => {
-    try {
-      if (!dataJson) return [];
-      const parsed = JSON.parse(dataJson);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      console.error("Failed to parse telemetry data", e);
-      return [];
-    }
-  }, [dataJson]);
-
+const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ data, currentTime }) => {
   // Derive current point directly from props and data
   const currentPoint = useMemo(() => {
-    if (data.length === 0) return null;
+    if (!data || data.length === 0) return null;
 
     const fps = 30; // approx
     let index = Math.floor(currentTime * fps);

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -38,12 +39,12 @@ type Telemetry struct {
 	UpdatedAt time.Time  `json:"-"`
 	DeletedAt *time.Time `sql:"index" json:"-"`
 
-	ClipID         uint    `json:"-" gorm:"index"`
-	Speed          float32 `json:"speed"`
-	Gear           string  `json:"gear"`
-	Latitude       float64 `json:"latitude"`
-	Longitude      float64 `json:"longitude"`
-	SteeringAngle  float32 `json:"steering_angle"`
-	AutopilotState string  `json:"autopilot_state"`
-	FullDataJson   string  `json:"full_data_json"` // Store full protobuf dump if needed
+	ClipID         uint            `json:"-" gorm:"index"`
+	Speed          float32         `json:"speed"`
+	Gear           string          `json:"gear"`
+	Latitude       float64         `json:"latitude"`
+	Longitude      float64         `json:"longitude"`
+	SteeringAngle  float32         `json:"steering_angle"`
+	AutopilotState string          `json:"autopilot_state"`
+	FullDataJson   json.RawMessage `json:"full_data_json" sql:"type:text"` // Store full protobuf dump if needed
 }
