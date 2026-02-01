@@ -22,7 +22,8 @@ import (
 var (
 	secretKey     []byte
 	adminUser     string
-	adminPass     string
+	adminPassHash string
+	adminSalt     []byte
 	loginAttempts = make(map[string]*loginAttempt)
 	loginLock     sync.Mutex
 )
@@ -71,16 +72,28 @@ func loadAdminCreds() {
 		adminUser = "admin"
 	}
 
-	adminPass = os.Getenv("ADMIN_PASS")
-	if adminPass == "" {
+	plaintextPass := os.Getenv("ADMIN_PASS")
+	if plaintextPass == "" {
 		// Generate secure random password
 		bytes := make([]byte, 16)
 		if _, err := rand.Read(bytes); err != nil {
 			panic(fmt.Sprintf("CRITICAL: Failed to generate random admin password: %v", err))
 		}
-		adminPass = hex.EncodeToString(bytes)
-		log.Printf("SECURITY NOTICE: ADMIN_PASS not set. Auto-generated admin password: %s", adminPass)
+		plaintextPass = hex.EncodeToString(bytes)
+		log.Printf("SECURITY NOTICE: ADMIN_PASS not set. Auto-generated admin password: %s", plaintextPass)
 	}
+
+	// Generate random salt
+	adminSalt = make([]byte, 16)
+	if _, err := rand.Read(adminSalt); err != nil {
+		panic(fmt.Sprintf("CRITICAL: Failed to generate admin salt: %v", err))
+	}
+
+	// Store salted SHA-256 hash
+	hasher := sha256.New()
+	hasher.Write(adminSalt)
+	hasher.Write([]byte(plaintextPass))
+	adminPassHash = hex.EncodeToString(hasher.Sum(nil))
 }
 
 func AuthMiddleware() gin.HandlerFunc {
@@ -163,7 +176,13 @@ func Login(c *gin.Context) {
 
 	// Verify using constant time compare to prevent timing attacks
 	userMatch := subtle.ConstantTimeCompare([]byte(creds.Username), []byte(adminUser)) == 1
-	passMatch := subtle.ConstantTimeCompare([]byte(creds.Password), []byte(adminPass)) == 1
+
+	// Hash input password with salt to compare
+	hasher := sha256.New()
+	hasher.Write(adminSalt)
+	hasher.Write([]byte(creds.Password))
+	hashedInput := hex.EncodeToString(hasher.Sum(nil))
+	passMatch := subtle.ConstantTimeCompare([]byte(hashedInput), []byte(adminPassHash)) == 1
 
 	if userMatch && passMatch {
 		token, _ := generateToken(creds.Username)
