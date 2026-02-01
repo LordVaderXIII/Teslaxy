@@ -127,6 +127,12 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
     <button
       onClick={() => onClipSelect(clip)}
       aria-current={isSelected ? 'true' : undefined}
+      // Bolt Optimization: content-visibility: auto improves rendering performance for long lists
+      // by skipping layout and painting for off-screen items.
+      style={{
+        contentVisibility: 'auto',
+        containIntrinsicSize: '80px', // Approximate height to prevent scroll jumping
+      } as React.CSSProperties}
       className={`
          w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-inset
          p-4 hover:bg-gray-900 transition flex gap-3
