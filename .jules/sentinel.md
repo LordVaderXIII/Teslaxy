@@ -43,3 +43,8 @@
 **Vulnerability:** The MP4 parser allocated memory based on the `nalSize` field without validation, allowing a malicious 4GB NAL unit to crash the server via OOM (Denial of Service).
 **Learning:** Never trust size fields in binary formats/protocols to dictate memory allocation directly. Malicious inputs can declare huge sizes to exhaust resources.
 **Prevention:** Implement strict upper bounds on all allocations triggered by user input (e.g., `MaxSEINalSize = 1MB`). Use `Seek` to skip over oversized or irrelevant data segments instead of reading them into memory.
+
+## 2026-02-14 - Plaintext Password in Memory
+**Vulnerability:** The admin password was stored in a long-lived global variable in plaintext, exposing it to memory dump attacks or accidental leakage via debug logs.
+**Learning:** Even if a password is "just" an environment variable, keeping it in memory for the process lifetime is risky. Go's garbage collection means strings might persist longer than expected.
+**Prevention:** Hash sensitive credentials (with a random salt) immediately upon startup and discard the plaintext. Perform all future verifications against the stored hash.
