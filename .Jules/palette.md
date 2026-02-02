@@ -29,3 +29,7 @@
 ## 2025-10-27 - Graceful Image Degradation
 **Learning:** Relying on the browser's default broken image icon for missing thumbnails creates a jarring, unpolished experience, especially in a media-centric app. Using a semantic, colored fallback matching the empty state maintains visual consistency and trust.
 **Action:** Implement a reusable `ThumbnailImage` component with `onError` handling to automatically swap failed images for a branded placeholder.
+
+## 2025-12-22 - State Visibility in Filters
+**Learning:** Users often forget they have filters applied if the indicator is subtle (like a text count).
+**Action:** Use strong visual cues (color change + aria-label) on the toggle button itself when the state is non-default.
