@@ -63,7 +63,8 @@ func getClips(c *gin.Context) {
 		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, clip_id, latitude, longitude")
 		}).Order("timestamp desc").Find(&clips).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Database error in getClips: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
 		return
 	}
 	c.JSON(http.StatusOK, clips)
@@ -73,7 +74,12 @@ func getClipDetails(c *gin.Context) {
 	id := c.Param("id")
 	var clip models.Clip
 	if err := database.DB.Preload("VideoFiles").Preload("Telemetry").First(&clip, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Clip not found"})
+		if gorm.IsRecordNotFoundError(err) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Clip not found"})
+		} else {
+			log.Printf("Database error in getClipDetails: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, clip)
@@ -155,7 +161,12 @@ func createExportJob(c *gin.Context) {
 
 	jobID, err := services.QueueExport(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("Export error: %v", err)
+		if err.Error() == "server busy: too many concurrent exports" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
+		}
 		return
 	}
 
