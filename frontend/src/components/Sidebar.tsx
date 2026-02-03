@@ -190,6 +190,10 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
     return groups;
   }, [clips]);
 
+  // Bolt Optimization: Extract date keys into a Set for Calendar to use directly
+  // This avoids re-calculating the date set inside Calendar (O(N) -> O(1))
+  const eventDates = useMemo(() => new Set(clipsByDate.keys()), [clipsByDate]);
+
   // Filter Logic
   const filteredClips = useMemo(() => {
     const targetDateStr = selectedDate.toDateString();
@@ -304,7 +308,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
             <Calendar
                 currentDate={selectedDate}
                 onDateSelect={handleDateSelect}
-                clips={clips}
+                eventDates={eventDates}
             />
           </div>
 
