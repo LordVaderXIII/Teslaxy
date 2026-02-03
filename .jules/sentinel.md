@@ -43,3 +43,8 @@
 **Vulnerability:** The MP4 parser allocated memory based on the `nalSize` field without validation, allowing a malicious 4GB NAL unit to crash the server via OOM (Denial of Service).
 **Learning:** Never trust size fields in binary formats/protocols to dictate memory allocation directly. Malicious inputs can declare huge sizes to exhaust resources.
 **Prevention:** Implement strict upper bounds on all allocations triggered by user input (e.g., `MaxSEINalSize = 1MB`). Use `Seek` to skip over oversized or irrelevant data segments instead of reading them into memory.
+
+## 2026-05-24 - Information Leakage via Error Messages
+**Vulnerability:** The API returned raw Go error strings (e.g., database connection errors, SQL syntax errors) directly to the client in JSON responses (e.g., `gin.H{"error": err.Error()}`).
+**Learning:** Returning internal error messages aids attackers in reconnaissance by revealing implementation details (database schema, file paths, library versions). It is a common pattern in rapid development to "just return the error".
+**Prevention:** Log the detailed error server-side (using `log.Printf`) and return a generic "Internal Server Error" message to the client. Only return specific error messages for validation errors (400 Bad Request).
