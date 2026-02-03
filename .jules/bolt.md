@@ -5,3 +5,7 @@
 ## 2025-10-28 - JSON Payload Optimization
 **Learning:** Redundant foreign keys (e.g., `clip_id` inside a nested `VideoFile` object) can bloat JSON payloads significantly. However, removing Primary Keys (`ID`) is unsafe as frontend apps may rely on them for list keys.
 **Action:** Audit Go struct JSON tags to hide (`json:"-"`) redundant foreign keys in nested relationships while preserving Primary Keys (`json:"ID"`).
+
+## 2025-10-29 - Derived State Propagation
+**Learning:** Passing raw large arrays to child components (like `Calendar`) forces them to re-iterate and re-calculate derived state (like `Set` of active dates) on every render, even if the data hasn't effectively changed for their purpose.
+**Action:** Lift the calculation of derived state (e.g., `eventDates: Set<string>`) to the parent (`Sidebar`) where the source data exists, and pass only the optimized structure to the child.
