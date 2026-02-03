@@ -5,3 +5,7 @@
 ## 2026-01-19 - Contextual Date Navigation
 **Learning:** In date-heavy interfaces (calendars, timelines), users often get "lost" in past/future states. Providing a contextual "Back to Today" action reduces cognitive load and click fatigue.
 **Action:** When implementing date pickers or timelines, always include a conditional "Today" shortcut if the view deviates from the current date.
+
+## 2026-02-03 - Semantic Media Fallbacks
+**Learning:** Using semantic icons for media fallbacks (e.g., missing thumbnails) significantly improves scannability compared to generic text abbreviations or empty boxes. It turns a "broken" state into an informative one.
+**Action:** Replace generic image error states with context-specific icons (Shield for security, Video for clips) to maintain UI density and utility.

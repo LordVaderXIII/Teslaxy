@@ -1,0 +1,35 @@
+
+> frontend@0.1.17 preview /app/frontend
+> vite preview --port 4173
+
+  ➜  Local:   http://localhost:4173/
+  ➜  Network: use --host to expose
+3:06:55 PM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:06:55 PM [vite] http proxy error: /api/clips
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:07:40 PM [vite] http proxy error: /api/version
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:07:40 PM [vite] http proxy error: /api/clips/1
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:08:03 PM [vite] http proxy error: /api/clips/1
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:08:20 PM [vite] http proxy error: /api/clips
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+3:08:41 PM [vite] http proxy error: /api/clips/1
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+ ELIFECYCLE  Command failed with exit code 143.
