@@ -24,7 +24,8 @@ func TestGetClipsPerformance(t *testing.T) {
 	// Large JSON string to simulate heavy payload
 	largeJson := "some massive json payload that takes up space..."
 	clip := models.Clip{
-		Event: "Sentry",
+		Event:  "Sentry",
+		Reason: "user_interaction_honk",
 	}
 	database.DB.Create(&clip)
 
@@ -45,12 +46,9 @@ func TestGetClipsPerformance(t *testing.T) {
 
 	// Test the optimized query
 	var clips []models.Clip
-	err = database.DB.Select("id, timestamp, event_timestamp, event, city, telemetry_id").
+	err = database.DB.Select("id, timestamp, event_timestamp, event, city, reason, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
 			return db.Select("clip_id, camera, file_path, timestamp")
-		}).
-		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, clip_id, latitude, longitude") // Only select needed fields
 		}).Find(&clips).Error
 
 	if err != nil {
@@ -70,10 +68,13 @@ func TestGetClipsPerformance(t *testing.T) {
 	if tClip.Event != "Sentry" {
 		t.Errorf("Expected Clip.Event to be Sentry, got %s", tClip.Event)
 	}
+	if tClip.Reason != "user_interaction_honk" {
+		t.Errorf("Expected Clip.Reason to be user_interaction_honk, got %s", tClip.Reason)
+	}
 
-	// Verify Telemetry optimization
-	if tClip.Telemetry.Latitude != 37.7749 {
-		t.Errorf("Expected Latitude 37.7749, got %f", tClip.Telemetry.Latitude)
+	// Verify Telemetry optimization (should be empty now)
+	if tClip.Telemetry.Latitude != 0 {
+		t.Errorf("Expected Latitude 0 (not fetched), got %f", tClip.Telemetry.Latitude)
 	}
 	if tClip.Telemetry.FullDataJson != "" {
 		t.Errorf("Expected FullDataJson to be empty, got '%s'", tClip.Telemetry.FullDataJson)

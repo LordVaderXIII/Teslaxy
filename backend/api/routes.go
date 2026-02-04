@@ -56,12 +56,10 @@ func getClips(c *gin.Context) {
 	// Bolt: Optimize query by selecting only necessary fields for Clip, VideoFiles, and Telemetry.
 	// This reduces payload size by excluding model timestamps (CreatedAt, UpdatedAt, DeletedAt)
 	// and heavy fields (FullDataJson) from the list view.
-	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, telemetry_id").
+	// Optimization: Removed Telemetry preload as it is not used in the list view.
+	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
 			return db.Select("clip_id, camera, file_path, timestamp").Order("timestamp asc")
-		}).
-		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, clip_id, latitude, longitude")
 		}).Order("timestamp desc").Find(&clips).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
