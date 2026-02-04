@@ -63,9 +63,11 @@ const CameraView = React.memo(({
     }, [camName, handlePlayerReady]);
 
     return (
-        <div
+        <button
+            type="button"
+            aria-label={`Switch to ${camName} view`}
             onClick={onClick}
-            className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 cursor-pointer ${className}`}
+            className={`relative bg-gray-900 group/cam overflow-hidden min-w-0 min-h-0 cursor-pointer w-full h-full p-0 border-0 text-left ${className}`}
         >
             {seg ? (
                 <VideoPlayer
@@ -86,7 +88,7 @@ const CameraView = React.memo(({
                      currentTime={currentTime}
                  />
             )}
-        </div>
+        </button>
     );
 });
 
