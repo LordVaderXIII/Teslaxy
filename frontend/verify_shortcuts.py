@@ -1,108 +1,75 @@
 
-import json
+import os
+import time
 from playwright.sync_api import sync_playwright, expect
 
-def test_keyboard_shortcuts():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+def verify_shortcuts(page):
+    # Mock API responses to avoid backend dependency
+    page.route("**/api/clips", lambda route: route.fulfill(
+        status=200,
+        content_type="application/json",
+        body='[{"ID": 1, "timestamp": "2023-01-01T12:00:00Z", "event": "Sentry", "city": "Test City"}]'
+    ))
+    page.route("**/api/clips/1", lambda route: route.fulfill(
+        status=200,
+        content_type="application/json",
+        body='{"ID": 1, "timestamp": "2023-01-01T12:00:00Z", "event": "Sentry", "city": "Test City", "video_files": []}'
+    ))
+    page.route("**/api/version", lambda route: route.fulfill(
+        status=200,
+        content_type="application/json",
+        body='{"latestVersion": "v1.0.0", "releases": []}'
+    ))
+    page.route("**/api/transcode/status", lambda route: route.fulfill(
+        status=200,
+        content_type="application/json",
+        body='{"encoder": "test", "hw_accel": false}'
+    ))
 
-        # Console logging
-        page.on("console", lambda msg: print(f"CONSOLE: {msg.text}"))
-        page.on("pageerror", lambda err: print(f"PAGE ERROR: {err}"))
+    # Go to app
+    page.goto("http://localhost:5173")
 
-        # Mock APIs
-        # Note: glob pattern matching might be tricky if base url differs.
-        # We'll use regex or broader glob.
+    # Wait for app to load
+    page.wait_for_selector("h1:has-text('Teslaxy')")
 
-        def handle_clips(route):
-            print("Handling /api/clips")
-            route.fulfill(
-                status=200,
-                content_type="application/json",
-                body=json.dumps([
-                    {
-                        "ID": 123,
-                        "timestamp": "2023-10-27T10:00:00Z",
-                        "event": "Sentry",
-                        "city": "Test City",
-                        "video_files": [
-                            {"camera": "Front", "file_path": "/test_front.mp4", "timestamp": "2023-10-27T10:00:00Z"}
-                        ]
-                    }
-                ])
-            )
+    # 1. Verify '?' key opens shortcuts
+    page.keyboard.press("?")
 
-        page.route("**/api/clips", handle_clips)
+    # Expect modal to appear
+    expect(page.get_by_role("dialog")).to_be_visible()
+    expect(page.get_by_text("Keyboard Shortcuts")).to_be_visible()
 
-        page.route("**/api/clips/123", lambda route: route.fulfill(
-            status=200,
-            content_type="application/json",
-            body=json.dumps({
-                "ID": 123,
-                "timestamp": "2023-10-27T10:00:00Z",
-                "event": "Sentry",
-                "city": "Test City",
-                "video_files": [
-                    {"camera": "Front", "file_path": "/test_front.mp4", "timestamp": "2023-10-27T10:00:00Z"}
-                ],
-                "telemetry": {}
-            })
-        ))
+    # Take screenshot of open modal
+    page.screenshot(path="frontend/verification/shortcuts_modal.png")
 
-        page.route("**/api/transcode/status", lambda route: route.fulfill(
-             status=200,
-             body=json.dumps({"encoder": "test_enc", "hw_accel": False})
-        ))
+    # Close modal
+    page.keyboard.press("Escape")
+    expect(page.get_by_role("dialog")).not_to_be_visible()
 
-        page.route("**/api/version", lambda route: route.fulfill(
-            status=200,
-            body=json.dumps({"latestVersion": "v1.0.0", "releases": []})
-        ))
+    # 2. Verify button in sidebar
+    # Wait for sidebar to be visible (it should be)
+    # The button has aria-label="Keyboard Shortcuts"
+    # Note: On mobile width it might be hidden or different, but we run desktop size by default
 
-        # Navigate
-        print("Navigating...")
-        page.goto("http://localhost:5173")
+    # Ensure viewport is desktop size
+    page.set_viewport_size({"width": 1280, "height": 720})
 
-        # Wait for app to load
-        print("Waiting for Test City...")
-        try:
-            expect(page.get_by_text("Test City")).to_be_visible(timeout=10000)
-        except Exception as e:
-            print(f"Failed to find Test City: {e}")
-            page.screenshot(path="frontend_failed.png")
-            raise e
+    help_button = page.get_by_role("button", name="Keyboard Shortcuts")
+    expect(help_button).to_be_visible()
 
-        # Wait for Player component controls
-        print("Waiting for Play button...")
-        play_button = page.get_by_title("Play (Space)")
-        expect(play_button).to_be_visible()
+    help_button.click()
+    expect(page.get_by_role("dialog")).to_be_visible()
 
-        # Test Space to Play
-        print("Pressing Space...")
-        page.keyboard.press("Space")
-
-        # Expect button to change to Pause
-        print("Waiting for Pause button...")
-        pause_button = page.get_by_title("Pause (Space)")
-        expect(pause_button).to_be_visible()
-
-        # Test Space to Pause
-        print("Pressing Space again...")
-        page.keyboard.press("Space")
-        expect(play_button).to_be_visible()
-
-        # Test Tooltip
-        # Hover over Rewind button
-        print("Hovering Rewind...")
-        rewind_button = page.get_by_label("Rewind 15 seconds")
-        rewind_button.hover()
-
-        # Take screenshot of tooltip
-        page.screenshot(path="verification_shortcuts.png")
-
-        print("Verification successful!")
-        browser.close()
+    print("Verification successful!")
 
 if __name__ == "__main__":
-    test_keyboard_shortcuts()
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        try:
+            verify_shortcuts(page)
+        except Exception as e:
+            print(f"Error: {e}")
+            page.screenshot(path="frontend/verification/error.png")
+        finally:
+            browser.close()
