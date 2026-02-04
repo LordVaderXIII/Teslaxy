@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,9 @@ var (
 	encoder      string
 	encoderOnce  sync.Once
 	hasNvenc     bool
+	// Sentinel: Concurrency limit for transcoding
+	transcodeSemaphore = make(chan struct{}, 4)
+	ErrServerBusy      = errors.New("server busy: too many active transcoding sessions")
 )
 
 type TranscodeQuality struct {
@@ -26,6 +30,27 @@ var qualityMap = map[string]TranscodeQuality{
 	"1080p": {Height: 1080, Bitrate: "4M"},
 	"720p":  {Height: 720, Bitrate: "2M"},
 	"480p":  {Height: 480, Bitrate: "1M"},
+}
+
+// AcquireTranscodeSlot attempts to acquire a slot in the transcoding semaphore.
+// Returns ErrServerBusy if the limit is reached.
+func AcquireTranscodeSlot() error {
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		return nil
+	default:
+		return ErrServerBusy
+	}
+}
+
+// ReleaseTranscodeSlot releases a slot in the transcoding semaphore.
+func ReleaseTranscodeSlot() {
+	select {
+	case <-transcodeSemaphore:
+	default:
+		// Should not happen if Acquire/Release are paired correctly
+		log.Println("Warning: specific semaphore release without acquisition")
+	}
 }
 
 // AutoDetectEncoder determines the best available encoder (NVENC vs CPU)
