@@ -151,6 +151,26 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
   );
 });
 
+// Skeleton Loader for Clips
+const SidebarSkeleton = () => {
+  return (
+    <div className="flex flex-col divide-y divide-gray-900" aria-label="Loading clips">
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} className="p-4 flex gap-3 animate-pulse">
+           <div className="w-12 h-12 rounded bg-gray-800 shrink-0" />
+           <div className="flex-1 space-y-2 py-1">
+              <div className="flex justify-between">
+                 <div className="h-4 bg-gray-800 rounded w-1/3" />
+                 <div className="h-3 bg-gray-800 rounded w-12" />
+              </div>
+              <div className="h-3 bg-gray-800 rounded w-1/2" />
+           </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, onRefresh, loading, className }) => {
   const [filters, setFilters] = useState<FilterState>({
     recent: true,
@@ -382,10 +402,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
        {/* Clip List */}
        <div className="flex-1 overflow-y-auto custom-scrollbar" aria-live="polite">
           {loading ? (
-             <div className="p-8 text-center text-gray-500 animate-pulse flex flex-col items-center gap-2">
-                <RefreshCw className="animate-spin" size={24} />
-                <span>Loading footage...</span>
-             </div>
+             <SidebarSkeleton />
           ) : filteredClips.length === 0 ? (
              <div className="flex flex-col items-center justify-center p-8 text-center h-full text-gray-500 space-y-4">
                 <div className="bg-gray-900 p-4 rounded-full">
