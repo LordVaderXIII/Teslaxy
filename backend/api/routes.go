@@ -118,6 +118,12 @@ func serveVideo(c *gin.Context) {
 
 	// If quality is requested and not original, transcode
 	if quality != "" && quality != "original" {
+		if !services.TryAcquireTranscode() {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Too many active transcode sessions"})
+			return
+		}
+		defer services.ReleaseTranscode()
+
 		cmd, stdout, err := services.GetTranscodeStream(c.Request.Context(), fullPath, quality)
 		if err != nil {
 			log.Printf("Transcode error: %v", err)
