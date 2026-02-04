@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,10 +13,33 @@ import (
 )
 
 var (
-	encoder      string
-	encoderOnce  sync.Once
-	hasNvenc     bool
+	encoder     string
+	encoderOnce sync.Once
+	hasNvenc    bool
+
+	// Sentinel: DoS Prevention - Limit concurrent transcodes
+	ErrServerBusy      = errors.New("server busy: too many active transcoding sessions")
+	transcodeSemaphore = make(chan struct{}, 4)
 )
+
+// AcquireTranscodeSlot attempts to acquire a semaphore slot. Returns error if busy.
+func AcquireTranscodeSlot() error {
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		return nil
+	default:
+		return ErrServerBusy
+	}
+}
+
+// ReleaseTranscodeSlot releases a semaphore slot.
+func ReleaseTranscodeSlot() {
+	select {
+	case <-transcodeSemaphore:
+	default:
+		log.Println("Warning: ReleaseTranscodeSlot called on empty semaphore")
+	}
+}
 
 type TranscodeQuality struct {
 	Height  int
