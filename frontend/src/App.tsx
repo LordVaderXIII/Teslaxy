@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
-import Player from './components/Player'
+import { useState, useEffect, useCallback, Suspense, lazy } from 'react'
 import Sidebar from './components/Sidebar'
 import { mergeClips, type Clip } from './utils/clipMerge'
+
+// Bolt: Lazy load Player to reduce initial bundle size by splitting video.js and related logic
+const Player = lazy(() => import('./components/Player'))
 
 function App() {
   const [clips, setClips] = useState<Clip[]>([])
@@ -75,7 +77,16 @@ function App() {
         </div>
 
         {selectedClip ? (
-           <Player clip={selectedClip} />
+           <Suspense fallback={
+               <div className="flex-1 flex items-center justify-center text-gray-500 bg-gray-950">
+                  <div className="text-center">
+                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+                     <p className="text-sm">Loading Player...</p>
+                  </div>
+               </div>
+           }>
+               <Player clip={selectedClip} />
+           </Suspense>
         ) : (
            <div className="flex-1 flex items-center justify-center text-gray-500 bg-gray-950">
               <div className="text-center">
