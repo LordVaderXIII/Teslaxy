@@ -3,6 +3,7 @@ package services
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +16,10 @@ var (
 	encoder      string
 	encoderOnce  sync.Once
 	hasNvenc     bool
+	// Sentinel: Limit concurrent transcoding sessions to prevent DoS
+	transcodeSemaphore = make(chan struct{}, 4)
+	// Sentinel: Exported error for external checks
+	ErrServerBusy = errors.New("server busy: too many concurrent transcoding sessions")
 )
 
 type TranscodeQuality struct {
@@ -61,12 +66,26 @@ func GetTranscoderStatus() map[string]interface{} {
 		"encoder":   encoder,
 		"hw_accel":  hasNvenc,
 		"supported": true, // Assume ffmpeg is always present
+		"active_sessions": len(transcodeSemaphore),
+		"max_sessions": cap(transcodeSemaphore),
 	}
 }
 
-// GetTranscodeStream starts an ffmpeg process to transcode the file and returns the command and stdout pipe
-func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (*exec.Cmd, io.ReadCloser, error) {
+// GetTranscodeStream starts an ffmpeg process to transcode the file and returns the command, stdout pipe, and a release function
+func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (*exec.Cmd, io.ReadCloser, func(), error) {
 	AutoDetectEncoder()
+
+	// Sentinel: Acquire semaphore
+	select {
+	case transcodeSemaphore <- struct{}{}:
+		// Acquired
+	default:
+		return nil, nil, nil, ErrServerBusy
+	}
+
+	release := func() {
+		<-transcodeSemaphore
+	}
 
 	q, ok := qualityMap[quality]
 	if !ok {
@@ -110,7 +129,8 @@ func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, nil, err
+		release() // Release if we fail to start
+		return nil, nil, nil, err
 	}
 
 	// Capture stderr for debugging (in a separate goroutine)
@@ -123,8 +143,9 @@ func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (
 	}()
 
 	if err := cmd.Start(); err != nil {
-		return nil, nil, err
+		release() // Release if we fail to start
+		return nil, nil, nil, err
 	}
 
-	return cmd, stdout, nil
+	return cmd, stdout, release, nil
 }
