@@ -43,3 +43,8 @@
 **Vulnerability:** The MP4 parser allocated memory based on the `nalSize` field without validation, allowing a malicious 4GB NAL unit to crash the server via OOM (Denial of Service).
 **Learning:** Never trust size fields in binary formats/protocols to dictate memory allocation directly. Malicious inputs can declare huge sizes to exhaust resources.
 **Prevention:** Implement strict upper bounds on all allocations triggered by user input (e.g., `MaxSEINalSize = 1MB`). Use `Seek` to skip over oversized or irrelevant data segments instead of reading them into memory.
+
+## 2026-01-20 - Plaintext Password in Memory
+**Vulnerability:** The admin password was stored in plaintext in a global variable, making it susceptible to extraction via memory dumps or heap inspection.
+**Learning:** Storing credentials in their raw form for the application's lifetime violates the principle of defense in depth. If an attacker gains read access to memory (e.g., via Heartbleed-like bugs), they get the keys to the castle.
+**Prevention:** Store only a salted hash of the password in memory. When authenticating, hash the input and compare it to the stored hash. This renders the in-memory credential useless without a brute-force attack.

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -44,5 +45,23 @@ func TestGenerateToken_Injection(t *testing.T) {
 		if !ok || sub != maliciousUser {
 			t.Errorf("Sub claim mismatch. Expected '%s', got '%s'", maliciousUser, sub)
 		}
+	}
+}
+
+func TestAdminPasswordHashed(t *testing.T) {
+	// Ensure creds are loaded (init runs automatically)
+	// Verify that adminPassHash is set and is a hex string
+	if len(adminPassHash) == 0 {
+		t.Fatalf("adminPassHash is empty")
+	}
+
+	// Verify it's hex
+	if _, err := hex.DecodeString(adminPassHash); err != nil {
+		t.Fatalf("adminPassHash is not a valid hex string: %v", err)
+	}
+
+	// Verify salt is set
+	if len(adminSalt) != 16 {
+		t.Fatalf("adminSalt should be 16 bytes, got %d", len(adminSalt))
 	}
 }
