@@ -190,6 +190,11 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
     return groups;
   }, [clips]);
 
+  // Bolt Optimization: Calculate active filter state for UI feedback
+  const hasActiveFilters = useMemo(() => {
+    return Object.values(filters).some(value => !value);
+  }, [filters]);
+
   // Filter Logic
   const filteredClips = useMemo(() => {
     const targetDateStr = selectedDate.toDateString();
@@ -315,13 +320,17 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                 aria-expanded={isFilterOpen}
                 aria-controls="filter-dropdown"
                 aria-label={isFilterOpen ? "Hide filters" : "Show filters"}
-                className="w-full bg-gray-900 border border-gray-800 text-gray-300 text-sm rounded-lg p-2.5 flex justify-between items-center hover:bg-gray-800 transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
+                className={`w-full border text-sm rounded-lg p-2.5 flex justify-between items-center transition focus-visible:ring-2 focus-visible:ring-blue-500 outline-none
+                  ${hasActiveFilters
+                    ? 'bg-blue-900/20 border-blue-900/50 text-blue-100 hover:bg-blue-900/30'
+                    : 'bg-gray-900 border-gray-800 text-gray-300 hover:bg-gray-800'}
+                `}
              >
                 <div className="flex items-center gap-2">
-                    <Filter size={14} className="text-gray-500" />
+                    <Filter size={14} className={hasActiveFilters ? "text-blue-400" : "text-gray-500"} />
                     <span>Filter Events</span>
                 </div>
-                <span className="text-xs text-gray-500">{filteredClips.length} shown</span>
+                <span className={`text-xs ${hasActiveFilters ? "text-blue-300" : "text-gray-500"}`}>{filteredClips.length} shown</span>
              </button>
 
              {isFilterOpen && (
