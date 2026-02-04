@@ -12,7 +12,7 @@ type Clip struct {
 
 	Timestamp      time.Time   `json:"timestamp" gorm:"index"`
 	EventTimestamp *time.Time  `json:"event_timestamp"` // Timestamp from event.json
-	Event          string      `json:"event"`           // e.g., "Sentry", "Saved", "Recent"
+	Event          string      `json:"event" gorm:"index"`           // e.g., "Sentry", "Saved", "Recent"
 	City           string      `json:"city"`
 	Reason         string      `json:"reason"`
 	VideoFiles     []VideoFile `json:"video_files"`
