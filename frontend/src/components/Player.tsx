@@ -541,6 +541,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
             <button
                 onClick={() => setIs3D(!is3D)}
+                onMouseEnter={() => import('./Scene3D')} // Bolt: Prefetch lazy component
                 aria-label={is3D ? "Switch to 2D view" : "Switch to 3D view"}
                 title={is3D ? "Switch to 2D view" : "Switch to 3D view"}
                 className="p-2 bg-black/50 backdrop-blur border border-white/10 rounded-lg hover:bg-white/10 transition text-white focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"

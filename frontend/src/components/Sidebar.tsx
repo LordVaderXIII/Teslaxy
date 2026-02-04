@@ -93,7 +93,8 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
       for (let i = clip.video_files.length - 1; i >= 0; i--) {
         const v = clip.video_files[i];
         if (v.camera === 'Front') {
-          const vTime = new Date(v.timestamp).getTime();
+          // Bolt: Use Date.parse() instead of new Date().getTime() to avoid object allocation
+          const vTime = Date.parse(v.timestamp);
           if (vTime <= eventTime) {
             targetVideo = v;
             break;
@@ -111,7 +112,7 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
 
     // Calculate seek time
     if (clip.event_timestamp) {
-      const startTime = new Date(targetVideo.timestamp).getTime();
+      const startTime = Date.parse(targetVideo.timestamp);
       const diff = (eventTime - startTime) / 1000;
 
       // Only apply offset if it's positive and reasonable (e.g. within 600s)
@@ -267,6 +268,7 @@ const Sidebar: React.FC<SidebarProps> = ({ clips, selectedClipId, onClipSelect, 
                   <h2 className="text-xl font-bold text-white">Library</h2>
                   <button
                     onClick={() => setIsMapOpen(true)}
+                    onMouseEnter={() => import('./MapModal')} // Bolt: Prefetch lazy component
                     aria-label="View Map"
                     className="p-1.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600/40 hover:text-white rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 outline-none"
                     title="View Map"
