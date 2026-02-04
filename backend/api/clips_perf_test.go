@@ -47,7 +47,7 @@ func TestGetClipsPerformance(t *testing.T) {
 	var clips []models.Clip
 	err = database.DB.Select("id, timestamp, event_timestamp, event, city, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
-			return db.Select("clip_id, camera, file_path, timestamp")
+			return db.Select("clip_id, camera, file_path, timestamp").Order("clip_id asc, timestamp asc")
 		}).
 		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id, clip_id, latitude, longitude") // Only select needed fields
