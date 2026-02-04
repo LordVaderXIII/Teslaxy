@@ -43,3 +43,8 @@
 **Vulnerability:** The MP4 parser allocated memory based on the `nalSize` field without validation, allowing a malicious 4GB NAL unit to crash the server via OOM (Denial of Service).
 **Learning:** Never trust size fields in binary formats/protocols to dictate memory allocation directly. Malicious inputs can declare huge sizes to exhaust resources.
 **Prevention:** Implement strict upper bounds on all allocations triggered by user input (e.g., `MaxSEINalSize = 1MB`). Use `Seek` to skip over oversized or irrelevant data segments instead of reading them into memory.
+
+## 2026-01-22 - Unbounded Transcoding Concurrency
+**Vulnerability:** The transcoding endpoint spawned unlimited `ffmpeg` processes, allowing resource exhaustion (DoS) via concurrent requests.
+**Learning:** "Should exist" features in documentation/memory might be missing in code. Always verify existence of security controls (like semaphores) in the actual implementation.
+**Prevention:** Implement explicit semaphore patterns for resource-heavy operations and verify them with concurrency tests.
