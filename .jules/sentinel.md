@@ -43,3 +43,10 @@
 **Vulnerability:** The MP4 parser allocated memory based on the `nalSize` field without validation, allowing a malicious 4GB NAL unit to crash the server via OOM (Denial of Service).
 **Learning:** Never trust size fields in binary formats/protocols to dictate memory allocation directly. Malicious inputs can declare huge sizes to exhaust resources.
 **Prevention:** Implement strict upper bounds on all allocations triggered by user input (e.g., `MaxSEINalSize = 1MB`). Use `Seek` to skip over oversized or irrelevant data segments instead of reading them into memory.
+
+## 2026-01-24 - Boolean Short-Circuit in Constant Time Code
+**Vulnerability:** The `Login` function used `subtle.ConstantTimeCompare` but combined the results with a boolean AND (`&&`). While the comparisons happened before the check (preventing one type of timing attack), the use of direct slice comparison leaked the length of the credentials, and the boolean logic is conceptually brittle.
+**Learning:** `subtle.ConstantTimeCompare` only guarantees constant time if the lengths of inputs are equal. If lengths differ, it returns 0 immediately, leaking length information. Also, relying on compiler optimization or evaluation order for security properties (like "both functions must run") is fragile.
+**Prevention:**
+1. Hash variable-length inputs (like passwords) using SHA256 before comparison to ensure constant length.
+2. Use bitwise operations (`&`, `|`) instead of boolean operators (`&&`, `||`) when combining constant-time verification results to ensure all branches evaluate.
