@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.18] - 2026-02-04
+### Performance
+- Optimized scanner ingestion by eliminating N+1 database queries when adding files to clips, significantly reducing processing time for large libraries.
+
 ## [0.1.17] - 2025-12-21
 ### Accessibility
 - Added consistent focus indicators for keyboard navigation in Calendar, Map, and Changelog components.
