@@ -1,21 +1,13 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-
-interface Clip {
-  ID: number;
-  timestamp: string;
-  event: string;
-  start_time?: Date;
-  date_key?: string;
-}
 
 interface CalendarProps {
   currentDate: Date;
   onDateSelect: (date: Date) => void;
-  clips: Clip[];
+  eventDates: Set<string>;
 }
 
-const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips }) => {
+const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, eventDates }) => {
   const [viewDate, setViewDate] = React.useState(currentDate);
 
   // Helper to get days in month
@@ -29,12 +21,6 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
 
   const daysInMonth = getDaysInMonth(viewDate.getFullYear(), viewDate.getMonth());
   const firstDay = getFirstDayOfMonth(viewDate.getFullYear(), viewDate.getMonth());
-
-  // Bolt Optimization: Memoize the set of days with clips to avoid O(N) iteration on every render.
-  // Use pre-calculated date_key if available.
-  const clipDays = useMemo(() => new Set(
-    clips.map(c => c.date_key || new Date(c.timestamp).toDateString())
-  ), [clips]);
 
   const handlePrevMonth = () => {
     setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
@@ -65,7 +51,8 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
 
   const hasClips = (day: number) => {
     const d = new Date(viewDate.getFullYear(), viewDate.getMonth(), day);
-    return clipDays.has(d.toDateString());
+    // Bolt Optimization: Use O(1) lookup on passed Set
+    return eventDates.has(d.toDateString());
   };
 
   const renderDays = () => {
