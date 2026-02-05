@@ -43,3 +43,8 @@
 **Vulnerability:** The MP4 parser allocated memory based on the `nalSize` field without validation, allowing a malicious 4GB NAL unit to crash the server via OOM (Denial of Service).
 **Learning:** Never trust size fields in binary formats/protocols to dictate memory allocation directly. Malicious inputs can declare huge sizes to exhaust resources.
 **Prevention:** Implement strict upper bounds on all allocations triggered by user input (e.g., `MaxSEINalSize = 1MB`). Use `Seek` to skip over oversized or irrelevant data segments instead of reading them into memory.
+
+## 2026-01-20 - In-Memory Password Hashing
+**Vulnerability:** Admin password was stored in plaintext in memory, exposing it to memory dump attacks.
+**Learning:** Even if a password is from an environment variable, storing it in a global variable in plaintext is a security risk.
+**Prevention:** Generate a random salt at startup, hash the password immediately, and discard the plaintext. Compare hashes during login.
