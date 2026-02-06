@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, Suspense } from 'react';
-import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox } from 'lucide-react';
+import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox, ShieldAlert, Video, Clock } from 'lucide-react';
 import Calendar from './Calendar';
 import VersionDisplay from './VersionDisplay';
 import { useClickOutside } from '../hooks/useClickOutside';
@@ -54,13 +54,27 @@ const ThumbnailImage = ({ src, clip }: { src: string; clip: Clip }) => {
   const [error, setError] = useState(false);
 
   if (!src || error) {
+    let icon;
+    let colorClass;
+
+    if (clip.event === 'Sentry') {
+      icon = <ShieldAlert size={20} aria-hidden="true" />;
+      colorClass = 'bg-red-900/20 text-red-500';
+    } else if (clip.event === 'Saved') {
+      icon = <Video size={20} aria-hidden="true" />;
+      colorClass = 'bg-green-900/20 text-green-500';
+    } else {
+      icon = <Clock size={20} aria-hidden="true" />;
+      colorClass = 'bg-gray-800 text-gray-400';
+    }
+
     return (
-      <div className={`
-          w-full h-full flex items-center justify-center
-          ${clip.event === 'Sentry' ? 'bg-red-900/20 text-red-500' :
-          clip.event === 'Saved' ? 'bg-green-900/20 text-green-500' : 'bg-gray-800 text-gray-400'}
-      `}>
-        <div className="text-xs font-bold uppercase">{clip.event.substring(0, 2)}</div>
+      <div
+        className={`w-full h-full flex items-center justify-center ${colorClass}`}
+        role="img"
+        aria-label={`${clip.event} event thumbnail placeholder`}
+      >
+        {icon}
       </div>
     );
   }
