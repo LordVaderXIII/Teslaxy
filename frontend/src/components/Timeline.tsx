@@ -12,6 +12,8 @@ interface TimelineProps {
   onSeek: (time: number) => void;
   markers?: Marker[];
   className?: string;
+  selectionStart?: number | null;
+  selectionEnd?: number | null;
 }
 
 const Timeline: React.FC<TimelineProps> = ({
@@ -19,7 +21,9 @@ const Timeline: React.FC<TimelineProps> = ({
   duration,
   onSeek,
   markers = [],
-  className = ""
+  className = "",
+  selectionStart = null,
+  selectionEnd = null
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -129,6 +133,16 @@ const Timeline: React.FC<TimelineProps> = ({
       >
         {/* Track Background */}
         <div className="absolute w-full h-1.5 bg-gray-700 rounded-full overflow-hidden group-hover:h-2 transition-all">
+           {/* Selection Range */}
+           {selectionStart !== null && selectionEnd !== null && (
+             <div
+               className="absolute top-0 bottom-0 bg-green-500/60"
+               style={{
+                 left: `${getPercentage(selectionStart)}%`,
+                 width: `${Math.max(0, getPercentage(selectionEnd) - getPercentage(selectionStart))}%`
+               }}
+             />
+           )}
            {/* Progress */}
            <div
              className="h-full bg-blue-500 rounded-full"
