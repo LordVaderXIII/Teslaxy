@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, Suspense, useCallback, useMemo } fr
 import VideoPlayer from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
-import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings } from 'lucide-react';
+import { Box, Layers, Video, RotateCw, RotateCcw, Play, Pause, Settings, Download, X as XIcon, SquareSplitHorizontal } from 'lucide-react';
 import { useClickOutside } from '../hooks/useClickOutside';
+import ExportModal from './ExportModal';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -127,6 +128,11 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
   const [encoderStatus, setEncoderStatus] = useState<{encoder: string, hw_accel: boolean} | null>(null);
   const [isQualityMenuOpen, setIsQualityMenuOpen] = useState(false);
 
+  // Export State
+  const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
   // Fetch transcoder status on mount
   useEffect(() => {
     fetch('/api/transcode/status')
@@ -205,6 +211,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       setCurrentTime(0);
       setCurrentSegmentIndex(0);
       setIsPlaying(false);
+      setSelectionStart(null);
+      setSelectionEnd(null);
       mainPlayerRef.current = null;
       playersRef.current = {};
       setActiveCamera('Front');
@@ -506,6 +514,33 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       }
   }
 
+  // Export Markers
+  if (selectionStart !== null) {
+      markers.push({ time: selectionStart, color: '#22c55e', label: 'Start Point' });
+  }
+  if (selectionEnd !== null) {
+      markers.push({ time: selectionEnd, color: '#ef4444', label: 'End Point' });
+  }
+
+  const handleSetStart = () => {
+      setSelectionStart(currentTime);
+      if (selectionEnd !== null && selectionEnd < currentTime) {
+          setSelectionEnd(null);
+      }
+  };
+
+  const handleSetEnd = () => {
+      setSelectionEnd(currentTime);
+      if (selectionStart !== null && selectionStart > currentTime) {
+          setSelectionStart(null);
+      }
+  };
+
+  const clearSelection = () => {
+      setSelectionStart(null);
+      setSelectionEnd(null);
+  };
+
   const cameras = ['Front', 'Left Repeater', 'Right Repeater', 'Back', 'Left Pillar', 'Right Pillar'];
   const qualities = ['original', '1080p', '720p', '480p'];
 
@@ -591,8 +626,46 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             duration={totalDuration}
             onSeek={handleSeek}
             markers={markers}
+            selectionStart={selectionStart}
+            selectionEnd={selectionEnd}
           />
           <div className="flex items-center justify-center gap-4 mt-2">
+              {/* Export Controls */}
+              <div className="flex items-center gap-2 mr-4 border-r border-gray-800 pr-4">
+                  <button
+                      onClick={handleSetStart}
+                      className="text-green-500 hover:text-green-400 font-bold p-2 text-xs uppercase"
+                      title="Set Start Point ([)"
+                  >
+                      Set Start
+                  </button>
+                  <button
+                      onClick={handleSetEnd}
+                      className="text-red-500 hover:text-red-400 font-bold p-2 text-xs uppercase"
+                      title="Set End Point (])"
+                  >
+                      Set End
+                  </button>
+                  {selectionStart !== null && selectionEnd !== null && (
+                      <>
+                        <button
+                            onClick={() => setIsExportModalOpen(true)}
+                            className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-full"
+                            title="Export Clip"
+                        >
+                            <Download size={16} />
+                        </button>
+                        <button
+                            onClick={clearSelection}
+                            className="text-gray-500 hover:text-gray-300 p-2"
+                            title="Clear Selection"
+                        >
+                            <XIcon size={16} />
+                        </button>
+                      </>
+                  )}
+              </div>
+
               <button
                   onClick={() => handleSeek(Math.max(0, currentTime - 15))}
                   aria-label="Rewind 15 seconds"
@@ -663,6 +736,17 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
               </div>
           </div>
        </div>
+
+       {clip && selectionStart !== null && selectionEnd !== null && (
+           <ExportModal
+               isOpen={isExportModalOpen}
+               onClose={() => setIsExportModalOpen(false)}
+               clip={clip}
+               startTime={selectionStart}
+               endTime={selectionEnd}
+               activeCamera={activeCamera}
+           />
+       )}
     </div>
   );
 };
