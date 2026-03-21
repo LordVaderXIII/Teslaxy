@@ -28,11 +28,13 @@ interface PlayerAdapter {
     on: (event: string, callback: () => void) => void;
     off: (event: string, callback: () => void) => void;
     currentTime: (time?: number) => number;
+    currentSrc: () => string;
     duration: () => number;
     play: () => Promise<void>;
     pause: () => void;
     paused: () => boolean;
     muted: (mute?: boolean) => boolean;
+    playbackRate: (rate?: number) => number;
     dispose: () => void;
 }
 
@@ -55,9 +57,14 @@ const createPlayerAdapter = (video: HTMLVideoElement): PlayerAdapter => {
     play: () => video.play(),
     pause: () => video.pause(),
     paused: () => video.paused,
+    currentSrc: () => video.currentSrc || video.src,
     muted: (mute?: boolean) => {
        if (mute !== undefined) video.muted = mute;
        return video.muted;
+    },
+    playbackRate: (rate?: number) => {
+       if (rate !== undefined) video.playbackRate = rate;
+       return video.playbackRate;
     },
     dispose: () => {
        // No-op for raw video element, managed by React lifecycle
