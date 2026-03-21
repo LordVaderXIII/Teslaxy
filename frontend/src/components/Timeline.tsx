@@ -82,13 +82,27 @@ const Timeline: React.FC<TimelineProps> = ({
   };
 
   useEffect(() => {
+    let rafId = 0;
+    let latestEvent: MouseEvent | null = null;
+
     const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
-        handleSeek(e);
+      if (!isDragging) return;
+      latestEvent = e;
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          if (latestEvent) handleSeek(latestEvent);
+          rafId = 0;
+        });
       }
     };
 
     const handleMouseUp = () => {
+      // Flush any pending seek on release
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      if (latestEvent) handleSeek(latestEvent);
       setIsDragging(false);
     };
 
@@ -98,6 +112,7 @@ const Timeline: React.FC<TimelineProps> = ({
     }
 
     return () => {
+      if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };

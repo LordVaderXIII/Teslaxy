@@ -41,6 +41,7 @@ const CameraView = React.memo(({
     seg,
     clip,
     currentTime,
+    duration,
     quality,
     handlePlayerReady,
     getUrl,
@@ -51,6 +52,7 @@ const CameraView = React.memo(({
     seg: CameraSegment | null,
     clip: Clip,
     currentTime: number,
+    duration: number,
     quality: string,
     handlePlayerReady: (cam: string, p: any) => void,
     getUrl: (path: string) => string,
@@ -84,6 +86,7 @@ const CameraView = React.memo(({
                  <TelemetryOverlay
                      dataJson={clip.telemetry.full_data_json}
                      currentTime={currentTime}
+                     duration={duration}
                  />
             )}
         </div>
@@ -196,6 +199,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
 
   const playersRef = useRef<{ [key: string]: any }>({});
   const mainPlayerRef = useRef<any>(null);
+  // Track registered listeners so we can clean them up
+  const listenerCleanups = useRef<Array<() => void>>([]);
 
   // Track which segment is currently playing to optimize updates
   const [currentSegmentIndex, setCurrentSegmentIndex] = useState(0);
@@ -209,7 +214,13 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
       playersRef.current = {};
       setActiveCamera('Front');
 
+      // Clean up all event listeners from previous clip
+      listenerCleanups.current.forEach(cleanup => cleanup());
+      listenerCleanups.current = [];
+
       return () => {
+        listenerCleanups.current.forEach(cleanup => cleanup());
+        listenerCleanups.current = [];
         playersRef.current = {};
         mainPlayerRef.current = null;
       };
@@ -327,7 +338,7 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
          }
       };
 
-      player.on('timeupdate', () => {
+      const onTimeUpdate = () => {
         const camSegments = segments[normCam];
         if (camSegments) {
             let src = player.currentSrc();
@@ -338,9 +349,6 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
             const seg = camSegments.find(s => src.endsWith(s.file_path));
             if (seg) {
                 const global = seg.startTime + player.currentTime();
-                // Avoid state update loops if close enough?
-                // Bolt: Use ref for current time check to avoid stale closures?
-                // Actually, here we WANT to update state if it drifts.
                 if (Math.abs(global - currentTimeRef.current) > 0.1) {
                      setCurrentTime(global);
                 }
@@ -353,11 +361,16 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                 }
             }
         }
-      });
+      };
 
-      player.on('ended', () => {
-         checkAdvance();
-      });
+      const onEnded = () => { checkAdvance(); };
+
+      player.on('timeupdate', onTimeUpdate);
+      player.on('ended', onEnded);
+      listenerCleanups.current.push(
+        () => { player.off('timeupdate', onTimeUpdate); },
+        () => { player.off('ended', onEnded); }
+      );
 
       // Auto-play if global state is playing
       if (isPlaying) {
@@ -371,10 +384,14 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
     }
 
     // Sync play state
-    player.on('play', () => {
-       setIsPlaying(true);
-    });
-    player.on('pause', () => setIsPlaying(false));
+    const onPlay = () => { setIsPlaying(true); };
+    const onPause = () => { setIsPlaying(false); };
+    player.on('play', onPlay);
+    player.on('pause', onPause);
+    listenerCleanups.current.push(
+      () => { player.off('play', onPlay); },
+      () => { player.off('pause', onPause); }
+    );
 
   }, [segments, isPlaying]); // Removed currentTime from deps to avoid re-binding
 
@@ -574,7 +591,8 @@ const Player: React.FC<{ clip: Clip | null }> = ({ clip }) => {
                       className={`${index === 0 ? 'block h-full' : 'hidden md:block'} ${SLOT_CLASSES[index]}`}
                       seg={getCurrentSegment(camName)}
                       clip={clip}
-                      currentTime={currentTime}
+                      currentTime={camName === 'Front' ? currentTime : 0}
+                      duration={totalDuration}
                       quality={quality}
                       handlePlayerReady={handlePlayerReady}
                       getUrl={getUrl}

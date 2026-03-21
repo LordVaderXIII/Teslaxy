@@ -16,9 +16,10 @@ interface TelemetryPoint {
 interface TelemetryOverlayProps {
   dataJson: string;
   currentTime: number;
+  duration: number;
 }
 
-const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTime }) => {
+const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson, currentTime, duration }) => {
   // Memoize parsed data to avoid re-parsing on every render
   const data = useMemo<TelemetryPoint[]>(() => {
     try {
@@ -31,19 +32,18 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTi
     }
   }, [dataJson]);
 
-  // Derive current point directly from props and data
+  // Derive current point using proportional indexing (fps-agnostic)
   const currentPoint = useMemo(() => {
-    if (data.length === 0) return null;
+    if (data.length === 0 || duration <= 0) return null;
 
-    const fps = 30; // approx
-    let index = Math.floor(currentTime * fps);
+    let index = Math.floor((currentTime / duration) * data.length);
 
     // Clamp
     if (index < 0) index = 0;
     if (index >= data.length) index = data.length - 1;
 
     return data[index];
-  }, [currentTime, data]);
+  }, [currentTime, data, duration]);
 
   if (!currentPoint) return null;
 
@@ -138,6 +138,6 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({ dataJson, currentTi
       )}
     </div>
   );
-};
+});
 
 export default TelemetryOverlay;
