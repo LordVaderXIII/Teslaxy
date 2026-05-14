@@ -19,6 +19,16 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - All file paths should be sanitized to prevent traversal attacks.
 - Ensure the application can run in a Docker container.
 
+### Core Domain Model — Logical Events vs Physical Clips (Critical)
+- A **physical clip** = one 1-minute MP4 from one camera.
+- A **logical event** (what the user sees as one row in the sidebar) = one or more physical clips that belong together (a Sentry trigger, a Saved clip, or a continuous Recent drive).
+- **Source of truth rule**: The scanner (`services/scanner.go`) owns grouping.
+  - For `SentryClips`/`SavedClips`: the directory containing `event.json` + the `SourceDir` field on `Clip` is the stable identity.
+  - `event.json` is the primary source for `city`, `reason`, `event_timestamp`.
+  - SEI data extracted from Front camera videos (via `aggregateTelemetry`) is the source for speed/steering/autopilot telemetry.
+- The frontend `clipMerge.ts` is now only a fallback compatibility layer. New code must not duplicate grouping logic on the client.
+- When modifying the scanner, always update `SourceDir` and prefer directory + event.json over pure timestamp heuristics.
+
 ### Frontend (React/TypeScript)
 - Use functional components and Hooks.
 - Use Tailwind CSS for styling.

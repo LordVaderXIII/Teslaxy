@@ -11,11 +11,17 @@ type Clip struct {
 	DeletedAt *time.Time `sql:"index" json:"-"`
 
 	Timestamp      time.Time   `json:"timestamp" gorm:"index"`
-	EventTimestamp *time.Time  `json:"event_timestamp"` // Timestamp from event.json
+	EventTimestamp *time.Time  `json:"event_timestamp"` // Timestamp from event.json (primary source of truth for event start)
 	Event          string      `json:"event"`           // e.g., "Sentry", "Saved", "Recent"
 	City           string      `json:"city"`
 	Reason         string      `json:"reason"`
-	VideoFiles     []VideoFile `json:"video_files"`
+
+	// SourceDir is the stable identifier for a logical Tesla event.
+	// For SentryClips/SavedClips: the full path to the event directory (contains event.json)
+	// For Recent: a synthetic key based on the first segment's directory + time bucket.
+	// This field makes the backend the source of truth for "which 1-min files belong together".
+	SourceDir  string      `json:"source_dir,omitempty" gorm:"index"`
+	VideoFiles []VideoFile `json:"video_files"`
 	TelemetryID    uint        `json:"-"`
 	Telemetry      Telemetry   `json:"telemetry"`
 }
