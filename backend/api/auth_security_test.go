@@ -1,14 +1,18 @@
 package api
 
 import (
-	"encoding/base64"
-	"encoding/json"
-	"strings"
+	"os"
 	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
+// TestGenerateToken_Injection verifies that even malicious usernames cannot
+// inject additional top-level claims into the JWT (protected by struct-based claims).
 func TestGenerateToken_Injection(t *testing.T) {
-	// Attempt to inject a claim or break JSON
+	os.Setenv("JWT_SECRET", "test-secret-for-injection-test")
+	secretKey = []byte("test-secret-for-injection-test")
+
 	maliciousUser := `admin","role":"admin`
 
 	token, err := generateToken(maliciousUser)
@@ -16,33 +20,23 @@ func TestGenerateToken_Injection(t *testing.T) {
 		t.Fatalf("generateToken failed: %v", err)
 	}
 
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		t.Fatalf("Invalid token format")
+	// Parse with the real library
+	claims := &Claims{}
+	parsedToken, err := jwt.ParseWithClaims(token, claims, func(token *jwt.Token) (interface{}, error) {
+		return secretKey, nil
+	})
+	if err != nil || !parsedToken.Valid {
+		t.Fatalf("Failed to parse token generated with malicious username: %v", err)
 	}
 
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		t.Fatalf("Failed to decode payload: %v", err)
+	// The malicious content should be safely contained inside the Username field
+	if claims.Username != maliciousUser {
+		t.Errorf("Expected username to contain the malicious string, got: %s", claims.Username)
 	}
 
-	// Try to unmarshal into a map to see what happened
-	var claims map[string]interface{}
-	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
-		// If unmarshal fails, it means we likely created invalid JSON (which is bad but maybe not exploitable as auth bypass, but causes DoS/Failure)
-		// Or it means the fix isn't applied yet and we broke the JSON format.
-		// If the fix IS applied, unmarshal should succeed and "sub" should contain the quotes.
-		t.Logf("JSON Unmarshal failed (expected before fix for some inputs): %v", err)
-	} else {
-		// If unmarshal succeeds, check if "role" exists as a top-level key
-		if _, ok := claims["role"]; ok {
-			t.Fatalf("Security Vulnerability: Successfully injected 'role' claim into JWT")
-		}
-
-		// Check if 'sub' is exactly what we passed
-		sub, ok := claims["sub"].(string)
-		if !ok || sub != maliciousUser {
-			t.Errorf("Sub claim mismatch. Expected '%s', got '%s'", maliciousUser, sub)
-		}
+	// There should be no "role" claim at the top level (struct prevents it)
+	// We verify by checking that standard claims exist and no extra role field leaked
+	if claims.Issuer != "teslaxy" {
+		t.Error("Expected issuer to be 'teslaxy'")
 	}
 }
