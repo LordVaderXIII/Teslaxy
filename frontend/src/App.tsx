@@ -12,20 +12,23 @@ function App() {
     // Optimistic update
     setSelectedClip(clip); // Set minimal data first
 
-    // Fetch full details including telemetry
+    // Fetch authoritative details + full telemetry from backend.
+    // The backend (via aggregateTelemetry + SourceDir) is now the source of truth for
+    // logical events (review points 1.1 + 1.2). The list view may still contain
+    // client-merged items during transition, so we keep a small compatibility layer.
     fetch(`/api/clips/${clip.ID}`)
         .then(res => res.json())
         .then(data => {
-            // Merge logic: Preserve the 'virtual' video files if we are viewing a merged clip.
-            // A merged clip (from the list) will likely have MORE video files than the single clip API response.
-            let mergedVideoFiles = data.video_files;
-            if (clip.video_files && data.video_files && clip.video_files.length > data.video_files.length) {
-                mergedVideoFiles = clip.video_files;
+            // Preserve richer video_files from the list item if the detail response is missing some
+            // (this happens while we finish moving all grouping logic into the scanner).
+            let finalVideoFiles = data.video_files || [];
+            if (clip.video_files && clip.video_files.length > finalVideoFiles.length) {
+                finalVideoFiles = clip.video_files;
             }
 
             setSelectedClip({
                 ...data,
-                video_files: mergedVideoFiles
+                video_files: finalVideoFiles
             });
         })
         .catch(err => console.error(err))
@@ -35,7 +38,10 @@ function App() {
     fetch('/api/clips')
       .then(res => res.json())
       .then((data: Clip[]) => {
-        // Merge clips into timelines
+        // mergeClips is now a *compatibility layer*.
+        // The backend scanner (processEventGroup / processRecentGroup + SourceDir) is the
+        // primary place where logical Tesla events are assembled (see review 1.1 + 1.2).
+        // mergeClips only merges "orphan" 1-minute clips that the backend hasn't grouped yet.
         const merged = mergeClips(data || []);
 
         // Optimization: merged clips are returned in ASC order (Oldest -> Newest)
