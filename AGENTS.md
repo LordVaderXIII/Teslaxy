@@ -14,6 +14,10 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 ### Backend (Go)
 - Use `gin` for the web framework.
 - Use `gorm` or `sql` with `sqlite3` for database interactions.
+- **Database migrations are always automatic** via GORM `AutoMigrate` (see `backend/database/db.go` for the full policy and current implementation). 
+  - Only add new fields to model structs (`models/`). 
+  - Never write manual SQL migrations, migration files, or raw `ALTER TABLE` statements while using the current AutoMigrate strategy.
+  - This rule exists for developer velocity during heavy pre-v1.0 development.
 - Use `fsnotify` for directory watching.
 - Handle errors gracefully and log them.
 - All file paths should be sanitized to prevent traversal attacks.
