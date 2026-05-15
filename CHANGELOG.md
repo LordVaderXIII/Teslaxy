@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed Docker build still failing on Unraid after 0.1.18 (`npm ci` aborting with "lock file's three@0.182.0 does not satisfy three@0.170.0").
+  - 0.1.18 added `three` to `package.json` but never regenerated `package-lock.json`, leaving the two files out of sync — `npm ci` requires them to match exactly.
+  - Pinned `three` to `^0.182.0` (the version already resolved in the lock tree) and regenerated `package-lock.json` so `three` is a proper direct dependency instead of a `peer`-flagged transitive one.
+
 ### Security
 - Replaced the entire custom hand-rolled JWT implementation (raw HMAC + manual base64 + string header) with the official audited library `github.com/golang-jwt/jwt/v5`.
   - New tokens now use proper `RegisteredClaims` (`iss`, `sub`, `iat`, `exp`, `nbf`).
