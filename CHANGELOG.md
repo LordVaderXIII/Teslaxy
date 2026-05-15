@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.18] - 2025-12-22
+### Fixed
+- Fixed Docker build failure on Unraid (`npm run build` failing during `tsc -b && vite build`).
+  - Removed unused `react-router-dom` from Vite manualChunks (was causing Rollup chunk errors in production build).
+  - Added explicit `three` dependency (previously only transitive peer) for reliable TypeScript type resolution inside Docker `node:22-alpine`.
+  - Removed fragile `go get` step and added `dist/` existence check in Dockerfile for clearer failure messages.
+  - Added comprehensive `.dockerignore` to prevent bloated context, stale files, and permission issues during `docker build`.
+  - Cleaned up stray nested `frontend/frontend/` directory.
+
 ## [0.1.17] - 2025-12-21
 ### Accessibility
 - Added consistent focus indicators for keyboard navigation in Calendar, Map, and Changelog components.
