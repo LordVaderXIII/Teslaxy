@@ -1,13 +1,9 @@
 package api
 
 import (
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
@@ -175,71 +172,49 @@ func Login(c *gin.Context) {
 	}
 }
 
-type jwtClaims struct {
-	Sub string `json:"sub"`
-	Exp int64  `json:"exp"`
+// Claims represents the JWT claims used by Teslaxy.
+// We use RegisteredClaims for proper exp, iat, nbf, iss, sub handling.
+type Claims struct {
+	Username string `json:"username"`
+	jwt.RegisteredClaims
 }
 
-// Simple JWT Implementation using stdlib
+// generateToken creates a signed JWT using the official golang-jwt/jwt/v5 library.
 func generateToken(user string) (string, error) {
-	header := `{"alg":"HS256","typ":"JWT"}`
-
-	claims := jwtClaims{
-		Sub: user,
-		Exp: time.Now().Add(24 * time.Hour).Unix(),
+	claims := Claims{
+		Username: user,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Issuer:    "teslaxy",
+			Subject:   user,
+		},
 	}
 
-	payloadBytes, err := json.Marshal(claims)
-	if err != nil {
-		return "", err
-	}
-
-	encodedHeader := base64.RawURLEncoding.EncodeToString([]byte(header))
-	encodedPayload := base64.RawURLEncoding.EncodeToString(payloadBytes)
-
-	signatureInput := encodedHeader + "." + encodedPayload
-
-	mac := hmac.New(sha256.New, secretKey)
-	mac.Write([]byte(signatureInput))
-	signature := mac.Sum(nil)
-	encodedSignature := base64.RawURLEncoding.EncodeToString(signature)
-
-	return signatureInput + "." + encodedSignature, nil
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(secretKey)
 }
 
-func validateToken(token string) (bool, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return false, fmt.Errorf("invalid token format")
+// validateToken parses and validates a JWT using the official library.
+// It performs algorithm verification, signature check, and expiration validation.
+func validateToken(tokenString string) (bool, error) {
+	claims := &Claims{}
+
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		// Ensure the token method is HMAC (HS256) — prevents algorithm confusion attacks
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return secretKey, nil
 	}
 
-	signatureInput := parts[0] + "." + parts[1]
-	mac := hmac.New(sha256.New, secretKey)
-	mac.Write([]byte(signatureInput))
-	expectedMAC := mac.Sum(nil)
-
-	providedMAC, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
-		return false, nil
+		return false, err
 	}
 
-	if !hmac.Equal(providedMAC, expectedMAC) {
-		return false, nil
-	}
-
-	// Check exp
-	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return false, fmt.Errorf("invalid token encoding")
-	}
-
-	var claims jwtClaims
-	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
-		return false, fmt.Errorf("invalid token payload")
-	}
-
-	if time.Now().Unix() > claims.Exp {
-		return false, fmt.Errorf("token expired")
+	if !token.Valid {
+		return false, fmt.Errorf("invalid token")
 	}
 
 	return true, nil

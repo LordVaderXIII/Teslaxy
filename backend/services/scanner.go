@@ -294,6 +294,14 @@ func groupFilesByTimestamp(files []fileInfo) [][]fileInfo {
 	return result
 }
 
+// processEventGroup is the primary place where "one logical Tesla event" becomes one Clip record.
+//
+// SOURCE OF TRUTH RULE (addresses review 1.1 + 1.2):
+//   - The physical directory on disk + event.json is the source of truth for a Sentry/Saved event.
+//   - We store SourceDir = dirPath so the Clip can be reliably found and updated on re-scans.
+//   - event.json provides city, reason, event_timestamp, and initial coordinates.
+//   - SEI data from all Front camera files in the directory provides rich telemetry (via aggregateTelemetry).
+//   - The frontend must treat any Clip that has SourceDir set (or >1 VideoFile) as already-grouped.
 func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	if len(filePaths) == 0 {
 		return
@@ -399,32 +407,36 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 		eventReason = ed.Reason
 	}
 
-	// Create or Find ONE clip for this folder (using minTime as key for now,
-	// though strictly we might want a unique key per folder.
-	// But usually a folder starts at minTime so it's consistent).
+	// === SOURCE OF TRUTH: event directory + event.json ===
+	// We now use SourceDir (the physical Tesla folder) as the stable primary key for a logical event.
+	// This prevents duplicate clips when rescanning and makes event.json the authoritative metadata source.
 	var clip models.Clip
-	if err := s.DB.Where("timestamp = ? AND event = ?", minTime, eventType).First(&clip).Error; err != nil {
+	if err := s.DB.Where("source_dir = ?", dirPath).First(&clip).Error; err != nil {
 		if gorm.IsRecordNotFoundError(err) {
 			clip = models.Clip{
 				Timestamp:      minTime,
 				Event:          eventType,
 				City:           city,
 				Reason:         eventReason,
-				EventTimestamp: eventJsonTimestamp, // Set directly for the folder-based clip
+				EventTimestamp: eventJsonTimestamp,
+				SourceDir:      dirPath, // <-- Critical: stable identity from Tesla's folder structure
 			}
 			s.DB.Create(&clip)
 		}
 	} else {
-		// Update existing
+		// Update existing using event.json as the source of truth
 		updates := map[string]interface{}{}
 		if clip.EventTimestamp == nil && eventJsonTimestamp != nil {
 			updates["event_timestamp"] = eventJsonTimestamp
 		}
-		if city != "" {
+		if city != "" && clip.City == "" {
 			updates["city"] = city
 		}
-		if eventReason != "" {
+		if eventReason != "" && clip.Reason == "" {
 			updates["reason"] = eventReason
+		}
+		if clip.SourceDir == "" {
+			updates["source_dir"] = dirPath
 		}
 		if len(updates) > 0 {
 			s.DB.Model(&clip).Updates(updates)
@@ -450,6 +462,11 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	s.aggregateTelemetry(&clip, files)
 }
 
+// processRecentGroup groups flat RecentClips into logical multi-minute drives using time heuristics.
+//
+// This is the secondary (less reliable) grouping path. RecentClips often lack event.json,
+// so we fall back to 65-second gap detection. We still try to set SourceDir for traceability.
+// Long-term goal: Tesla may start providing better metadata even for Recent clips.
 func (s *ScannerService) processRecentGroup(filePaths []string) {
 	if len(filePaths) == 0 {
 		return
@@ -525,11 +542,22 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 		}
 
 		if !found {
+			firstDir := ""
+			if len(clipGroup) > 0 && len(clipGroup[0]) > 0 {
+				firstDir = filepath.Dir(clipGroup[0][0].path)
+			}
 			clip = models.Clip{
 				Timestamp: minTime,
 				Event:     "Recent",
+				SourceDir: firstDir,
 			}
 			s.DB.Create(&clip)
+		} else if clip.SourceDir == "" {
+			firstDir := ""
+			if len(clipGroup) > 0 && len(clipGroup[0]) > 0 {
+				firstDir = filepath.Dir(clipGroup[0][0].path)
+			}
+			s.DB.Model(&clip).Update("source_dir", firstDir)
 		}
 
 		// Flatten the clip group to get all files for telemetry aggregation

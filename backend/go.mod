@@ -8,6 +8,7 @@ require (
 	github.com/bradfitz/latlong v0.0.0-20170410180902-f3db6d0dff40
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gin-gonic/gin v1.11.0
+	github.com/golang-jwt/jwt/v5 v5.2.2
 	github.com/jinzhu/gorm v1.9.16
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/protobuf v1.36.10

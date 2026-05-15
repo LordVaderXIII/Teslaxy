@@ -48,20 +48,30 @@ func SetupRoutes(r *gin.Engine) {
 	}
 }
 
+// getClips returns the list of logical clips.
+//
+// ARCHITECTURAL CONTRACT (fixes review points 1.1 + 1.2):
+// The backend scanner (processEventGroup + processRecentGroup) is now the primary owner of
+// "which 1-minute videos belong to the same logical Tesla event".
+//
+// - Sentry/Saved events: SourceDir = path to the folder containing event.json (one Clip per event)
+// - Recent drives: grouped using 65s time windows when possible
+//
+// Each Clip in the response can (and often does) contain multiple VideoFiles across cameras and minutes.
+// The frontend mergeClips() is now only a safety net for clips that the scanner hasn't grouped yet.
+//
+// Source of truth priority:
+//   1. event.json (city, reason, timestamp, coordinates)
+//   2. SEI telemetry extracted from Front camera MP4s (via aggregateTelemetry)
+//   3. Filename parsing as last resort
 func getClips(c *gin.Context) {
 	var clips []models.Clip
-	// Pagination? For now, fetch latest 100
-	// Optimized: Added index on Timestamp for faster sorting
-	// Jules: Removed limit to show all historical clips as requested. Pagination can be added later if needed.
-	// Bolt: Optimize query by selecting only necessary fields for Clip, VideoFiles, and Telemetry.
-	// This reduces payload size by excluding model timestamps (CreatedAt, UpdatedAt, DeletedAt)
-	// and heavy fields (FullDataJson) from the list view.
-	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, telemetry_id").
+	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, source_dir, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
 			return db.Select("clip_id, camera, file_path, timestamp").Order("timestamp asc")
 		}).
 		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, clip_id, latitude, longitude")
+			return db.Select("id, clip_id, latitude, longitude, speed, gear, steering_angle, autopilot_state")
 		}).Order("timestamp desc").Find(&clips).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
