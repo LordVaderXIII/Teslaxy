@@ -2,9 +2,11 @@
 FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund --prefer-offline 2>&1
 COPY frontend/ .
 RUN npm run build
+# Verify the build output exists (better error if tsc/vite fails)
+RUN ls -la dist/ || (echo "ERROR: Frontend build did not produce dist/ directory" && exit 1)
 
 # Stage 2: Build Backend
 FROM golang:1.24-alpine AS backend-builder
@@ -18,9 +20,6 @@ RUN go mod download
 COPY backend/ .
 # Copy frontend build to backend/public for embedding
 COPY --from=frontend-builder /app/frontend/dist ./public
-
-# Fix for missing latlong module in some build environments
-RUN go get github.com/bradfitz/latlong
 
 # Build binary
 # CGO_ENABLED=1 is required for go-sqlite3

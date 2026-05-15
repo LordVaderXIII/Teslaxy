@@ -1,0 +1,47 @@
+# Version control
+.git
+.gitignore
+
+# Dependencies
+**/node_modules
+npm-debug.log*
+pnpm-debug.log*
+
+# Build artifacts & caches (prevent huge context + stale files)
+**/dist
+**/.vite
+frontend/test-results
+frontend/frontend
+test-results/
+*.png
+*.log
+server.log
+
+# Local runtime data (never ship user data or DB)
+config/
+docker/config/
+*.db
+*.sqlite*
+
+# Python / test scripts (not needed in image)
+*.py
+test_*.py
+verify_*.py
+
+# IDE / OS junk
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Documentation & misc (optional but reduces noise)
+# NOTE: CHANGELOG.md is explicitly copied in final stage — do not ignore it
+README.md
+AGENTS.md
+docs/
+frontend/README.md
+frontend_failed.png
+verification_*.png
