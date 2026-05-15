@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- Replaced the entire custom hand-rolled JWT implementation (raw HMAC + manual base64 + string header) with the official audited library `github.com/golang-jwt/jwt/v5`.
+  - New tokens now use proper `RegisteredClaims` (`iss`, `sub`, `iat`, `exp`, `nbf`).
+  - Added explicit `SigningMethodHMAC` verification to prevent algorithm confusion attacks.
+  - **Breaking change**: All previously issued tokens are now invalid.
+
+### Architecture / Maintainability
+- Formalized the database migration policy: **migrations are always automatic** via GORM `AutoMigrate`.
+  - Added explicit rule to `AGENTS.md`.
+  - All future model changes must be additive fields only. No manual SQL migrations are permitted under the current strategy (documented in `backend/database/db.go`).
+
 ## [0.1.18] - 2025-12-22
 ### Fixed
 - Fixed Docker build failure on Unraid (`npm run build` failing during `tsc -b && vite build`).
