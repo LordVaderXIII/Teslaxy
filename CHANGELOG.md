@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed Docker build failure on Unraid (`npm run build` failing during `tsc -b && vite build`).
   - Removed unused `react-router-dom` from Vite manualChunks (was causing Rollup chunk errors in production build).
-  - Added explicit `three` dependency (previously only transitive peer) for reliable TypeScript type resolution inside Docker `node:22-alpine`.
+  - Added explicit `three` dependency (previously only transitive peer) for reliable TypeScript type resolution inside Docker `node:22-alpine` (pinned to ^0.182.0 to match existing lockfile).
   - Removed fragile `go get` step and added `dist/` existence check in Dockerfile for clearer failure messages.
   - Added comprehensive `.dockerignore` to prevent bloated context, stale files, and permission issues during `docker build`.
   - Cleaned up stray nested `frontend/frontend/` directory.
