@@ -17,9 +17,10 @@ interface TelemetryOverlayProps {
   dataJson: string;
   currentTime: number;
   duration: number;
+  firstFrameSeq?: number; // Starting frame_seq_no from backend for accurate sync
 }
 
-const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson, currentTime, duration }) => {
+const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson, currentTime, duration, firstFrameSeq }) => {
   // Memoize parsed data to avoid re-parsing on every render
   const data = useMemo<TelemetryPoint[]>(() => {
     try {
@@ -32,18 +33,71 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson
     }
   }, [dataJson]);
 
-  // Derive current point using proportional indexing (fps-agnostic)
+  // === DIAGNOSTIC LOGGING (always on for debugging telemetry sync) ===
+  React.useEffect(() => {
+    if (data.length > 0 && duration > 0) {
+      const firstFrame = data[0].frame_seq_no;
+      const lastFrame = data[data.length - 1].frame_seq_no;
+      const fps = lastFrame !== firstFrame ? (lastFrame - firstFrame) / duration : 30;
+      const targetFrame = firstFrame + currentTime * fps;
+
+      const point = data.find(p => p.frame_seq_no >= targetFrame) || data[data.length - 1];
+
+      console.log('[TelemetrySync]', {
+        currentTime: currentTime.toFixed(2),
+        duration: duration.toFixed(2),
+        dataLength: data.length,
+        targetFrame: targetFrame.toFixed(1),
+        chosenFrame: point?.frame_seq_no ?? null,
+        speedKph: point ? Math.round((point.vehicle_speed_mps || 0) * 3.6) : null,
+      });
+    }
+  }, [currentTime, duration, data]);
+
+  // Derive current point using frame_seq_no lookup (much more accurate for long driving events)
   const currentPoint = useMemo(() => {
     if (data.length === 0 || duration <= 0) return null;
 
-    let index = Math.floor((currentTime / duration) * data.length);
+    // Prefer the starting frame_seq_no passed from the backend if available
+    const firstFrame = firstFrameSeq ?? data[0].frame_seq_no;
+    const lastFrame = data[data.length - 1].frame_seq_no;
 
-    // Clamp
-    if (index < 0) index = 0;
-    if (index >= data.length) index = data.length - 1;
+    // Fallback to proportional if we don't have useful frame data
+    if (firstFrame === lastFrame) {
+      let index = Math.floor((currentTime / duration) * data.length);
+      index = Math.max(0, Math.min(index, data.length - 1));
+      return data[index];
+    }
 
-    return data[index];
-  }, [currentTime, data, duration]);
+    // Estimate current frame using average fps derived from the telemetry itself
+    const fps = (lastFrame - firstFrame) / duration;
+    const targetFrame = firstFrame + currentTime * fps;
+
+    // Binary search for the closest frame_seq_no
+    let left = 0;
+    let right = data.length - 1;
+
+    while (left < right) {
+      const mid = Math.floor((left + right) / 2);
+      if (data[mid].frame_seq_no < targetFrame) {
+        left = mid + 1;
+      } else {
+        right = mid;
+      }
+    }
+
+    // Check left and left-1 to find the closest match
+    let bestIndex = left;
+    if (left > 0) {
+      const diffCurrent = Math.abs(data[left].frame_seq_no - targetFrame);
+      const diffPrev = Math.abs(data[left - 1].frame_seq_no - targetFrame);
+      if (diffPrev < diffCurrent) {
+        bestIndex = left - 1;
+      }
+    }
+
+    return data[bestIndex];
+  }, [currentTime, data, duration, firstFrameSeq]);
 
   if (!currentPoint) return null;
 
