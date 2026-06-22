@@ -52,4 +52,5 @@ type Telemetry struct {
 	SteeringAngle  float32 `json:"steering_angle"`
 	AutopilotState string  `json:"autopilot_state"`
 	FullDataJson   string  `json:"full_data_json"` // Store full protobuf dump if needed
+	FirstFrameSeq  uint64  `json:"first_frame_seq"` // Starting frame_seq_no for accurate telemetry sync
 }

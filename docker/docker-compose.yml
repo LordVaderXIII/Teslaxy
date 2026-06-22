@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   teslaxy:
     build:
@@ -10,19 +8,21 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # Mount your TeslaCam drive (RecentClips, SavedClips, SentryClips) here
-      - /mnt/user/isos/TeslaCam:/footage:ro
+      # Local test footage (copied from your remote server)
+      - ../../teslacam:/footage:ro
       # Config storage (DB, Exports, Logs)
       - ./config:/config
     environment:
       - AUTH_ENABLED=false
       - GIN_MODE=release
-    # GPU Support for FFmpeg hardware acceleration
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu, video, compute, utility]
-    runtime: nvidia
+    # GPU support disabled for initial Windows test run
+    # (uncomment the block below if you have NVIDIA Container Toolkit + WSL2 GPU passthrough set up)
+    #
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu, video, compute, utility]
+    # runtime: nvidia

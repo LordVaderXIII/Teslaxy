@@ -649,6 +649,11 @@ func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo)
 	telemetry.ClipID = clip.ID
 	telemetry.FullDataJson = string(jsonData)
 
+	// Store the starting frame_seq_no for accurate client-side sync
+	if len(aggregatedMeta) > 0 {
+		telemetry.FirstFrameSeq = aggregatedMeta[0].FrameSeqNo
+	}
+
 	// Update summary fields from the middle of the *entire* clip (approx)
 	mid := len(aggregatedMeta) / 2
 	if mid < len(aggregatedMeta) {

@@ -2,6 +2,7 @@ package services
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -9,12 +10,27 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
 	encoder      string
 	encoderOnce  sync.Once
 	hasNvenc     bool
+
+	// Simple in-memory transcoding cache to avoid re-transcoding the same
+	// (file + quality) repeatedly during scrubbing or multi-camera playback.
+	transcodeCache sync.Map // key: "path|quality" -> *cachedTranscode
+)
+
+type cachedTranscode struct {
+	data    []byte
+	expires time.Time
+}
+
+const (
+	transcodeCacheTTL   = 3 * time.Minute
+	maxTranscodeCacheMB = 800 // safety limit per entry
 )
 
 type TranscodeQuality struct {
@@ -64,46 +80,52 @@ func GetTranscoderStatus() map[string]interface{} {
 	}
 }
 
-// GetTranscodeStream starts an ffmpeg process to transcode the file and returns the command and stdout pipe
+// GetTranscodeStream starts an ffmpeg process to transcode the file and returns the command and stdout pipe.
+// It now includes a simple in-memory cache for (file + quality) to dramatically reduce repeated
+// transcoding work during scrubbing and multi-camera playback.
 func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (*exec.Cmd, io.ReadCloser, error) {
 	AutoDetectEncoder()
 
 	q, ok := qualityMap[quality]
 	if !ok {
-		// Default to 480p if invalid quality passed
 		q = qualityMap["480p"]
 	}
 
-	// Construct Args
+	cacheKey := inputPath + "|" + quality
+
+	// Check cache first
+	if cached, ok := transcodeCache.Load(cacheKey); ok {
+		entry := cached.(*cachedTranscode)
+		if time.Now().Before(entry.expires) && len(entry.data) > 0 {
+			log.Printf("Transcoder: Cache hit for %s (%s)", inputPath, quality)
+			return nil, io.NopCloser(bytes.NewReader(entry.data)), nil
+		}
+		// Expired entry — remove it
+		transcodeCache.Delete(cacheKey)
+	}
+
+	// Cache miss — build ffmpeg args
 	args := []string{
 		"-hide_banner",
 		"-loglevel", "error",
 	}
 
-	// HW Accel for decoding (try CUDA if NVENC is available, else auto)
 	if hasNvenc {
 		args = append(args, "-hwaccel", "cuda")
 	}
 
 	args = append(args, "-i", inputPath)
-
-	// Video Filter (Scaling)
-	// usage: scale=-2:HEIGHT (maintains aspect ratio, keeps width even)
 	args = append(args, "-vf", fmt.Sprintf("scale=-2:%d", q.Height))
-
-	// Encoder settings
 	args = append(args, "-c:v", encoder)
 	args = append(args, "-b:v", q.Bitrate)
 
 	if hasNvenc {
-		// NVENC specific presets (p1 = fastest)
 		args = append(args, "-preset", "p1")
 	} else {
-		// CPU specific presets
-		args = append(args, "-preset", "ultrafast")
+		args = append(args, "-preset", "veryfast")
+		args = append(args, "-tune", "zerolatency")
 	}
 
-	// Output format: fragmented MP4 to stdout
 	args = append(args, "-f", "mp4", "-movflags", "frag_keyframe+empty_moov", "-")
 
 	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
@@ -113,7 +135,7 @@ func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (
 		return nil, nil, err
 	}
 
-	// Capture stderr for debugging (in a separate goroutine)
+	// Capture stderr
 	stderr, _ := cmd.StderrPipe()
 	go func() {
 		scanner := bufio.NewScanner(stderr)
@@ -126,5 +148,30 @@ func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (
 		return nil, nil, err
 	}
 
-	return cmd, stdout, nil
+	// Tee the output so we can cache it while streaming to the client
+	pr, pw := io.Pipe()
+
+	go func() {
+		defer pw.Close()
+
+		buf := &bytes.Buffer{}
+		tee := io.TeeReader(stdout, buf)
+
+		// Stream to the actual client via the pipe
+		if _, err := io.Copy(pw, tee); err != nil {
+			log.Printf("Transcoder stream copy error: %v", err)
+		}
+
+		// After streaming completes, store in cache if reasonable size
+		if buf.Len() > 0 && buf.Len() < maxTranscodeCacheMB*1024*1024 {
+			transcodeCache.Store(cacheKey, &cachedTranscode{
+				data:    buf.Bytes(),
+				expires: time.Now().Add(transcodeCacheTTL),
+			})
+			log.Printf("Transcoder: Cached transcoded result for %s (%s) — %d KB",
+				inputPath, quality, buf.Len()/1024)
+		}
+	}()
+
+	return cmd, pr, nil
 }

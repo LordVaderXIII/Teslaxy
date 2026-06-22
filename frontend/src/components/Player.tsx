@@ -87,6 +87,7 @@ const CameraView = React.memo(({
                      dataJson={clip.telemetry.full_data_json}
                      currentTime={currentTime}
                      duration={duration}
+                     firstFrameSeq={clip.telemetry.first_frame_seq}
                  />
             )}
         </div>

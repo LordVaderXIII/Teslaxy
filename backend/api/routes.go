@@ -126,7 +126,7 @@ func serveVideo(c *gin.Context) {
 		return
 	}
 
-	// If quality is requested and not original, transcode
+	// If quality is requested and not original, transcode (with simple caching)
 	if quality != "" && quality != "original" {
 		cmd, stdout, err := services.GetTranscodeStream(c.Request.Context(), fullPath, quality)
 		if err != nil {
@@ -142,8 +142,10 @@ func serveVideo(c *gin.Context) {
 			log.Printf("Stream error: %v", err)
 		}
 
-		// Ensure process is cleaned up
-		cmd.Wait()
+		// Only wait on the process if we actually started one (cache miss)
+		if cmd != nil {
+			cmd.Wait()
+		}
 		return
 	}
 
