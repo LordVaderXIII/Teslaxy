@@ -65,8 +65,14 @@ const createPlayerAdapter = (video: HTMLVideoElement): PlayerAdapter => {
        return video.muted;
     },
     playbackRate: (rate?: number) => {
-       if (rate !== undefined) video.playbackRate = rate;
-       return video.playbackRate;
+       if (!video) return 1;
+       try {
+         if (rate !== undefined) video.playbackRate = rate;
+         return video.playbackRate;
+       } catch {
+         // A detached element surfaces as a null tech. Leave the caller alive.
+         return 1;
+       }
     },
     dispose: () => {
        // No-op for raw video element, managed by React lifecycle

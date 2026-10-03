@@ -22,16 +22,19 @@ interface VideoPlayerProps {
   src: string;
   className?: string;
   onReady?: (player: VideoJsPlayer) => void;
+  onDispose?: (player: VideoJsPlayer) => void;
   options?: Record<string, unknown>;
   preload?: 'none' | 'metadata' | 'auto';
 }
 
 // Bolt: Memoized to prevent re-renders when parent (Player) updates (e.g. currentTime changes).
 // Since onReady is now stable (from Player), and src/options are stable, this avoids 60Hz re-renders.
-const VideoPlayer: React.FC<VideoPlayerProps> = React.memo(({ src, className, onReady, options, preload = 'metadata' }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = React.memo(({ src, className, onReady, onDispose, options, preload = 'metadata' }) => {
   const videoRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<VideoJsPlayer | null>(null);
   const currentSrcRef = useRef<string | null>(null);
+  const onDisposeRef = useRef(onDispose);
+  onDisposeRef.current = onDispose;
 
   useEffect(() => {
     if (!playerRef.current) {
@@ -79,9 +82,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = React.memo(({ src, className, on
 
   useEffect(() => {
     return () => {
-      if (playerRef.current && !playerRef.current.isDisposed()) {
-        playerRef.current.dispose();
-        playerRef.current = null;
+      const player = playerRef.current;
+      playerRef.current = null;
+      if (!player) return;
+      try {
+        onDisposeRef.current?.(player);
+      } finally {
+        if (!player.isDisposed()) {
+          player.dispose();
+        }
       }
     };
   }, []);

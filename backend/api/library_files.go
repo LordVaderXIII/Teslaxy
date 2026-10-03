@@ -39,6 +39,11 @@ func parseLibraryFileIDs(c *gin.Context) ([]uint, bool) {
 			return nil, false
 		}
 		id := uint(n)
+		// Clip primary keys start at 1. Zero is the unset id, not a missing row.
+		if id == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return nil, false
+		}
 		if _, ok := seen[id]; ok {
 			continue
 		}

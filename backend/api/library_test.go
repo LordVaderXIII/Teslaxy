@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -416,6 +417,147 @@ func TestGetLibrary(t *testing.T) {
 			t.Errorf("Expected no Access-Control-Allow-Origin header for /api/library")
 		}
 	})
+}
+
+func TestLibraryAndClipDetailShareIncidentPoint(t *testing.T) {
+	// Historical scans can leave an extra telemetry row whose clip_id matches this
+	// clip while clips.telemetry_id points at a different row. GORM Preload("Telemetry")
+	// is has-one on clip_id, so detail used to publish the extra row. Library joins
+	// telemetry_id. One clip must not publish both. This test does not Update the
+	// stored coordinates; it only checks the read path.
+	r := setupLibraryRouter(t)
+
+	// ~5.6 km apart (about 0.0506 degrees of latitude). These stand in for the
+	// reviewed disagreement; the test does not decide which GPS sample is "true".
+	const pointerLat, pointerLon = -34.8060, 138.6130
+	const strayLat, strayLon = -34.7554, 138.6130
+
+	primary := createClipWithTelemetry(t, models.Clip{
+		Timestamp: time.Date(2026, 2, 15, 1, 30, 0, 0, time.UTC),
+		Event:     "Saved",
+		City:      "Mawson Lakes",
+		Reason:    "user_interaction_honk",
+		SourceDir: "/synthetic/saved/honk-primary",
+	}, pointerLat, pointerLon, []models.VideoFile{{
+		Camera:    "Front",
+		FilePath:  "/synthetic/saved/honk-front.mp4",
+		Timestamp: time.Date(2026, 2, 15, 1, 30, 0, 0, time.UTC),
+	}})
+
+	stray := models.Telemetry{
+		ClipID:    primary.ID,
+		Latitude:  strayLat,
+		Longitude: strayLon,
+	}
+	if err := database.DB.Create(&stray).Error; err != nil {
+		t.Fatalf("create stray telemetry: %v", err)
+	}
+
+	other := createClipWithTelemetry(t, models.Clip{
+		Timestamp: time.Date(2026, 2, 15, 1, 30, 30, 0, time.UTC),
+		Event:     "Saved",
+		City:      "Mawson Lakes",
+		Reason:    "user_interaction_honk",
+		SourceDir: "/synthetic/saved/honk-other",
+	}, strayLat, strayLon, []models.VideoFile{{
+		Camera:    "Front",
+		FilePath:  "/synthetic/saved/honk-front.mp4",
+		Timestamp: time.Date(2026, 2, 15, 1, 30, 0, 0, time.UTC),
+	}})
+
+	if stray.ID == 0 || other.TelemetryID == 0 || primary.TelemetryID == 0 {
+		t.Fatalf("setup ids primaryTel=%d stray=%d otherTel=%d", primary.TelemetryID, stray.ID, other.TelemetryID)
+	}
+	if primary.TelemetryID == stray.ID {
+		t.Fatalf("stray row must not be the primary clip pointer")
+	}
+
+	code, resp, body := doGetLibrary(t, r, "")
+	if code != http.StatusOK {
+		t.Fatalf("library status %d body %s", code, body)
+	}
+	var primaryEvent, otherEvent *libraryTestEvent
+	for i := range resp.Events {
+		if resp.Events[i].ID == primary.ID {
+			primaryEvent = &resp.Events[i]
+		}
+		if resp.Events[i].ID == other.ID {
+			otherEvent = &resp.Events[i]
+		}
+	}
+	if primaryEvent == nil || otherEvent == nil {
+		t.Fatalf("library missing primary or other member")
+	}
+	assertPoint := func(name string, lat, lon *float64, wantLat, wantLon float64) {
+		t.Helper()
+		if lat == nil || lon == nil {
+			t.Fatalf("%s missing coordinates", name)
+		}
+		if math.Abs(*lat-wantLat) > 1e-6 || math.Abs(*lon-wantLon) > 1e-6 {
+			t.Fatalf("%s = (%v,%v), want (%v,%v)", name, *lat, *lon, wantLat, wantLon)
+		}
+	}
+	assertPoint("library primary", primaryEvent.Latitude, primaryEvent.Longitude, pointerLat, pointerLon)
+	assertPoint("library other", otherEvent.Latitude, otherEvent.Longitude, strayLat, strayLon)
+
+	detail := getClipDetail(t, r, primary.ID)
+	assertPoint("detail primary", &detail.Telemetry.Latitude, &detail.Telemetry.Longitude, pointerLat, pointerLon)
+	if detail.Telemetry.ID != primary.TelemetryID {
+		t.Fatalf("detail telemetry id %d, want pointer %d (stray was %d)", detail.Telemetry.ID, primary.TelemetryID, stray.ID)
+	}
+
+	// The other member still publishes its own pointer. That must not leak onto primary.
+	otherDetail := getClipDetail(t, r, other.ID)
+	assertPoint("detail other", &otherDetail.Telemetry.Latitude, &otherDetail.Telemetry.Longitude, strayLat, strayLon)
+
+	list := getClipList(t, r)
+	var listed *models.Clip
+	for i := range list {
+		if list[i].ID == primary.ID {
+			listed = &list[i]
+			break
+		}
+	}
+	if listed == nil {
+		t.Fatal("clip list missing primary")
+	}
+	assertPoint("list primary", &listed.Telemetry.Latitude, &listed.Telemetry.Longitude, pointerLat, pointerLon)
+	if listed.Telemetry.ID != primary.TelemetryID {
+		t.Fatalf("list telemetry id %d, want pointer %d", listed.Telemetry.ID, primary.TelemetryID)
+	}
+	if listed.Telemetry.FullDataJson != "" {
+		t.Fatal("clip list must still omit full_data_json")
+	}
+}
+
+func getClipDetail(t *testing.T, r http.Handler, id uint) models.Clip {
+	t.Helper()
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", fmt.Sprintf("/api/clips/%d", id), nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("detail %d status %d body %s", id, w.Code, w.Body.String())
+	}
+	var clip models.Clip
+	if err := json.Unmarshal(w.Body.Bytes(), &clip); err != nil {
+		t.Fatalf("detail json: %v", err)
+	}
+	return clip
+}
+
+func getClipList(t *testing.T, r http.Handler) []models.Clip {
+	t.Helper()
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/clips", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list status %d body %s", w.Code, w.Body.String())
+	}
+	var clips []models.Clip
+	if err := json.Unmarshal(w.Body.Bytes(), &clips); err != nil {
+		t.Fatalf("list json: %v", err)
+	}
+	return clips
 }
 
 func TestLibraryPayloadSmallerThanClips(t *testing.T) {

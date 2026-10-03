@@ -4,6 +4,16 @@ import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
 import { Box, Layers, Settings } from 'lucide-react';
 import { useClickOutside } from '../hooks/useClickOutside';
+import {
+  applyPlayerTransport,
+  assignPlaybackRate,
+  buildCameraSegments,
+  findSegmentAtTime,
+  isControllablePlayer,
+  normalizeCameraName,
+  shouldCorrectDrift,
+  timelineDurationSeconds,
+} from '../utils/playbackTimeline.mjs';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -35,16 +45,27 @@ interface CameraSegment {
     duration: number; // Estimated duration (default 60s)
 }
 
-const normalizeCameraName = (name: string) => {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
-};
-
 const formatClock = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 };
+
+function playerSrcPath(player: VideoJsPlayer): string {
+  let src = '';
+  try {
+    src = player.currentSrc() || '';
+  } catch {
+    return '';
+  }
+  try {
+    src = decodeURIComponent(src);
+  } catch {
+    /* video.js may already have decoded the URL */
+  }
+  return src.split('?')[0];
+}
 
 // Bolt: Extracted CameraView to a separate component to fix Hooks violation.
 // This allows `useCallback` to be used correctly at the top level.
@@ -55,6 +76,7 @@ const CameraView = React.memo(({
     clip,
     quality,
     handlePlayerReady,
+    releasePlayer,
     getUrl,
     onClick,
     feature,
@@ -66,6 +88,7 @@ const CameraView = React.memo(({
     clip: Clip,
     quality: string,
     handlePlayerReady: (cam: string, p: VideoJsPlayer) => void,
+    releasePlayer: (cam: string, p: VideoJsPlayer) => void,
     getUrl: (path: string) => string,
     onClick: () => void,
     feature?: boolean,
@@ -76,6 +99,10 @@ const CameraView = React.memo(({
     const onReady = useCallback((p: VideoJsPlayer) => {
         handlePlayerReady(camName, p);
     }, [camName, handlePlayerReady]);
+
+    const onDispose = useCallback((p: VideoJsPlayer) => {
+        releasePlayer(camName, p);
+    }, [camName, releasePlayer]);
 
     return (
         <button
@@ -90,6 +117,7 @@ const CameraView = React.memo(({
                     src={getUrl(seg.file_path)}
                     className="w-full h-full object-contain pointer-events-none"
                     onReady={onReady}
+                    onDispose={onDispose}
                     preload={preload}
                 />
             ) : (
@@ -147,69 +175,36 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
       .catch(err => console.error("Failed to fetch encoder status", err));
   }, []);
 
-  // Group segments by camera
+  // Probed media durations replace the 60s estimate once a file's metadata loads.
+  // Short Saved clips are otherwise drawn as a full minute.
+  const [mediaDurations, setMediaDurations] = useState<Record<string, number>>({});
+  const mediaDurationsRef = useRef(mediaDurations);
+  useEffect(() => {
+    mediaDurationsRef.current = mediaDurations;
+  }, [mediaDurations]);
+
   const segments = useMemo(() => {
-      if (!clip?.video_files) return {};
+      return buildCameraSegments(clip?.video_files, mediaDurations) as Record<string, CameraSegment[]>;
+  }, [clip, mediaDurations]);
 
-      const grouped: { [key: string]: CameraSegment[] } = {};
-
-      // 1. Group by normalized camera name
-      clip.video_files.forEach(f => {
-          const cam = normalizeCameraName(f.camera);
-          if (!grouped[cam]) grouped[cam] = [];
-
-          const tsMs = Date.parse(f.timestamp);
-          if (!Number.isFinite(tsMs)) return;
-
-          const tsSeconds = tsMs / 1000;
-
-          grouped[cam].push({
-              file_path: f.file_path,
-              timestamp: tsSeconds,
-              startTime: 0,
-              duration: 60 // Estimate
-          });
-      });
-
-      // 2. Sort and calculate offsets using sanitized durations to avoid runaway timelines
-      Object.keys(grouped).forEach(cam => {
-          const camSegments = grouped[cam];
-          camSegments.sort((a, b) => a.timestamp - b.timestamp);
-
-          let accumulatedStart = 0;
-          camSegments.forEach((seg, idx) => {
-              seg.startTime = accumulatedStart;
-
-              const next = camSegments[idx + 1];
-              const rawDuration = next ? next.timestamp - seg.timestamp : seg.duration;
-              const safeDuration = Number.isFinite(rawDuration)
-                ? Math.min(120, Math.max(1, rawDuration))
-                : 60;
-
-              seg.duration = safeDuration;
-              accumulatedStart += safeDuration;
-          });
-      });
-
-      return grouped;
-  }, [clip]);
-
-  // Calculate total duration based on Front camera (or fallback)
-  const totalDuration = useMemo(() => {
-      const cams = Object.keys(segments);
-      if (cams.length === 0) return 0;
-      // Prefer Front
-      const main = segments['front'] || segments[cams[0]];
-      if (!main || main.length === 0) return 0;
-      const last = main[main.length - 1];
-      return last.startTime + last.duration;
-  }, [segments]);
+  const totalDuration = useMemo(() => timelineDurationSeconds(segments), [segments]);
 
 
   const playersRef = useRef<{ [key: string]: VideoJsPlayer }>({});
   const mainPlayerRef = useRef<VideoJsPlayer | null>(null);
   // Track registered listeners so we can clean them up
   const listenerCleanups = useRef<Array<() => void>>([]);
+  const segmentsRef = useRef(segments);
+  const playbackSpeedRef = useRef(playbackSpeed);
+  const activeCameraRef = useRef(activeCamera);
+  const isPlayingRef = useRef(isPlaying);
+  const lastDriftSeekAt = useRef<Record<string, number>>({});
+  useEffect(() => {
+    segmentsRef.current = segments;
+    playbackSpeedRef.current = playbackSpeed;
+    activeCameraRef.current = activeCamera;
+    isPlayingRef.current = isPlaying;
+  }, [segments, playbackSpeed, activeCamera, isPlaying]);
 
   useEffect(() => {
       return () => {
@@ -220,166 +215,234 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
       };
   }, []);
 
-  // Determine current segment based on global time
   const getSegmentAtTime = useCallback((camera: string, time: number) => {
-      const camSegments = segments[normalizeCameraName(camera)];
-      if (!camSegments) return null;
-      // Find segment where startTime <= time < startTime + duration
-      // Since they are sorted, we can just find the last one that started before 'time'
-      let idx = camSegments.findIndex(s => s.startTime > time);
-      if (idx === -1) idx = camSegments.length; // If time is past all starts, it's the last one (or past end)
-      return {
-          segment: camSegments[Math.max(0, idx - 1)],
-          index: Math.max(0, idx - 1)
-      };
+      return findSegmentAtTime(segments[normalizeCameraName(camera)], time);
   }, [segments]);
 
-  useEffect(() => {
-    Object.values(playersRef.current).forEach((p: VideoJsPlayer) => {
-      if (p && typeof p.playbackRate === 'function') {
-        p.playbackRate(playbackSpeed);
+  const releasePlayer = useCallback((camera: string, player: VideoJsPlayer) => {
+      if (playersRef.current[camera] === player) {
+          delete playersRef.current[camera];
       }
-    });
+      if (mainPlayerRef.current === player) {
+          mainPlayerRef.current = null;
+      }
+  }, []);
 
-    if (mainPlayerRef.current && typeof mainPlayerRef.current.playbackRate === 'function') {
-        mainPlayerRef.current.playbackRate(playbackSpeed);
+  const dropIfDead = useCallback((camera: string, player: VideoJsPlayer | null | undefined) => {
+      if (player && isControllablePlayer(player)) return player;
+      if (player && playersRef.current[camera] === player) {
+          delete playersRef.current[camera];
+      }
+      if (player && mainPlayerRef.current === player) {
+          mainPlayerRef.current = null;
+      }
+      return null;
+  }, []);
+
+  const rememberMediaDuration = useCallback((filePath: string, player: VideoJsPlayer) => {
+      if (!filePath || !isControllablePlayer(player)) return;
+      let dur = Number.NaN;
+      try {
+          dur = player.duration();
+      } catch {
+          return;
+      }
+      if (!Number.isFinite(dur) || dur <= 0 || dur === Number.POSITIVE_INFINITY) return;
+      const existing = mediaDurationsRef.current[filePath];
+      if (existing !== undefined && Math.abs(existing - dur) < 0.05) return;
+      const next = { ...mediaDurationsRef.current, [filePath]: dur };
+      mediaDurationsRef.current = next;
+      setMediaDurations(next);
+  }, []);
+
+  const segmentForPlayer = useCallback((camera: string, player: VideoJsPlayer) => {
+      const camSegments = segmentsRef.current[normalizeCameraName(camera)];
+      if (!camSegments) return null;
+      const src = playerSrcPath(player);
+      if (!src) return null;
+      return camSegments.find(s => src.endsWith(s.file_path)) ?? null;
+  }, []);
+
+  // Keep every mounted camera on the feature camera's clock. A tile that
+  // becomes ready after play used to stay a constant offset behind.
+  const syncPeers = useCallback((masterCamera: string, globalTime: number) => {
+      const rate = playbackSpeedRef.current;
+      for (const [cam, player] of Object.entries(playersRef.current)) {
+          if (cam === masterCamera) continue;
+          if (!dropIfDead(cam, player)) continue;
+          let peerRate = Number.NaN;
+          try {
+              peerRate = player.playbackRate();
+          } catch {
+              releasePlayer(cam, player);
+              continue;
+          }
+          if (!Number.isFinite(peerRate) || Math.abs(peerRate - rate) > 0.01) {
+              if (!assignPlaybackRate(player, rate)) {
+                  releasePlayer(cam, player);
+                  continue;
+              }
+          }
+          const seg = segmentForPlayer(cam, player);
+          if (!seg) continue;
+          const local = Math.max(0, globalTime - seg.startTime);
+          let now = Number.NaN;
+          try {
+              now = player.currentTime();
+          } catch {
+              continue;
+          }
+          if (!shouldCorrectDrift(now - local)) continue;
+          const at = performance.now();
+          if (at - (lastDriftSeekAt.current[cam] || 0) < 400) continue;
+          lastDriftSeekAt.current[cam] = at;
+          try {
+              player.currentTime(local);
+          } catch {
+              releasePlayer(cam, player);
+          }
+      }
+  }, [dropIfDead, releasePlayer, segmentForPlayer]);
+
+  useEffect(() => {
+    const rate = playbackSpeed;
+    for (const [cam, player] of Object.entries(playersRef.current)) {
+      if (!dropIfDead(cam, player)) continue;
+      if (!assignPlaybackRate(player, rate)) {
+        releasePlayer(cam, player);
+      }
     }
-  }, [playbackSpeed]);
+  }, [playbackSpeed, dropIfDead, releasePlayer]);
 
   // Sync play/pause state across all players
   useEffect(() => {
-      Object.values(playersRef.current).forEach((p: VideoJsPlayer) => {
-          if (!p) return;
-          if (isPlaying) {
-              if (p.paused()) {
-                  p.play().catch(() => {});
+      for (const [cam, player] of Object.entries(playersRef.current)) {
+          if (!dropIfDead(cam, player)) continue;
+          try {
+              if (isPlaying) {
+                  if (player.paused()) player.play().catch(() => {});
+              } else if (!player.paused()) {
+                  player.pause();
               }
-          } else {
-              if (!p.paused()) {
-                  p.pause();
-              }
+          } catch {
+              dropIfDead(cam, player);
           }
-      });
-  }, [isPlaying]);
+      }
+  }, [isPlaying, dropIfDead]);
 
   const handlePlayerReady = useCallback((camera: string, player: VideoJsPlayer) => {
-    if (!player) return;
+    if (!isControllablePlayer(player)) return;
     playersRef.current[camera] = player;
-
-    if (typeof player.playbackRate === 'function') {
-        // Bolt: Use ref for current playback speed? Or just current state?
-        // State is fine here as it's not changing frequently.
-        // Actually, playbackSpeed is in deps, so this recreates when speed changes.
-        // That's acceptable.
-    }
-
-    // Bolt: Perform INITIAL SEEK here instead of creating a transient closure in render.
-    // This allows onReady to be stable.
-    const normCam = normalizeCameraName(camera);
-    const camSegments = segments[normCam];
-    if (camSegments) {
-         let src = player.currentSrc();
-         try { src = decodeURIComponent(src); } catch { src = player.currentSrc(); }
-         src = src.split('?')[0];
-
-         // Find which segment this player loaded
-         const seg = camSegments.find(s => src.endsWith(s.file_path));
-         if (seg) {
-             const globalTime = currentTimeRef.current;
-             const localTime = globalTime - seg.startTime;
-             // Only seek if needed (initial load)
-             if (Math.abs(player.currentTime() - localTime) > 0.5) {
-                 player.currentTime(localTime);
-             }
-             if (isPlaying) player.play().catch(() => {});
-         }
-    }
-
-    const frontExists = !!segments['front'];
-    // Set as main if it's Front, OR if Front doesn't exist and we don't have a main player yet.
-    const isMain = normCam === 'front' || (!frontExists && !mainPlayerRef.current);
-
-    if (isMain) {
+    if (camera === activeCameraRef.current || !mainPlayerRef.current || !isControllablePlayer(mainPlayerRef.current)) {
       mainPlayerRef.current = player;
-
-      const checkAdvance = () => {
-         const camSegments = segments[normCam];
-         if (camSegments) {
-             let src = player.currentSrc();
-             // Try to decode in case video.js encoded it
-             try { src = decodeURIComponent(src); } catch { src = player.currentSrc(); }
-
-             // Remove query params for matching
-             src = src.split('?')[0];
-
-             const idx = camSegments.findIndex(s => src.endsWith(s.file_path));
-             if (idx !== -1 && idx < camSegments.length - 1) {
-                 // Advance to next segment
-                 const nextSeg = camSegments[idx+1];
-                 console.log("Advancing to next segment:", nextSeg.file_path);
-                 setCurrentTime(nextSeg.startTime);
-             } else {
-                 setIsPlaying(false);
-             }
-         }
-      };
-
-      const onTimeUpdate = () => {
-        const camSegments = segments[normCam];
-        if (camSegments) {
-            let src = player.currentSrc();
-            try { src = decodeURIComponent(src); } catch { src = player.currentSrc(); }
-            // Remove query params
-            src = src.split('?')[0];
-
-            const seg = camSegments.find(s => src.endsWith(s.file_path));
-            if (seg) {
-                const global = seg.startTime + player.currentTime();
-                if (Math.abs(global - currentTimeRef.current) > 0.1) {
-                     setCurrentTime(global);
-                }
-            }
-
-            // Check for end of segment manually (fallback for 'ended' event)
-            if (player.duration() > 0 && player.currentTime() >= player.duration() - 0.2) {
-                if (!player.paused()) {
-                    checkAdvance();
-                }
-            }
-        }
-      };
-
-      const onEnded = () => { checkAdvance(); };
-
-      player.on('timeupdate', onTimeUpdate);
-      player.on('ended', onEnded);
-      listenerCleanups.current.push(
-        () => { player.off('timeupdate', onTimeUpdate); },
-        () => { player.off('ended', onEnded); }
-      );
-
-      // Auto-play if global state is playing
-      if (isPlaying) {
-          player.play().catch(() => {});
-      }
-
-    } else {
-        if (typeof player.muted === 'function') {
-             player.muted(true);
-        }
     }
 
-    // Sync play state
-    const onPlay = () => { setIsPlaying(true); };
-    const onPause = () => { setIsPlaying(false); };
+    const align = () => {
+      if (!isControllablePlayer(player)) return;
+      const seg = segmentForPlayer(camera, player);
+      const localTime = seg ? Math.max(0, currentTimeRef.current - seg.startTime) : 0;
+      const applied = applyPlayerTransport(player, {
+        playbackRate: playbackSpeedRef.current,
+        localTime: seg ? localTime : undefined,
+        play: isPlayingRef.current,
+      });
+      if (!applied) {
+        releasePlayer(camera, player);
+        return;
+      }
+      if (seg) rememberMediaDuration(seg.file_path, player);
+    };
+    align();
+
+    const normCam = normalizeCameraName(camera);
+    if (normCam !== 'front' && typeof player.muted === 'function') {
+      try {
+        player.muted(true);
+      } catch {
+        /* element already gone */
+      }
+    }
+
+    const checkAdvance = () => {
+      const camSegments = segmentsRef.current[normCam];
+      const seg = segmentForPlayer(camera, player);
+      if (!camSegments || !seg) {
+        setIsPlaying(false);
+        return;
+      }
+      const idx = camSegments.findIndex(s => s.file_path === seg.file_path && s.timestamp === seg.timestamp);
+      if (idx !== -1 && idx < camSegments.length - 1) {
+        const nextTime = camSegments[idx + 1].startTime;
+        currentTimeRef.current = nextTime;
+        setCurrentTime(nextTime);
+      } else {
+        setIsPlaying(false);
+      }
+    };
+
+    const onTimeUpdate = () => {
+      // The feature camera is the clock, including after focus moves off Front.
+      if (camera !== activeCameraRef.current) return;
+      if (!isControllablePlayer(player)) return;
+      const seg = segmentForPlayer(camera, player);
+      if (!seg) return;
+      let local = Number.NaN;
+      try {
+        local = player.currentTime();
+      } catch {
+        return;
+      }
+      const global = seg.startTime + local;
+      if (Math.abs(global - currentTimeRef.current) > 0.1) {
+        setCurrentTime(global);
+      }
+      syncPeers(camera, global);
+      rememberMediaDuration(seg.file_path, player);
+      let duration = 0;
+      try {
+        duration = player.duration();
+      } catch {
+        duration = 0;
+      }
+      if (duration > 0 && local >= duration - 0.2 && !player.paused()) {
+        checkAdvance();
+      }
+    };
+
+    const onEnded = () => {
+      if (camera === activeCameraRef.current) checkAdvance();
+    };
+    const onMeta = () => align();
+
+    player.on('timeupdate', onTimeUpdate);
+    player.on('ended', onEnded);
+    player.on('loadedmetadata', onMeta);
+    const off = (event: string, fn: () => void) => {
+      try {
+        player.off(event, fn);
+      } catch {
+        /* disposed with the camera tile */
+      }
+    };
+    listenerCleanups.current.push(
+      () => off('timeupdate', onTimeUpdate),
+      () => off('ended', onEnded),
+      () => off('loadedmetadata', onMeta),
+    );
+
+    const onPlay = () => {
+      if (camera === activeCameraRef.current) setIsPlaying(true);
+    };
+    const onPause = () => {
+      if (camera === activeCameraRef.current) setIsPlaying(false);
+    };
     player.on('play', onPlay);
     player.on('pause', onPause);
     listenerCleanups.current.push(
-      () => { player.off('play', onPlay); },
-      () => { player.off('pause', onPause); }
+      () => off('play', onPlay),
+      () => off('pause', onPause),
     );
-
-  }, [segments, isPlaying]); // Removed currentTime from deps to avoid re-binding
+  }, [releasePlayer, rememberMediaDuration, segmentForPlayer, syncPeers]);
 
   const cyclePlaybackSpeed = useCallback(() => {
     const speeds = [0.5, 1, 1.5, 2, 4];
@@ -388,46 +451,50 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
   }, [playbackSpeed]);
 
   const togglePlay = useCallback(() => {
-      const player = mainPlayerRef.current || Object.values(playersRef.current)[0];
-      if (player) {
+      const preferred = playersRef.current[activeCameraRef.current];
+      const player = (preferred && isControllablePlayer(preferred))
+        ? preferred
+        : Object.values(playersRef.current).find(p => isControllablePlayer(p));
+      if (!player) return;
+      try {
           if (player.paused()) player.play().catch(() => {});
           else player.pause();
+      } catch {
+          /* disposed between focus and the click */
       }
   }, []);
 
   const handleSeek = useCallback((time: number) => {
       const newTime = Math.max(0, Math.min(time, totalDuration));
+      currentTimeRef.current = newTime;
       setCurrentTime(newTime);
 
       // We need to sync the players to this new time
       Object.keys(segments).forEach(cam => {
           const info = getSegmentAtTime(cam, newTime);
-          if (info) {
-               // Let's just try seeking. If src changes, player is destroyed anyway.
-               const p = playersRef.current[cam === 'front' ? 'Front' :
-                          cam === 'left_repeater' ? 'Left Repeater' :
-                          cam === 'right_repeater' ? 'Right Repeater' :
-                          cam === 'back' ? 'Back' :
-                          cam === 'left_pillar' ? 'Left Pillar' :
-                          cam === 'right_pillar' ? 'Right Pillar' : cam];
-
-               if (p) {
-                   // Check if player src matches target segment
-                   let src = p.currentSrc();
-                   try { src = decodeURIComponent(src); } catch { src = p.currentSrc(); }
-                   src = src.split('?')[0];
-
-                   if (src && src.endsWith(info.segment.file_path)) {
-                       const localTime = newTime - info.segment.startTime;
-                       // Only seek if difference is significant to avoid stutter
-                       if (Math.abs(p.currentTime() - localTime) > 0.5) {
-                           p.currentTime(localTime);
-                       }
-                   }
-               }
+          if (!info) return;
+          const displayName = cam === 'front' ? 'Front' :
+                     cam === 'leftrepeater' ? 'Left Repeater' :
+                     cam === 'rightrepeater' ? 'Right Repeater' :
+                     cam === 'back' ? 'Back' :
+                     cam === 'leftpillar' ? 'Left Pillar' :
+                     cam === 'rightpillar' ? 'Right Pillar' : cam;
+          const p = playersRef.current[displayName];
+          if (!isControllablePlayer(p)) return;
+          try {
+              const src = playerSrcPath(p);
+              if (src && src.endsWith(info.segment.file_path)) {
+                  const localTime = newTime - info.segment.startTime;
+                  if (Math.abs(p.currentTime() - localTime) > 0.5) {
+                      p.currentTime(localTime);
+                  }
+              }
+              assignPlaybackRate(p, playbackSpeedRef.current);
+          } catch {
+              releasePlayer(displayName, p);
           }
       });
-  }, [totalDuration, segments, getSegmentAtTime]);
+  }, [totalDuration, segments, getSegmentAtTime, releasePlayer]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -487,6 +554,7 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
   }, [activeCamera]);
 
   const focusCamera = useCallback((camName: string) => {
+      activeCameraRef.current = camName;
       setActiveCamera(camName);
       setViewMode('focus');
   }, []);
@@ -616,6 +684,7 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
                   clip={clip}
                   quality={quality}
                   handlePlayerReady={handlePlayerReady}
+                  releasePlayer={releasePlayer}
                   getUrl={getUrl}
                   onClick={() => focusCamera(activeCamera)}
                   preload="metadata"
@@ -631,9 +700,10 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
                           clip={clip}
                           quality={quality}
                           handlePlayerReady={handlePlayerReady}
+                          releasePlayer={releasePlayer}
                           getUrl={getUrl}
                           onClick={() => focusCamera(camName)}
-                          preload="none"
+                          preload="metadata"
                       />
                   ))}
                 </div>

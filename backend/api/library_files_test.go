@@ -58,6 +58,35 @@ func TestLibraryFilesZeroIDs(t *testing.T) {
 	}
 }
 
+func TestLibraryFilesZeroID(t *testing.T) {
+	r := setupLibraryRouter(t)
+	clip := createClipWithTelemetry(t, models.Clip{
+		Timestamp: time.Date(2024, 6, 15, 14, 0, 0, 0, time.UTC),
+		Event:     "Saved",
+	}, 37.7749, -122.4194, []models.VideoFile{{
+		Camera:    "Front",
+		FilePath:  "/synthetic/files/zero-id-front.mp4",
+		Timestamp: time.Date(2024, 6, 15, 14, 0, 0, 0, time.UTC),
+	}})
+
+	for _, raw := range []string{"0", "00"} {
+		code, _, body := doGetLibraryFiles(t, r, libraryFilesQuery(raw))
+		if code != http.StatusBadRequest {
+			t.Errorf("id=%q status %d, want 400, body %s", raw, code, body)
+		}
+		if strings.Contains(body, "zero-id-front.mp4") {
+			t.Errorf("id=%q must not return files", raw)
+		}
+	}
+
+	// A zero id invalidates the whole request, same as a non-numeric id.
+	mixed := libraryFilesQuery("0", fmt.Sprintf("%d", clip.ID))
+	code, _, body := doGetLibraryFiles(t, r, mixed)
+	if code != http.StatusBadRequest {
+		t.Fatalf("id=0 mixed with a live id status %d, want 400, body %s", code, body)
+	}
+}
+
 func TestLibraryFilesNonIntegerID(t *testing.T) {
 	r := setupLibraryRouter(t)
 	for _, raw := range []string{"abc", "1.5", "1e2", "", "-1"} {
@@ -259,8 +288,8 @@ func TestLibraryFilesOrder(t *testing.T) {
 	}
 
 	want := []string{
-		"/synthetic/files/b-back.mp4",   // earlier clip ts, camera Back < Front
-		"/synthetic/files/b-front.mp4",  // earlier clip ts, camera Front
+		"/synthetic/files/b-back.mp4",    // earlier clip ts, camera Back < Front
+		"/synthetic/files/b-front.mp4",   // earlier clip ts, camera Front
 		"/synthetic/files/a-front-1.mp4", // later clip ts, same camera/file ts, lower file id
 		"/synthetic/files/a-front-2.mp4",
 	}

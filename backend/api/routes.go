@@ -71,10 +71,11 @@ func getClips(c *gin.Context) {
 	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, source_dir, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
 			return db.Select("clip_id, camera, file_path, timestamp").Order("timestamp asc")
-		}).
-		Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
-			return db.Select("id, clip_id, latitude, longitude, speed, gear, steering_angle, autopilot_state")
 		}).Order("timestamp desc").Find(&clips).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := attachTelemetryByPointer(clips, "id, clip_id, latitude, longitude, speed, gear, steering_angle, autopilot_state"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -84,11 +85,64 @@ func getClips(c *gin.Context) {
 func getClipDetails(c *gin.Context) {
 	id := c.Param("id")
 	var clip models.Clip
-	if err := database.DB.Preload("VideoFiles").Preload("Telemetry").First(&clip, id).Error; err != nil {
+	if err := database.DB.Preload("VideoFiles").First(&clip, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Clip not found"})
 		return
 	}
-	c.JSON(http.StatusOK, clip)
+	clips := []models.Clip{clip}
+	if err := attachTelemetryByPointer(clips, ""); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, clips[0])
+}
+
+// attachTelemetryByPointer loads the incident row stored on clips.telemetry_id.
+//
+// GORM Preload("Telemetry") treats Clip.Telemetry as has-one via telemetries.clip_id
+// because Telemetry.ClipID exists. A historical extra row with the same clip_id
+// (another member's point, or a second SEI insert) is then published by
+// /api/clips/:id while /api/library joins telemetries.id = clips.telemetry_id.
+// The pointer is the scanner's incident point: valid event.json wins over SEI
+// inside aggregateTelemetry, and this read path does not rewrite stored rows.
+func attachTelemetryByPointer(clips []models.Clip, fields string) error {
+	if len(clips) == 0 {
+		return nil
+	}
+	ids := make([]uint, 0, len(clips))
+	seen := make(map[uint]struct{}, len(clips))
+	for _, clip := range clips {
+		if clip.TelemetryID == 0 {
+			continue
+		}
+		if _, ok := seen[clip.TelemetryID]; ok {
+			continue
+		}
+		seen[clip.TelemetryID] = struct{}{}
+		ids = append(ids, clip.TelemetryID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	q := database.DB.Where("id IN (?)", ids)
+	if fields != "" {
+		q = q.Select(fields)
+	}
+	var rows []models.Telemetry
+	if err := q.Find(&rows).Error; err != nil {
+		return err
+	}
+	byID := make(map[uint]models.Telemetry, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	for i := range clips {
+		if row, ok := byID[clips[i].TelemetryID]; ok {
+			clips[i].Telemetry = row
+		}
+	}
+	return nil
 }
 
 func getTranscodeStatus(c *gin.Context) {
