@@ -126,10 +126,10 @@ const Timeline: React.FC<TimelineProps> = ({
   };
 
   return (
-    <div className={`flex flex-col gap-1 select-none ${className}`}>
+    <div className={`flex flex-col select-none ${className}`}>
       <div
         ref={containerRef}
-        className="relative h-6 flex items-center cursor-pointer group outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+        className="relative h-[42px] flex items-center cursor-pointer outline-none"
         onMouseDown={handleMouseDown}
         onMouseMove={(e) => !isDragging && handleHover(e)}
         onMouseLeave={() => setHoverTime(null)}
@@ -142,58 +142,44 @@ const Timeline: React.FC<TimelineProps> = ({
         aria-valuenow={currentTime}
         aria-valuetext={formatTime(currentTime)}
       >
-        {/* Track Background */}
-        <div className="absolute w-full h-1.5 bg-gray-700 rounded-full overflow-hidden group-hover:h-2 transition-all">
-           {/* Progress */}
-           <div
-             className="h-full bg-blue-500 rounded-full"
-             style={{ width: `${getPercentage(currentTime)}%` }}
-           />
-        </div>
-
-        {/* Hover Preview (Ghost Handle & Tooltip) */}
-        {hoverTime !== null && !isDragging && (
-           <>
-              {/* Ghost Handle */}
-              <div
-                  className="absolute h-3 w-3 bg-white/50 rounded-full transform -translate-x-1/2 -translate-y-1/2 top-1/2 pointer-events-none z-10"
-                  style={{ left: `${getPercentage(hoverTime)}%` }}
-              />
-              {/* Tooltip */}
-              <div
-                  className="absolute bottom-full mb-2 bg-gray-800 text-white text-[10px] font-mono py-1 px-2 rounded border border-gray-700 shadow-xl transform -translate-x-1/2 pointer-events-none whitespace-nowrap z-20"
-                  style={{ left: `${getPercentage(hoverTime)}%` }}
-              >
-                  {formatTime(hoverTime)}
-              </div>
-           </>
-        )}
-
-        {/* Handle */}
+        <div className="absolute left-0 right-0 top-[19px] h-1 bg-[var(--line)]" />
         <div
-          className={`absolute z-30 h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2 transition-transform ${
-            isDragging ? 'scale-100' : 'scale-0 group-hover:scale-100 group-focus-visible:scale-100'
-          }`}
-          style={{ left: `${getPercentage(currentTime)}%` }}
+          className="absolute left-0 top-[19px] h-1 bg-[var(--accent)] pointer-events-none"
+          style={{ width: `${getPercentage(currentTime)}%` }}
+        />
+        <div
+          className="absolute top-[14px] w-[10px] h-[14px] bg-[var(--ink)] border-2 border-[var(--bg)] pointer-events-none"
+          style={{ left: `calc(${getPercentage(currentTime)}% - 5px)` }}
         />
 
-        {/* Markers */}
+        {hoverTime !== null && !isDragging && (
+           <div
+               className="absolute bottom-full mb-1 bg-[var(--panel-2)] text-[var(--ink)] text-[16px] font-mono py-1 px-2 border border-[var(--line)] pointer-events-none whitespace-nowrap z-20"
+               style={{ left: `${getPercentage(hoverTime)}%`, transform: 'translateX(-50%)' }}
+           >
+               {formatTime(hoverTime)}
+           </div>
+        )}
+
         {markers.map((marker, idx) => (
           <div
             key={idx}
-            className="absolute w-3 h-3 rounded-full transform -translate-x-1/2 -translate-y-1/2 top-1/2 border border-black shadow-sm z-10"
+            className="absolute top-2 w-0.5 h-[25px] pointer-events-none z-10"
             style={{
               left: `${getPercentage(marker.time)}%`,
-              backgroundColor: marker.color || 'red'
+              backgroundColor: marker.color || '#ffb020'
             }}
             title={marker.label}
-          />
+          >
+            <span
+              className="absolute -top-1 -left-[3px] w-2 h-2"
+              style={{
+                backgroundColor: marker.color || '#ffb020',
+                transform: 'rotate(45deg)'
+              }}
+            />
+          </div>
         ))}
-      </div>
-
-      <div className="flex justify-between text-xs text-gray-400 font-mono">
-        <span>{formatTime(currentTime)}</span>
-        <span>{formatTime(duration)}</span>
       </div>
     </div>
   );

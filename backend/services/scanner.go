@@ -347,7 +347,7 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 				estLat = toFloat(eventData.EstLat)
 				estLon = toFloat(eventData.EstLon)
 
-				if city == "" && (estLat != 0 || estLon != 0) {
+				if city == "" && ValidGeographicPoint(estLat, estLon) {
 					city = fmt.Sprintf("%.4f, %.4f", estLat, estLon)
 				}
 				timezone = determineTimezone(estLat, estLon)
@@ -443,8 +443,9 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 		}
 	}
 
-	// Fallback Telemetry setup
-	if clip.TelemetryID == 0 && (estLat != 0 || estLon != 0) {
+	// Seed incident coordinates from event.json onto a single telemetry row.
+	// Reload TelemetryID in memory so aggregateTelemetry updates this row instead of creating another.
+	if clip.TelemetryID == 0 && ValidGeographicPoint(estLat, estLon) {
 		telemetry := models.Telemetry{
 			ClipID:    clip.ID,
 			Latitude:  estLat,
@@ -452,6 +453,7 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 		}
 		if err := s.DB.Create(&telemetry).Error; err == nil {
 			s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
+			clip.TelemetryID = telemetry.ID
 		}
 	}
 
@@ -459,7 +461,7 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	s.addFilesToClip(clip, files)
 
 	// Aggregate Telemetry (will process all front files sorted by time)
-	s.aggregateTelemetry(&clip, files)
+	s.aggregateTelemetry(&clip, files, estLat, estLon)
 }
 
 // processRecentGroup groups flat RecentClips into logical multi-minute drives using time heuristics.
@@ -569,8 +571,8 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 			allFiles = append(allFiles, segment...)
 		}
 
-		// Aggregate Telemetry
-		s.aggregateTelemetry(&clip, allFiles)
+		// Aggregate Telemetry. Recent clips have no event.json point (0,0) → valid SEI is used.
+		s.aggregateTelemetry(&clip, allFiles, 0, 0)
 	}
 }
 
@@ -597,7 +599,10 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 }
 
 // aggregateTelemetry iterates through all 'Front' files in the clip, extracts SEI, and updates the Telemetry record.
-func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo) {
+// Speed/Gear/Steering/Autopilot/FullDataJson always come from the SEI midpoint.
+// Latitude/Longitude are the incident point: valid event.json (or an already-stored valid
+// incident point) wins over SEI, including SEI (0,0). This is not a playback track sample.
+func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo, eventLat, eventLon float64) {
 	var frontFiles []fileInfo
 
 	// 1. Filter for Front camera and Sort
@@ -645,33 +650,46 @@ func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo)
 		s.DB.First(&telemetry, clip.TelemetryID)
 	}
 
+	existingLat, existingLon := telemetry.Latitude, telemetry.Longitude
+
 	// Update fields
 	telemetry.ClipID = clip.ID
 	telemetry.FullDataJson = string(jsonData)
 
+	var seiLat, seiLon float64
 	// Update summary fields from the middle of the *entire* clip (approx)
 	mid := len(aggregatedMeta) / 2
 	if mid < len(aggregatedMeta) {
 		m := aggregatedMeta[mid]
 		telemetry.Speed = m.VehicleSpeedMps * 2.23694
 		telemetry.Gear = m.GearState.String()
-		telemetry.Latitude = m.LatitudeDeg
-		telemetry.Longitude = m.LongitudeDeg
+		seiLat = m.LatitudeDeg
+		seiLon = m.LongitudeDeg
 		telemetry.SteeringAngle = m.SteeringWheelAngle
 		telemetry.AutopilotState = m.AutopilotState.String()
 	}
+
+	incidentLat, incidentLon := eventLat, eventLon
+	if !ValidGeographicPoint(incidentLat, incidentLon) && ValidGeographicPoint(existingLat, existingLon) {
+		incidentLat, incidentLon = existingLat, existingLon
+	}
+	lat, lon := SelectIncidentPosition(incidentLat, incidentLon, seiLat, seiLon)
+	telemetry.Latitude = lat
+	telemetry.Longitude = lon
 
 	if telemetry.ID != 0 {
 		s.DB.Save(&telemetry)
 	} else {
 		s.DB.Create(&telemetry)
 		s.DB.Model(clip).Update("telemetry_id", telemetry.ID)
+		clip.TelemetryID = telemetry.ID
 	}
 
-	// 5. Update City if missing
-	if clip.City == "" && (telemetry.Latitude != 0 || telemetry.Longitude != 0) {
-		newCity := fmt.Sprintf("%.4f, %.4f", telemetry.Latitude, telemetry.Longitude)
+	// 5. Update City if missing — use the selected incident point, never (0,0).
+	if clip.City == "" && ValidGeographicPoint(lat, lon) {
+		newCity := fmt.Sprintf("%.4f, %.4f", lat, lon)
 		s.DB.Model(clip).Update("city", newCity)
+		clip.City = newCity
 	}
 }
 

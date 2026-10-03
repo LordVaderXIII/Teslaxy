@@ -36,6 +36,8 @@ interface PlayerAdapter {
     muted: (mute?: boolean) => boolean;
     playbackRate: (rate?: number) => number;
     dispose: () => void;
+    src: (source: { src: string; type: string }) => void;
+    isDisposed: () => boolean;
 }
 
 // Adapter to make HTMLVideoElement compatible with the interface expected by Player.tsx (video.js-like)
@@ -63,12 +65,22 @@ const createPlayerAdapter = (video: HTMLVideoElement): PlayerAdapter => {
        return video.muted;
     },
     playbackRate: (rate?: number) => {
-       if (rate !== undefined) video.playbackRate = rate;
-       return video.playbackRate;
+       if (!video) return 1;
+       try {
+         if (rate !== undefined) video.playbackRate = rate;
+         return video.playbackRate;
+       } catch {
+         // A detached element surfaces as a null tech. Leave the caller alive.
+         return 1;
+       }
     },
     dispose: () => {
        // No-op for raw video element, managed by React lifecycle
-    }
+    },
+    src: (source: { src: string; type: string }) => {
+       video.src = source.src;
+    },
+    isDisposed: () => false,
   };
 };
 
@@ -79,6 +91,7 @@ interface Scene3DProps {
   backSrc: string;
   leftPillarSrc?: string;
   rightPillarSrc?: string;
+  isPlaying?: boolean;
   onVideoReady?: (camera: string, player: PlayerAdapter) => void;
 }
 
@@ -88,16 +101,19 @@ interface CurvedScreenProps {
     height: number;
     thetaStart: number;
     thetaLength: number;
+    isPlaying?: boolean;
     onReady?: (player: PlayerAdapter) => void;
 }
 
-const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength, onReady }: CurvedScreenProps) => {
+const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength, isPlaying, onReady }: CurvedScreenProps) => {
     // Use useMemo to create a stable video element that doesn't trigger state setters
     const video = useMemo(() => {
         const vid = document.createElement('video');
         vid.crossOrigin = 'Anonymous';
         vid.loop = true;
         vid.muted = true;
+        vid.preload = 'metadata';
+        vid.autoplay = false;
         // iOS requires playsinline
         vid.setAttribute('playsinline', 'true');
         vid.setAttribute('webkit-playsinline', 'true');
@@ -113,10 +129,23 @@ const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength, onReady }:
 
     useEffect(() => {
         if (src) {
+            // HTMLVideoElement mutation; not React state.
+            // eslint-disable-next-line react-hooks/immutability -- media element API
             video.src = src;
-            video.play().catch(e => console.warn("Auto-play prevented", e));
         }
     }, [src, video]);
+
+    useEffect(() => {
+        if (!src) {
+            video.pause();
+            return;
+        }
+        if (isPlaying) {
+            video.play().catch(() => {});
+        } else {
+            video.pause();
+        }
+    }, [isPlaying, src, video]);
 
     useEffect(() => {
         return () => {
@@ -143,7 +172,7 @@ const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength, onReady }:
 
 const Scene3D: React.FC<Scene3DProps> = ({
   frontSrc, leftRepeaterSrc, rightRepeaterSrc, backSrc,
-  leftPillarSrc, rightPillarSrc, onVideoReady
+  leftPillarSrc, rightPillarSrc, isPlaying, onVideoReady
 }) => {
   const radius = 8;
   const height = 5;
@@ -158,7 +187,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
   // Left Rep: 300 (5Pi/3). Range [270, 330] -> Start 9Pi/6 (3Pi/2)
 
   return (
-    <div className="w-full h-full bg-gray-900">
+    <div className="w-full h-full bg-[var(--bg)]">
       <Canvas>
         <ZoomHandler />
         {/* Camera inside the "car" */}
@@ -183,6 +212,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={-segmentAngle / 2}
             thetaLength={segmentAngle}
+            isPlaying={isPlaying}
             onReady={(p) => onVideoReady && onVideoReady('Back', p)}
         />
 
@@ -193,6 +223,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
+            isPlaying={isPlaying}
             onReady={(p) => onVideoReady && onVideoReady('Right Repeater', p)}
         />
 
@@ -203,6 +234,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={2 * Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
+            isPlaying={isPlaying}
             onReady={(p) => onVideoReady && onVideoReady('Right Pillar', p)}
         />
 
@@ -213,6 +245,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={Math.PI - segmentAngle / 2}
             thetaLength={segmentAngle}
+            isPlaying={isPlaying}
             onReady={(p) => onVideoReady && onVideoReady('Front', p)}
         />
 
@@ -223,6 +256,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={4 * Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
+            isPlaying={isPlaying}
             onReady={(p) => onVideoReady && onVideoReady('Left Pillar', p)}
         />
 
@@ -233,6 +267,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
             height={height}
             thetaStart={5 * Math.PI / 3 - segmentAngle / 2}
             thetaLength={segmentAngle}
+            isPlaying={isPlaying}
             onReady={(p) => onVideoReady && onVideoReady('Left Repeater', p)}
         />
       </Canvas>

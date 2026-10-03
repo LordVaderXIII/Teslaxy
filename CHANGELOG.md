@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+This integration is not a production release. Do not deploy it as one.
+
 ### Fixed
+- Viewer playback speed no longer blanks the app after a camera is focused. Unmounted cameras left disposed video.js players in the registry, and setting `playbackRate` wrote through a null media element.
+- Six-camera playback now seeks a camera back to the feature camera's clock when it drifts by more than 0.3s, and mosaic tiles preload metadata so a late start does not stay a constant offset.
+- A segment change applies the selected playback speed to the new video element. The control and the element no longer disagree after a seek onto the next minute.
+- Short Saved clips no longer build a timeline from a duplicated file row. The same camera path and timestamp listed twice (two member ids) is one segment, and the timeline uses the decoded media duration instead of assuming 60s. Telemetry is still labeled SYNC APPROX; this does not claim frame-accurate sync.
+- `/api/library` and `/api/clips/:id` now publish the incident point stored on `clips.telemetry_id`. Clip detail previously followed GORM's has-one preload on `telemetries.clip_id`, which can be a different row. Stored rows are not rewritten.
+- `GET /api/library/files?id=0` returns HTTP 400, consistent with a non-numeric id.
+- `GET /api/library/files` no longer lists the same camera file twice when two member clip ids point at one path. The first row in the existing order is kept. Neither member id is reported missing.
+- A seek into a later minute waits until the new element reports that offset. Media time 0 on the freshly loaded file no longer pulls the clock back to the start of that minute. The selected playback speed is still applied to the new element.
+- A seek while paused is issued once and is not restarted while `seeking` is true. Repeating `currentTime` left every camera at readyState HAVE_METADATA with `seeking` stuck, so Play never resumed decoding. A paused element that only has metadata waits until it has a frame before that single seek. Playback rate is unchanged.
 - Fixed Docker build still failing on Unraid after 0.1.18 (`npm ci` aborting with "lock file's three@0.182.0 does not satisfy three@0.170.0").
   - 0.1.18 added `three` to `package.json` but never regenerated `package-lock.json`, leaving the two files out of sync — `npm ci` requires them to match exactly.
   - Pinned `three` to `^0.182.0` (the version already resolved in the lock tree) and regenerated `package-lock.json` so `three` is a proper direct dependency instead of a `peer`-flagged transitive one.
