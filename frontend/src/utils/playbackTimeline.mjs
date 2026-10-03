@@ -4,6 +4,8 @@ export const DEFAULT_SEGMENT_SECONDS = 60;
 export const SYNC_DRIFT_SECONDS = 0.3;
 /** A seek counts as landed once media time is within this of the requested offset. */
 export const SEEK_LANDED_SECONDS = 0.5;
+/** HTMLMediaElement.HAVE_CURRENT_DATA. Below this, a paused seek never finishes. */
+export const HAVE_CURRENT_DATA = 2;
 
 const MIN_SEGMENT_SECONDS = 1;
 const MAX_SEGMENT_SECONDS = 120;
@@ -128,10 +130,67 @@ export function assignPlaybackRate(player, rate) {
   }
 }
 
+export function elementIsSeeking(player) {
+  if (!player || typeof player.seeking !== 'function') return false;
+  try {
+    return Boolean(player.seeking());
+  } catch {
+    return false;
+  }
+}
+
+function elementReadyState(player) {
+  if (!player || typeof player.readyState !== 'function') return null;
+  try {
+    const state = player.readyState();
+    return Number.isFinite(state) ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+function elementIsPaused(player) {
+  if (!player || typeof player.paused !== 'function') return false;
+  try {
+    return Boolean(player.paused());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when another currentTime() would restart a seek that has not finished.
+ * On a paused element that restart sticks at readyState HAVE_METADATA with
+ * seeking left true, and play() never begins decoding.
+ * A paused element that only has metadata must wait until it has a frame.
+ */
+export function mediaSeekBlocked(player) {
+  if (!isControllablePlayer(player)) return true;
+  if (elementIsSeeking(player)) return true;
+  if (!elementIsPaused(player)) return false;
+  const ready = elementReadyState(player);
+  return ready != null && ready < HAVE_CURRENT_DATA;
+}
+
+/** Whether this transport should assign currentTime. Rate changes are separate. */
+export function shouldIssueMediaSeek(player, targetLocal) {
+  if (!Number.isFinite(targetLocal) || mediaSeekBlocked(player)) return false;
+  let now = Number.NaN;
+  try {
+    now = player.currentTime();
+  } catch {
+    return false;
+  }
+  if (Number.isFinite(now) && Math.abs(now - targetLocal) <= SEEK_LANDED_SECONDS) return false;
+  return true;
+}
+
 /**
  * Apply the current transport to a player that just mounted or loaded metadata.
  * New video elements default to playbackRate 1; a segment change must not leave
  * that default in place while the speed control still shows the previous rate.
+ * A paused seek is issued once. Repeating currentTime() while seeking is true
+ * leaves every camera stuck and Play does not resume decoding.
  */
 export function applyPlayerTransport(player, transport) {
   if (!isControllablePlayer(player)) return false;
@@ -142,11 +201,7 @@ export function applyPlayerTransport(player, transport) {
   const localTime = transport?.localTime;
   if (typeof localTime === 'number' && Number.isFinite(localTime) && typeof player.currentTime === 'function') {
     try {
-      const now = player.currentTime();
-      // NaN means the element has no time yet. Still call the setter so video.js
-      // can store initTime; a ready-but-unseekable tech otherwise drops the seek
-      // and the next timeupdate reports 0.
-      if (!Number.isFinite(now) || Math.abs(now - localTime) > SEEK_LANDED_SECONDS) {
+      if (shouldIssueMediaSeek(player, localTime)) {
         player.currentTime(Math.max(0, localTime));
       }
     } catch {
@@ -183,7 +238,7 @@ export function localMediaTime(segmentStart, segmentDuration, globalTime) {
  * Publishing start+0 before the new file has seeked is what drops 02:10 and
  * 02:20 onto the start of the loaded minute.
  *
- * @param {{ segmentStart: number, segmentDuration: number, mediaTime: number, pendingGlobal: number | null }} input
+ * @param {{ segmentStart: number, segmentDuration: number, mediaTime: number, pendingGlobal: number | null, seeking?: boolean }} input
  * @returns {{ publishGlobal: number | null, retryLocal: number | null, clearPending: boolean }}
  */
 export function resolveMediaClock(input) {
@@ -199,6 +254,10 @@ export function resolveMediaClock(input) {
     }
     return idle;
   }
+
+  // seeking stays true until the element finishes. Another currentTime() here
+  // aborts that seek. Do not publish segment-start + 0 in the meantime.
+  if (input.seeking) return idle;
 
   const local = localMediaTime(segmentStart, segmentDuration, pendingGlobal);
   if (local == null) {

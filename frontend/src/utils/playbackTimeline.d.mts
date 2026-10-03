@@ -1,6 +1,7 @@
 export const DEFAULT_SEGMENT_SECONDS: 60;
 export const SYNC_DRIFT_SECONDS: 0.3;
 export const SEEK_LANDED_SECONDS: 0.5;
+export const HAVE_CURRENT_DATA: 2;
 
 export interface MediaClockDecision {
   publishGlobal: number | null;
@@ -22,6 +23,8 @@ export interface PlaybackPlayer {
   play?: () => Promise<void> | void;
   pause?: () => void;
   paused?: () => boolean;
+  seeking?: () => boolean;
+  readyState?: () => number;
   duration?: () => number;
   currentSrc?: () => string;
 }
@@ -50,6 +53,12 @@ export function isControllablePlayer(player: PlaybackPlayer | null | undefined):
 
 export function assignPlaybackRate(player: PlaybackPlayer | null | undefined, rate: number): boolean;
 
+export function elementIsSeeking(player: PlaybackPlayer | null | undefined): boolean;
+
+export function mediaSeekBlocked(player: PlaybackPlayer | null | undefined): boolean;
+
+export function shouldIssueMediaSeek(player: PlaybackPlayer | null | undefined, targetLocal: number): boolean;
+
 export function applyPlayerTransport(
   player: PlaybackPlayer | null | undefined,
   transport: PlayerTransport
@@ -66,6 +75,7 @@ export function resolveMediaClock(input: {
   segmentDuration: number;
   mediaTime: number;
   pendingGlobal: number | null;
+  seeking?: boolean;
 }): MediaClockDecision;
 
 export function shouldCorrectDrift(driftSeconds: number, threshold?: number): boolean;

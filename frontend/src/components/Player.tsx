@@ -11,6 +11,7 @@ import {
   findSegmentAtTime,
   isControllablePlayer,
   localMediaTime,
+  mediaSeekBlocked,
   normalizeCameraName,
   resolveMediaClock,
   shouldCorrectDrift,
@@ -300,6 +301,7 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
               continue;
           }
           if (!shouldCorrectDrift(now - local)) continue;
+          if (mediaSeekBlocked(player)) continue;
           const at = performance.now();
           if (at - (lastDriftSeekAt.current[cam] || 0) < 400) continue;
           lastDriftSeekAt.current[cam] = at;
@@ -408,11 +410,18 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
       } catch {
         return;
       }
+      let seeking = false;
+      try {
+        seeking = typeof player.seeking === 'function' && Boolean(player.seeking());
+      } catch {
+        seeking = false;
+      }
       const decision = resolveMediaClock({
         segmentStart: seg.startTime,
         segmentDuration: seg.duration,
         mediaTime: local,
         pendingGlobal: pendingSeekRef.current,
+        seeking,
       });
       if (decision.retryLocal != null && seekApplyDepth.current === 0) {
         seekApplyDepth.current += 1;
@@ -457,6 +466,7 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
     const onMediaReady = () => align();
 
     player.on('timeupdate', onTimeUpdate);
+    player.on('seeked', onTimeUpdate);
     player.on('ended', onEnded);
     player.on('loadedmetadata', onMediaReady);
     player.on('loadeddata', onMediaReady);
@@ -470,6 +480,7 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
     };
     listenerCleanups.current.push(
       () => off('timeupdate', onTimeUpdate),
+      () => off('seeked', onTimeUpdate),
       () => off('ended', onEnded),
       () => off('loadedmetadata', onMediaReady),
       () => off('loadeddata', onMediaReady),

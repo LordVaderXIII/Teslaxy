@@ -226,6 +226,141 @@ assert(
 assert(cross.rate === 1.5, `cross-segment seek must keep 1.5x, got ${cross.rate}`);
 assert(cross.time === 10, `cross-segment seek must set local time 10, got ${cross.time}`);
 
+// The retest segment starts at timeline 121s, so 02:10 and 02:20 are local ~9s and ~19s.
+assert(localMediaTime(121, 60, 130) === 9, '02:10 against a 121s segment start is local 9');
+assert(localMediaTime(121, 60, 140) === 19, '02:20 against a 121s segment start is local 19');
+const observedEarly = resolveMediaClock({
+  segmentStart: 121,
+  segmentDuration: 60,
+  mediaTime: 8.7,
+  pendingGlobal: 130,
+  seeking: false,
+});
+assert(observedEarly.clearPending === true, '8.7s into the 121s segment counts as landed for 02:10');
+assert(observedEarly.retryLocal === null, 'a landed 02:10 seek is not repeated');
+const observedLater = resolveMediaClock({
+  segmentStart: 121,
+  segmentDuration: 60,
+  mediaTime: 18.6,
+  pendingGlobal: 140,
+  seeking: false,
+});
+assert(observedLater.clearPending === true, '18.6s into the 121s segment counts as landed for 02:20');
+
+function pausedCamera(readyState) {
+  return {
+    isDisposed: () => false,
+    seekCount: 0,
+    seekingFlag: false,
+    ready: readyState,
+    isPaused: true,
+    time: 0,
+    rate: 1,
+    target: null,
+    playBlocked: false,
+    playbackRate(rate) {
+      if (rate !== undefined) this.rate = rate;
+      return this.rate;
+    },
+    currentTime(time) {
+      if (time !== undefined) {
+        this.seekCount += 1;
+        this.seekingFlag = true;
+        this.ready = 1;
+        this.target = time;
+      }
+      return this.time;
+    },
+    seeking() {
+      return this.seekingFlag;
+    },
+    readyState() {
+      return this.ready;
+    },
+    paused() {
+      return this.isPaused;
+    },
+    play() {
+      if (this.seekingFlag) {
+        this.playBlocked = true;
+        return Promise.resolve();
+      }
+      this.isPaused = false;
+      if (this.ready < 3) this.ready = 3;
+      return Promise.resolve();
+    },
+    finishSeek() {
+      this.time = this.target;
+      this.seekingFlag = false;
+      this.ready = 3;
+    },
+  };
+}
+
+const cameras = ['Front', 'Left Repeater', 'Right Repeater', 'Back', 'Left Pillar', 'Right Pillar'];
+for (const name of cameras) {
+  const cam = pausedCamera(4);
+  assert(
+    applyPlayerTransport(cam, { playbackRate: 1.5, localTime: 8.7, play: false }) === true,
+    `${name} paused transport applies`
+  );
+  assert(cam.seekCount === 1, `${name} paused seek issues one currentTime, got ${cam.seekCount}`);
+  assert(cam.rate === 1.5, `${name} paused seek keeps 1.5x`);
+  for (let tick = 0; tick < 6; tick++) {
+    const decision = resolveMediaClock({
+      segmentStart: 121,
+      segmentDuration: 60,
+      mediaTime: cam.currentTime(),
+      pendingGlobal: 129.7,
+      seeking: cam.seeking(),
+    });
+    assert(decision.retryLocal === null, `${name} tick ${tick} must not request another seek`);
+    assert(decision.publishGlobal === null, `${name} tick ${tick} must not publish time 0`);
+    applyPlayerTransport(cam, { playbackRate: 1.5, localTime: 8.7 });
+  }
+  assert(cam.seekCount === 1, `${name} stayed at one seek through timeupdate and canplay`);
+  cam.finishSeek();
+  assert(cam.seeking() === false, `${name} paused seek ends with seeking false`);
+  assert(cam.readyState() >= 2, `${name} paused seek leaves readyState ready to decode, got ${cam.readyState()}`);
+  assert(Math.abs(cam.currentTime() - 8.7) < 0.001, `${name} landed on the intra-segment offset`);
+  cam.play();
+  assert(cam.playBlocked === false, `${name} play must not run while seeking is stuck`);
+  assert(cam.paused() === false, `${name} play resumes decoding`);
+  assert(cam.seeking() === false, `${name} play leaves seeking false`);
+  assert(cam.rate === 1.5, `${name} play keeps 1.5x`);
+}
+
+const phoneFocus = pausedCamera(1);
+assert(
+  applyPlayerTransport(phoneFocus, { playbackRate: 1.5, localTime: 8.7, play: false }) === true,
+  'phone focus transport applies while only metadata is loaded'
+);
+assert(phoneFocus.seekCount === 0, 'phone focus at a nonzero time must not seek at readyState 1');
+assert(phoneFocus.seeking() === false, 'phone focus does not stick seeking');
+assert(phoneFocus.rate === 1.5, 'phone focus still applies 1.5x');
+const phoneHeld = resolveMediaClock({
+  segmentStart: 121,
+  segmentDuration: 60,
+  mediaTime: 0,
+  pendingGlobal: 130,
+  seeking: false,
+});
+assert(phoneHeld.publishGlobal === null, 'phone focus holds the offset instead of publishing 0');
+assert(phoneHeld.retryLocal === 9, 'phone focus still owes local 9 once a frame exists');
+phoneFocus.ready = 2;
+applyPlayerTransport(phoneFocus, { playbackRate: 1.5, localTime: 9 });
+assert(phoneFocus.seekCount === 1, 'phone focus seeks once after a frame is available');
+phoneFocus.finishSeek();
+assert(phoneFocus.seeking() === false && phoneFocus.readyState() >= 2, 'phone focus seek settles ready to play');
+phoneFocus.play();
+assert(phoneFocus.paused() === false && phoneFocus.playBlocked === false, 'phone focus play resumes');
+
+const playingSeek = pausedCamera(1);
+playingSeek.isPaused = false;
+applyPlayerTransport(playingSeek, { playbackRate: 1.5, localTime: 18.6 });
+assert(playingSeek.seekCount === 1, 'a seek while already playing still seeks immediately');
+assert(playingSeek.rate === 1.5, 'a playing seek keeps 1.5x');
+
 const playerSrc = readFileSync(new URL('../src/components/Player.tsx', import.meta.url), 'utf8');
 assert(playerSrc.includes('applyPlayerTransport'), 'Player must apply transport when a segment player is ready');
 assert(playerSrc.includes('shouldCorrectDrift'), 'Player must correct inter-camera drift');
@@ -234,6 +369,9 @@ assert(playerSrc.includes('buildCameraSegments'), 'Player timeline must use the 
 assert(playerSrc.includes('pendingSeekRef'), 'Player must hold a cross-segment seek until the new file lands');
 assert(playerSrc.includes('resolveMediaClock'), 'Player must not publish a segment start while a seek is pending');
 assert(playerSrc.includes("'canplay'"), 'Player must retry the seek once the new element can play');
+assert(playerSrc.includes('mediaSeekBlocked'), 'peer sync must not restart a paused seek');
+assert(playerSrc.includes('player.seeking'), 'Player must treat an in-flight seek as still outstanding');
+assert(playerSrc.includes("'seeked'"), 'a paused seek settles when the element finishes seeking');
 
 const overlaySrc = readFileSync(new URL('../src/components/TelemetryOverlay.tsx', import.meta.url), 'utf8');
 assert(overlaySrc.includes('SYNC APPROX'), 'HUD keeps the approximate-sync label');

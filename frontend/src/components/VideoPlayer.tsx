@@ -12,6 +12,8 @@ export interface VideoJsPlayer {
   play: () => Promise<void>;
   pause: () => void;
   paused: () => boolean;
+  seeking?: () => boolean;
+  readyState?: () => number;
   muted: (mute?: boolean) => boolean;
   playbackRate: (rate?: number) => number;
   on: (event: string, callback: () => void) => void;

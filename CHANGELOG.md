@@ -18,6 +18,7 @@ This integration is not a production release. Do not deploy it as one.
 - `GET /api/library/files?id=0` returns HTTP 400, consistent with a non-numeric id.
 - `GET /api/library/files` no longer lists the same camera file twice when two member clip ids point at one path. The first row in the existing order is kept. Neither member id is reported missing.
 - A seek into a later minute waits until the new element reports that offset. Media time 0 on the freshly loaded file no longer pulls the clock back to the start of that minute. The selected playback speed is still applied to the new element.
+- A seek while paused is issued once and is not restarted while `seeking` is true. Repeating `currentTime` left every camera at readyState HAVE_METADATA with `seeking` stuck, so Play never resumed decoding. A paused element that only has metadata waits until it has a frame before that single seek. Playback rate is unchanged.
 - Fixed Docker build still failing on Unraid after 0.1.18 (`npm ci` aborting with "lock file's three@0.182.0 does not satisfy three@0.170.0").
   - 0.1.18 added `three` to `package.json` but never regenerated `package-lock.json`, leaving the two files out of sync — `npm ci` requires them to match exactly.
   - Pinned `three` to `^0.182.0` (the version already resolved in the lock tree) and regenerated `package-lock.json` so `three` is a proper direct dependency instead of a `peer`-flagged transitive one.
