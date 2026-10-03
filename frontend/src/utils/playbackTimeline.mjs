@@ -2,6 +2,8 @@
 
 export const DEFAULT_SEGMENT_SECONDS = 60;
 export const SYNC_DRIFT_SECONDS = 0.3;
+/** A seek counts as landed once media time is within this of the requested offset. */
+export const SEEK_LANDED_SECONDS = 0.5;
 
 const MIN_SEGMENT_SECONDS = 1;
 const MAX_SEGMENT_SECONDS = 120;
@@ -141,7 +143,10 @@ export function applyPlayerTransport(player, transport) {
   if (typeof localTime === 'number' && Number.isFinite(localTime) && typeof player.currentTime === 'function') {
     try {
       const now = player.currentTime();
-      if (Number.isFinite(now) && Math.abs(now - localTime) > 0.5) {
+      // NaN means the element has no time yet. Still call the setter so video.js
+      // can store initTime; a ready-but-unseekable tech otherwise drops the seek
+      // and the next timeupdate reports 0.
+      if (!Number.isFinite(now) || Math.abs(now - localTime) > SEEK_LANDED_SECONDS) {
         player.currentTime(Math.max(0, localTime));
       }
     } catch {
@@ -157,6 +162,56 @@ export function applyPlayerTransport(player, transport) {
     }
   }
   return true;
+}
+
+/**
+ * Offset inside a segment for a global timeline time.
+ * A time exactly at the segment end belongs to the next segment.
+ * @returns {number | null}
+ */
+export function localMediaTime(segmentStart, segmentDuration, globalTime) {
+  if (!Number.isFinite(segmentStart) || !Number.isFinite(segmentDuration) || !Number.isFinite(globalTime)) {
+    return null;
+  }
+  if (segmentDuration <= 0) return null;
+  if (globalTime < segmentStart || globalTime >= segmentStart + segmentDuration) return null;
+  return globalTime - segmentStart;
+}
+
+/**
+ * Decide what a media timeupdate is allowed to do while a seek is outstanding.
+ * Publishing start+0 before the new file has seeked is what drops 02:10 and
+ * 02:20 onto the start of the loaded minute.
+ *
+ * @param {{ segmentStart: number, segmentDuration: number, mediaTime: number, pendingGlobal: number | null }} input
+ * @returns {{ publishGlobal: number | null, retryLocal: number | null, clearPending: boolean }}
+ */
+export function resolveMediaClock(input) {
+  const segmentStart = input?.segmentStart;
+  const segmentDuration = input?.segmentDuration;
+  const mediaTime = input?.mediaTime;
+  const pendingGlobal = input?.pendingGlobal;
+  const idle = { publishGlobal: null, retryLocal: null, clearPending: false };
+
+  if (pendingGlobal == null || !Number.isFinite(pendingGlobal)) {
+    if (Number.isFinite(segmentStart) && Number.isFinite(mediaTime)) {
+      return { publishGlobal: segmentStart + mediaTime, retryLocal: null, clearPending: false };
+    }
+    return idle;
+  }
+
+  const local = localMediaTime(segmentStart, segmentDuration, pendingGlobal);
+  if (local == null) {
+    // The mounted file is not the segment the seek asked for. Leave it alone
+    // and do not publish its clock over the requested time.
+    return idle;
+  }
+
+  if (Number.isFinite(mediaTime) && Math.abs(mediaTime - local) <= SEEK_LANDED_SECONDS) {
+    return { publishGlobal: segmentStart + mediaTime, retryLocal: null, clearPending: true };
+  }
+
+  return { publishGlobal: null, retryLocal: local, clearPending: false };
 }
 
 export function shouldCorrectDrift(driftSeconds, threshold = SYNC_DRIFT_SECONDS) {

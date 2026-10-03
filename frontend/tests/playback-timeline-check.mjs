@@ -4,7 +4,10 @@ import {
   applyPlayerTransport,
   assignPlaybackRate,
   buildCameraSegments,
+  findSegmentAtTime,
+  localMediaTime,
   peerSeekTargets,
+  resolveMediaClock,
   timelineDurationSeconds,
 } from '../src/utils/playbackTimeline.mjs';
 
@@ -130,11 +133,107 @@ assert(
 );
 assert(fresh.rate === 1.5, `segment change must apply 1.5x, got ${fresh.rate}`);
 
+// Cross-segment seek: 02:10 and 02:20 are inside the minute that starts at 120s.
+// Reporting media time 0 must not publish 02:00, and the retry offset is 10s / 20s.
+const threeMinutes = buildCameraSegments([
+  { camera: 'Front', file_path: '/m0.mp4', timestamp: '2026-02-18T02:00:00Z' },
+  { camera: 'Front', file_path: '/m1.mp4', timestamp: '2026-02-18T02:01:00Z' },
+  { camera: 'Front', file_path: '/m2.mp4', timestamp: '2026-02-18T02:02:00Z' },
+], {});
+const at130 = findSegmentAtTime(threeMinutes.front, 130);
+const at140 = findSegmentAtTime(threeMinutes.front, 140);
+assert(at130 && at130.segment.file_path === '/m2.mp4', '02:10 belongs to the minute starting at 02:00');
+assert(at140 && at140.segment.file_path === '/m2.mp4', '02:20 belongs to the same minute');
+assert(localMediaTime(at130.segment.startTime, at130.segment.duration, 130) === 10, '02:10 is 10s into that file');
+assert(localMediaTime(at140.segment.startTime, at140.segment.duration, 140) === 20, '02:20 is 20s into that file');
+assert(localMediaTime(60, 60, 120) === null, 'a time exactly at the segment end belongs to the next minute');
+assert(localMediaTime(120, 60, 120) === 0, 'the next minute owns its start');
+
+const notLanded = resolveMediaClock({
+  segmentStart: 120,
+  segmentDuration: 60,
+  mediaTime: 0,
+  pendingGlobal: 130,
+});
+assert(notLanded.publishGlobal === null, 'media time 0 must not publish the start of the loaded minute');
+assert(notLanded.retryLocal === 10, `unlanded 02:10 seek must retry local 10, got ${notLanded.retryLocal}`);
+assert(notLanded.clearPending === false, 'pending seek stays until the element reports the offset');
+
+const notLandedLater = resolveMediaClock({
+  segmentStart: 120,
+  segmentDuration: 60,
+  mediaTime: 0,
+  pendingGlobal: 140,
+});
+assert(notLandedLater.retryLocal === 20, `unlanded 02:20 seek must retry local 20, got ${notLandedLater.retryLocal}`);
+assert(notLandedLater.publishGlobal === null, '02:20 must not collapse to the segment start either');
+
+const landed = resolveMediaClock({
+  segmentStart: 120,
+  segmentDuration: 60,
+  mediaTime: 10,
+  pendingGlobal: 130,
+});
+assert(landed.clearPending === true, 'media time at the requested offset clears the pending seek');
+assert(landed.publishGlobal === 130, `landed seek publishes 130, got ${landed.publishGlobal}`);
+assert(landed.retryLocal === null, 'a landed seek does not seek again');
+
+const natural = resolveMediaClock({
+  segmentStart: 120,
+  segmentDuration: 60,
+  mediaTime: 12,
+  pendingGlobal: null,
+});
+assert(natural.publishGlobal === 132, 'ordinary playback still publishes the media clock');
+assert(natural.retryLocal === null, 'ordinary playback does not invent a seek');
+assert(natural.clearPending === false, 'ordinary playback has nothing to clear');
+
+const oldSegment = resolveMediaClock({
+  segmentStart: 0,
+  segmentDuration: 60,
+  mediaTime: 50,
+  pendingGlobal: 130,
+});
+assert(oldSegment.publishGlobal === null, 'the previous minute must not publish over a seek into a later minute');
+assert(oldSegment.retryLocal === null, 'the previous minute must not be seeked past its own duration');
+
+const segmentStartSeek = resolveMediaClock({
+  segmentStart: 120,
+  segmentDuration: 60,
+  mediaTime: 0,
+  pendingGlobal: 120,
+});
+assert(segmentStartSeek.clearPending === true, 'seeking exactly to a segment start counts as landed');
+assert(segmentStartSeek.publishGlobal === 120, 'a landed start seek publishes that start');
+
+const cross = {
+  isDisposed: () => false,
+  rate: 1,
+  time: 0,
+  playbackRate(rate) {
+    if (rate !== undefined) this.rate = rate;
+    return this.rate;
+  },
+  currentTime(time) {
+    if (time !== undefined) this.time = time;
+    return this.time;
+  },
+};
+assert(
+  applyPlayerTransport(cross, { playbackRate: 1.5, localTime: 10 }) === true,
+  'cross-segment transport must apply'
+);
+assert(cross.rate === 1.5, `cross-segment seek must keep 1.5x, got ${cross.rate}`);
+assert(cross.time === 10, `cross-segment seek must set local time 10, got ${cross.time}`);
+
 const playerSrc = readFileSync(new URL('../src/components/Player.tsx', import.meta.url), 'utf8');
 assert(playerSrc.includes('applyPlayerTransport'), 'Player must apply transport when a segment player is ready');
 assert(playerSrc.includes('shouldCorrectDrift'), 'Player must correct inter-camera drift');
 assert(playerSrc.includes('assignPlaybackRate'), 'Player must set speed through the null-element guard');
 assert(playerSrc.includes('buildCameraSegments'), 'Player timeline must use the shared segment builder');
+assert(playerSrc.includes('pendingSeekRef'), 'Player must hold a cross-segment seek until the new file lands');
+assert(playerSrc.includes('resolveMediaClock'), 'Player must not publish a segment start while a seek is pending');
+assert(playerSrc.includes("'canplay'"), 'Player must retry the seek once the new element can play');
 
 const overlaySrc = readFileSync(new URL('../src/components/TelemetryOverlay.tsx', import.meta.url), 'utf8');
 assert(overlaySrc.includes('SYNC APPROX'), 'HUD keeps the approximate-sync label');

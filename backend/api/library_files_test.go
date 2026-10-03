@@ -306,6 +306,69 @@ func TestLibraryFilesOrder(t *testing.T) {
 	}
 }
 
+func TestLibraryFilesDuplicatePathAcrossClips(t *testing.T) {
+	r := setupLibraryRouter(t)
+	// Two live member ids of one Saved event, same Front path, no footage required.
+	const frontPath = "/synthetic/files/2026-02-15_mawson-lakes-front.mp4"
+	const backPath = "/synthetic/files/2026-02-15_mawson-lakes-back.mp4"
+	ts := time.Date(2026, 2, 15, 1, 30, 0, 0, time.UTC)
+	earlier := createClipWithTelemetry(t, models.Clip{
+		Timestamp: ts,
+		Event:     "Saved",
+		City:      "Mawson Lakes",
+		Reason:    "user_interaction_honk",
+	}, -34.8060, 138.6130, []models.VideoFile{
+		{Camera: "Front", FilePath: frontPath, Timestamp: ts},
+		{Camera: "Front", FilePath: frontPath, Timestamp: ts},
+	})
+	later := createClipWithTelemetry(t, models.Clip{
+		Timestamp: ts.Add(time.Minute),
+		Event:     "Saved",
+		City:      "Mawson Lakes",
+		Reason:    "user_interaction_honk",
+	}, -34.8060, 138.6130, []models.VideoFile{
+		{Camera: "front", FilePath: frontPath, Timestamp: ts},
+		{Camera: "Back", FilePath: backPath, Timestamp: ts},
+	})
+
+	q := libraryFilesQuery(fmt.Sprintf("%d", later.ID), fmt.Sprintf("%d", earlier.ID))
+	code, resp, body := doGetLibraryFiles(t, r, q)
+	if code != http.StatusOK {
+		t.Fatalf("status %d, want 200, body %s", code, body)
+	}
+	if len(resp.MissingIDs) != 0 {
+		t.Fatalf("both member ids are live, missing_ids = %v", resp.MissingIDs)
+	}
+
+	frontCount := 0
+	backCount := 0
+	for _, file := range resp.Files {
+		switch file.FilePath {
+		case frontPath:
+			frontCount++
+			if file.ClipID != earlier.ID {
+				t.Errorf("kept front clip_id = %d, want earlier member %d", file.ClipID, earlier.ID)
+			}
+		case backPath:
+			backCount++
+			if file.ClipID != later.ID {
+				t.Errorf("back clip_id = %d, want later member %d", file.ClipID, later.ID)
+			}
+		default:
+			t.Errorf("unexpected file %s", file.FilePath)
+		}
+	}
+	if frontCount != 1 {
+		t.Fatalf("front path count = %d, want 1, body %s", frontCount, body)
+	}
+	if backCount != 1 {
+		t.Fatalf("distinct back path count = %d, want 1, body %s", backCount, body)
+	}
+	if len(resp.Files) != 2 {
+		t.Fatalf("files = %d, want 2 (one front, one back), body %s", len(resp.Files), body)
+	}
+}
+
 func TestLibraryFilesSoftDeletedVideoFileOmitted(t *testing.T) {
 	r := setupLibraryRouter(t)
 	clip := createClipWithTelemetry(t, models.Clip{

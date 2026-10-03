@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -84,6 +85,43 @@ func loadLibraryFiles(ids []uint) ([]libraryFileRow, error) {
 	return rows, err
 }
 
+// dedupeLibraryFiles collapses rows that are the same camera file.
+// A merged Saved or Sentry event is several clip ids, and each id can point
+// at the same MP4. SQL DISTINCT cannot drop those rows because clip_id differs.
+// The first row in the query order (clip time, camera, file time, file id) is kept.
+// Both clip ids stay live, so neither is added to missing_ids.
+func dedupeLibraryFiles(rows []libraryFileRow) []libraryFileRow {
+	if len(rows) < 2 {
+		return rows
+	}
+	seen := make(map[string]struct{}, len(rows))
+	out := make([]libraryFileRow, 0, len(rows))
+	for _, row := range rows {
+		key := libraryFileDedupeKey(row)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, row)
+	}
+	return out
+}
+
+func libraryFileDedupeKey(row libraryFileRow) string {
+	return canonicalCamera(row.Camera) + "\x00" + row.FilePath
+}
+
+func canonicalCamera(name string) string {
+	var b strings.Builder
+	b.Grow(len(name))
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func getLibraryFiles(c *gin.Context) {
 	ids, ok := parseLibraryFileIDs(c)
 	if !ok {
@@ -108,6 +146,7 @@ func getLibraryFiles(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	files = dedupeLibraryFiles(files)
 	if files == nil {
 		files = []libraryFileRow{}
 	}

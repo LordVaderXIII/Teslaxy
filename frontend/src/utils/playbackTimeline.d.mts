@@ -1,5 +1,12 @@
 export const DEFAULT_SEGMENT_SECONDS: 60;
 export const SYNC_DRIFT_SECONDS: 0.3;
+export const SEEK_LANDED_SECONDS: 0.5;
+
+export interface MediaClockDecision {
+  publishGlobal: number | null;
+  retryLocal: number | null;
+  clearPending: boolean;
+}
 
 export interface CameraSegment {
   file_path: string;
@@ -47,6 +54,19 @@ export function applyPlayerTransport(
   player: PlaybackPlayer | null | undefined,
   transport: PlayerTransport
 ): boolean;
+
+export function localMediaTime(
+  segmentStart: number,
+  segmentDuration: number,
+  globalTime: number
+): number | null;
+
+export function resolveMediaClock(input: {
+  segmentStart: number;
+  segmentDuration: number;
+  mediaTime: number;
+  pendingGlobal: number | null;
+}): MediaClockDecision;
 
 export function shouldCorrectDrift(driftSeconds: number, threshold?: number): boolean;
 

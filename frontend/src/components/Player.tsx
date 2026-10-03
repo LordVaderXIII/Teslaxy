@@ -10,7 +10,9 @@ import {
   buildCameraSegments,
   findSegmentAtTime,
   isControllablePlayer,
+  localMediaTime,
   normalizeCameraName,
+  resolveMediaClock,
   shouldCorrectDrift,
   timelineDurationSeconds,
 } from '../utils/playbackTimeline.mjs';
@@ -163,6 +165,10 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
 
   // Bolt: Ref to track current time without triggering re-renders in callbacks
   const currentTimeRef = useRef(0);
+  // Holds a requested global time until the mounted element reports that offset.
+  // Publishing segmentStart+0 before the seek sticks is what drops 02:10 onto 02:01.
+  const pendingSeekRef = useRef<number | null>(null);
+  const seekApplyDepth = useRef(0);
   useEffect(() => {
     currentTimeRef.current = currentTime;
   }, [currentTime]);
@@ -285,7 +291,8 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
           }
           const seg = segmentForPlayer(cam, player);
           if (!seg) continue;
-          const local = Math.max(0, globalTime - seg.startTime);
+          const local = localMediaTime(seg.startTime, seg.duration, globalTime);
+          if (local == null) continue;
           let now = Number.NaN;
           try {
               now = player.currentTime();
@@ -339,13 +346,24 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
 
     const align = () => {
       if (!isControllablePlayer(player)) return;
+      if (seekApplyDepth.current > 0) return;
       const seg = segmentForPlayer(camera, player);
-      const localTime = seg ? Math.max(0, currentTimeRef.current - seg.startTime) : 0;
-      const applied = applyPlayerTransport(player, {
-        playbackRate: playbackSpeedRef.current,
-        localTime: seg ? localTime : undefined,
-        play: isPlayingRef.current,
-      });
+      const pending = pendingSeekRef.current;
+      const clock = pending != null ? pending : currentTimeRef.current;
+      // Null means this element is still showing a different minute. Do not
+      // seek it past its own duration; the remounted element applies the offset.
+      const localTime = seg ? localMediaTime(seg.startTime, seg.duration, clock) : null;
+      seekApplyDepth.current += 1;
+      let applied = false;
+      try {
+        applied = applyPlayerTransport(player, {
+          playbackRate: playbackSpeedRef.current,
+          localTime: localTime == null ? undefined : localTime,
+          play: isPlayingRef.current,
+        });
+      } finally {
+        seekApplyDepth.current -= 1;
+      }
       if (!applied) {
         releasePlayer(camera, player);
         return;
@@ -381,8 +399,6 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
     };
 
     const onTimeUpdate = () => {
-      // The feature camera is the clock, including after focus moves off Front.
-      if (camera !== activeCameraRef.current) return;
       if (!isControllablePlayer(player)) return;
       const seg = segmentForPlayer(camera, player);
       if (!seg) return;
@@ -392,12 +408,37 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
       } catch {
         return;
       }
-      const global = seg.startTime + local;
-      if (Math.abs(global - currentTimeRef.current) > 0.1) {
-        setCurrentTime(global);
+      const decision = resolveMediaClock({
+        segmentStart: seg.startTime,
+        segmentDuration: seg.duration,
+        mediaTime: local,
+        pendingGlobal: pendingSeekRef.current,
+      });
+      if (decision.retryLocal != null && seekApplyDepth.current === 0) {
+        seekApplyDepth.current += 1;
+        try {
+          const applied = applyPlayerTransport(player, {
+            playbackRate: playbackSpeedRef.current,
+            localTime: decision.retryLocal,
+          });
+          if (!applied) releasePlayer(camera, player);
+        } finally {
+          seekApplyDepth.current -= 1;
+        }
       }
-      syncPeers(camera, global);
+
+      // Only the feature camera publishes the clock, and only after a pending
+      // cross-segment seek has actually landed. Peers still retry above.
+      if (camera !== activeCameraRef.current) return;
+      if (decision.clearPending) pendingSeekRef.current = null;
+      if (decision.publishGlobal == null) return;
+      if (Math.abs(decision.publishGlobal - currentTimeRef.current) > 0.1) {
+        currentTimeRef.current = decision.publishGlobal;
+        setCurrentTime(decision.publishGlobal);
+      }
+      syncPeers(camera, decision.publishGlobal);
       rememberMediaDuration(seg.file_path, player);
+      if (pendingSeekRef.current != null) return;
       let duration = 0;
       try {
         duration = player.duration();
@@ -410,13 +451,16 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
     };
 
     const onEnded = () => {
+      if (pendingSeekRef.current != null) return;
       if (camera === activeCameraRef.current) checkAdvance();
     };
-    const onMeta = () => align();
+    const onMediaReady = () => align();
 
     player.on('timeupdate', onTimeUpdate);
     player.on('ended', onEnded);
-    player.on('loadedmetadata', onMeta);
+    player.on('loadedmetadata', onMediaReady);
+    player.on('loadeddata', onMediaReady);
+    player.on('canplay', onMediaReady);
     const off = (event: string, fn: () => void) => {
       try {
         player.off(event, fn);
@@ -427,7 +471,9 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
     listenerCleanups.current.push(
       () => off('timeupdate', onTimeUpdate),
       () => off('ended', onEnded),
-      () => off('loadedmetadata', onMeta),
+      () => off('loadedmetadata', onMediaReady),
+      () => off('loadeddata', onMediaReady),
+      () => off('canplay', onMediaReady),
     );
 
     const onPlay = () => {
@@ -466,10 +512,12 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
 
   const handleSeek = useCallback((time: number) => {
       const newTime = Math.max(0, Math.min(time, totalDuration));
+      pendingSeekRef.current = newTime;
       currentTimeRef.current = newTime;
       setCurrentTime(newTime);
 
-      // We need to sync the players to this new time
+      // Players already showing the target file can seek now. A minute change
+      // remounts the element; pendingSeekRef is applied once that file can play.
       Object.keys(segments).forEach(cam => {
           const info = getSegmentAtTime(cam, newTime);
           if (!info) return;
@@ -483,13 +531,18 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
           if (!isControllablePlayer(p)) return;
           try {
               const src = playerSrcPath(p);
-              if (src && src.endsWith(info.segment.file_path)) {
-                  const localTime = newTime - info.segment.startTime;
-                  if (Math.abs(p.currentTime() - localTime) > 0.5) {
-                      p.currentTime(localTime);
+              const localTime = localMediaTime(info.segment.startTime, info.segment.duration, newTime);
+              const onTarget = Boolean(src && src.endsWith(info.segment.file_path) && localTime != null);
+              if (onTarget) {
+                  if (!applyPlayerTransport(p, {
+                      playbackRate: playbackSpeedRef.current,
+                      localTime: localTime as number,
+                  })) {
+                      releasePlayer(displayName, p);
                   }
+              } else if (!assignPlaybackRate(p, playbackSpeedRef.current)) {
+                  releasePlayer(displayName, p);
               }
-              assignPlaybackRate(p, playbackSpeedRef.current);
           } catch {
               releasePlayer(displayName, p);
           }
