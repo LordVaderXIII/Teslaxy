@@ -11,8 +11,17 @@ interface Clip {
     event: string;
     city: string;
     event_timestamp?: string;
-    telemetry?: any;
-    video_files?: any[];
+    telemetry?: {
+        latitude?: number;
+        longitude?: number;
+    };
+    video_files?: { camera: string; file_path: string; timestamp: string }[];
+    preview_path?: string;
+    preview_seek_seconds?: number;
+}
+
+interface ClusterIcon {
+    getChildCount: () => number;
 }
 
 interface MapModalProps {
@@ -23,29 +32,41 @@ interface MapModalProps {
 }
 
 // Custom Icons
-const createClusterCustomIcon = (cluster: any) => {
+const createClusterCustomIcon = (cluster: ClusterIcon) => {
     return L.divIcon({
-        html: `<div class="w-full h-full flex items-center justify-center bg-blue-600 text-white font-bold rounded-full border-2 border-gray-900 shadow-lg text-sm">${cluster.getChildCount()}</div>`,
+        html: `<div class="w-full h-full flex items-center justify-center bg-[#ffb020] text-[#070806] font-bold rounded-[3px] border border-[#6b5322] shadow-lg text-[16px]">${cluster.getChildCount()}</div>`,
         className: 'custom-cluster-icon', // Used for verification
         iconSize: L.point(40, 40, true),
     });
 };
 
 const customMarkerIcon = L.divIcon({
-    html: `<div class="w-full h-full bg-blue-500 rounded-full border-2 border-white shadow-md"></div>`,
+    html: `<div class="w-full h-full bg-[#ffb020] rounded-full border-2 border-[#070806] shadow-md"></div>`,
     className: 'custom-marker-icon', // Used for verification
     iconSize: L.point(16, 16, true), // Small dot
     iconAnchor: [8, 8], // Center it
 });
 
 // Component to auto-fit map bounds
+const clipLatLng = (clip: Clip): [number, number] | null => {
+    const lat = clip.telemetry?.latitude;
+    const lng = clip.telemetry?.longitude;
+    if (typeof lat === 'number' && typeof lng === 'number' && lat !== 0 && lng !== 0) {
+        return [lat, lng];
+    }
+    return null;
+};
+
 const MapAutoFit = ({ clips }: { clips: Clip[] }) => {
     const map = useMap();
 
     useEffect(() => {
         if (clips.length === 0) return;
 
-        const points = clips.map(c => L.latLng(c.telemetry!.latitude, c.telemetry!.longitude));
+        const points = clips
+            .map(clipLatLng)
+            .filter((p): p is [number, number] => p !== null)
+            .map(([lat, lng]) => L.latLng(lat, lng));
         const bounds = L.latLngBounds(points);
 
         if (bounds.isValid()) {
@@ -58,18 +79,18 @@ const MapAutoFit = ({ clips }: { clips: Clip[] }) => {
 
 const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelect }) => {
     const mapClips = useMemo(() => {
-        return clips.filter(c =>
-            c.telemetry &&
-            typeof c.telemetry.latitude === 'number' &&
-            typeof c.telemetry.longitude === 'number' &&
-            c.telemetry.latitude !== 0 &&
-            c.telemetry.longitude !== 0
-        );
+        return clips.filter(c => clipLatLng(c) !== null);
     }, [clips]);
 
     const getThumbnailUrl = (clip: Clip) => {
-        const frontVideo = clip.video_files?.find((v: any) => v.camera === 'Front');
-        if (!frontVideo) return '';
+        const frontVideo = clip.video_files?.find((v) => v.camera === 'Front');
+        if (!frontVideo) {
+            if (clip.preview_path) {
+                const seek = clip.preview_seek_seconds ?? 0;
+                return `/api/thumbnail${clip.preview_path}?time=${seek}&w=320`;
+            }
+            return '';
+        }
 
         const params = new URLSearchParams();
         params.append('w', '320');
@@ -101,31 +122,31 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
 
     if (!isOpen) return null;
 
-    const center: [number, number] = mapClips.length > 0
-        ? [mapClips[0].telemetry!.latitude, mapClips[0].telemetry!.longitude]
-        : [0, 0];
+    const center: [number, number] = (mapClips[0] && clipLatLng(mapClips[0])) || [0, 0];
 
     return (
         <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+            className="desk-dialog-wrap"
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose();
             }}
         >
-            <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full h-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden relative">
-
-                {/* Header */}
-                <div className="absolute top-4 right-4 z-[1000]">
+            <div className="bg-[var(--panel)] border border-[var(--line-2)] rounded-[5px] w-full h-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden relative">
+                <div className="flex justify-between items-start gap-3 p-4 border-b border-dashed border-[var(--line)]">
+                    <div>
+                        <span className="desk-eyebrow">// LOCATION CONTEXT</span>
+                        <h3 className="desk-title text-[22px] mt-1">Event map</h3>
+                    </div>
                     <button
                         onClick={onClose}
-                        className="bg-gray-800 text-white p-2 rounded-full shadow-lg hover:bg-gray-700 transition-colors border border-gray-600 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900"
+                        className="desk-iconbtn"
                         aria-label="Close Map"
                     >
                         <X size={24} />
                     </button>
                 </div>
 
-                <div className="w-full h-full bg-[#1e1e1e]">
+                <div className="w-full flex-1 min-h-0 bg-[var(--panel-2)]">
                      <MapContainer
                         center={center}
                         zoom={13}
@@ -143,16 +164,20 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                             spiderfyOnMaxZoom={true}
                             showCoverageOnHover={false}
                         >
-                            {mapClips.map((clip) => (
+                            {mapClips.map((clip) => {
+                                const pos = clipLatLng(clip);
+                                if (!pos) return null;
+                                const thumbUrl = getThumbnailUrl(clip);
+                                return (
                                 <Marker
                                     key={clip.ID}
-                                    position={[clip.telemetry!.latitude, clip.telemetry!.longitude]}
+                                    position={pos}
                                     icon={customMarkerIcon}
                                 >
                                     <Popup className="custom-popup">
-                                        <div className="w-48 text-gray-900">
-                                            <div className="font-bold mb-1">{clip.city || 'Unknown Location'}</div>
-                                            <div className="text-xs text-gray-600 mb-2">
+                                        <div className="w-48 text-[var(--bg)]">
+                                            <div className="font-bold mb-1">{clip.city || 'Unknown location'}</div>
+                                            <div className="text-[16px] text-[var(--muted)] mb-2">
                                                 {new Date(clip.timestamp).toLocaleString()}
                                             </div>
 
@@ -161,34 +186,35 @@ const MapModal: React.FC<MapModalProps> = ({ isOpen, onClose, clips, onClipSelec
                                                     onClipSelect(clip);
                                                     onClose();
                                                 }}
-                                                className="w-full group relative aspect-video bg-gray-200 rounded overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                                                className="w-full group relative aspect-video bg-[var(--panel-2)] rounded-[3px] overflow-hidden outline-none"
                                             >
-                                               {clip.video_files?.find((v:any) => v.camera === 'Front') ? (
+                                               {thumbUrl ? (
                                                    <img
-                                                       src={getThumbnailUrl(clip)}
+                                                       src={thumbUrl}
                                                        alt="Thumbnail"
-                                                       className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                                                       className="w-full h-full object-cover"
                                                        onError={(e) => {
                                                            e.currentTarget.style.display = 'none';
-                                                           e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-gray-800', 'text-gray-400');
+                                                           e.currentTarget.parentElement?.classList.add('flex', 'items-center', 'justify-center', 'bg-[var(--panel-2)]', 'text-[var(--muted)]');
                                                            if (e.currentTarget.parentElement) {
                                                                e.currentTarget.parentElement.innerText = clip.event;
                                                            }
                                                        }}
                                                    />
                                                ) : (
-                                                   <div className="flex items-center justify-center h-full text-xs font-bold uppercase text-gray-500">
+                                                   <div className="flex items-center justify-center h-full text-[16px] font-bold uppercase text-[var(--muted)]">
                                                        {clip.event}
                                                    </div>
                                                )}
-                                               <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/0 transition-colors">
-                                                    <div className="bg-white/90 px-2 py-1 rounded text-xs font-bold shadow-sm">Play</div>
+                                               <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                                    <div className="bg-[var(--accent)] text-[var(--bg)] px-2 py-1 rounded-[3px] text-[16px] font-bold">Play</div>
                                                </div>
                                             </button>
                                         </div>
                                     </Popup>
                                 </Marker>
-                            ))}
+                                );
+                            })}
                         </MarkerClusterGroup>
                     </MapContainer>
                 </div>

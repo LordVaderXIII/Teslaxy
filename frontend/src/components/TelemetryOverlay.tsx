@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
 import { ArrowLeft, ArrowRight, CircleAlert } from 'lucide-react';
+import { telemetryIndex } from '../utils/telemetryIndex.mjs';
 
 interface TelemetryPoint {
-  frame_seq_no: number;
+  frame_seq_no?: number;
   vehicle_speed_mps: number;
   accelerator_pedal_position: number;
   steering_wheel_angle: number;
@@ -32,17 +33,12 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson
     }
   }, [dataJson]);
 
-  // Derive current point using proportional indexing (fps-agnostic)
-  const currentPoint = useMemo(() => {
-    if (data.length === 0 || duration <= 0) return null;
+  const { currentPoint, approximate } = useMemo(() => {
+    if (data.length === 0 || duration <= 0) return { currentPoint: null, approximate: false };
 
-    let index = Math.floor((currentTime / duration) * data.length);
-
-    // Clamp
-    if (index < 0) index = 0;
-    if (index >= data.length) index = data.length - 1;
-
-    return data[index];
+    const { index, approximate: approx } = telemetryIndex(data, currentTime, duration);
+    const clamped = Math.max(0, Math.min(data.length - 1, index));
+    return { currentPoint: data[clamped] ?? null, approximate: approx };
   }, [currentTime, data, duration]);
 
   if (!currentPoint) return null;
@@ -72,68 +68,67 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson
   const accelPos = currentPoint.accelerator_pedal_position || 0;
 
   return (
-    <div className="absolute top-8 left-1/2 transform -translate-x-1/2 w-80 p-4 rounded-xl bg-gray-900 bg-opacity-80 backdrop-blur-md border border-gray-700 shadow-2xl text-white font-sans select-none z-50">
+    <div
+      className="absolute top-8 left-1/2 -translate-x-1/2 p-4 rounded-[5px] bg-[var(--panel)] border border-[var(--line)] text-[var(--ink)] font-[var(--font-mono)] select-none z-50 pointer-events-none"
+      style={{ maxWidth: 'min(20rem, calc(100% - 24px))', width: '100%' }}
+    >
 
-      {/* Top Row: Gear - Brake - Arrows - Speed - Arrows - Steering */}
       <div className="flex justify-between items-center mb-4">
           <div className="flex items-center space-x-2">
-            {/* Gear */}
-            <div className={`text-xl font-bold ${gear === 'D' || gear === 'R' ? 'text-blue-500' : 'text-gray-400'}`}>
+            <div className={`text-xl font-bold ${gear === 'D' || gear === 'R' ? 'text-[var(--accent)]' : 'text-[var(--muted)]'}`}>
                 {gear}
             </div>
-            {/* Brake Indicator */}
             <CircleAlert
                 size={20}
-                className={`${brakeApplied ? 'text-red-500 animate-pulse fill-red-500/20' : 'text-gray-700'}`}
+                className={`${brakeApplied ? 'text-[var(--sev-crit)]' : 'text-[var(--ghost)]'}`}
             />
           </div>
 
           <div className="flex items-center space-x-4">
-              {/* Left Blinker */}
               <ArrowLeft
                 size={24}
-                className={`${isBlinkerLeft ? 'text-green-500 animate-pulse' : 'text-gray-600'}`}
+                className={`${isBlinkerLeft ? 'text-[var(--sev-ok)]' : 'text-[var(--ghost)]'}`}
               />
 
-              {/* Speed */}
               <div className="flex flex-col items-center">
                 <div className="text-5xl font-light tracking-tighter leading-none">
                     {speed}
                 </div>
-                <div className="text-xs text-gray-400 font-medium tracking-wider uppercase mt-1">
+                <div className="text-[16px] text-[var(--muted)] font-medium tracking-wider uppercase mt-1">
                     km/h
                 </div>
               </div>
 
-              {/* Right Blinker */}
               <ArrowRight
                 size={24}
-                className={`${isBlinkerRight ? 'text-green-500 animate-pulse' : 'text-gray-600'}`}
+                className={`${isBlinkerRight ? 'text-[var(--sev-ok)]' : 'text-[var(--ghost)]'}`}
               />
           </div>
 
-           {/* Steering Wheel Icon (Rotated) */}
-           <div style={{ transform: `rotate(${steering}deg)`, transition: 'transform 0.1s' }}>
+           <div style={{ transform: `rotate(${steering}deg)` }} className="desk-motion">
                 <img
                     src="/steering_wheel.png"
                     alt="Steering Wheel"
-                    className="w-16 h-16 object-contain drop-shadow-lg"
+                    className="w-16 h-16 object-contain"
                 />
            </div>
       </div>
 
-      {/* Accelerator Bar */}
-      <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden mb-2 relative">
+      <div className="w-full h-2 bg-[var(--ghost)] rounded-[3px] overflow-hidden mb-2 relative">
           <div
-              className="h-full bg-green-500 opacity-90 transition-all duration-75 ease-out"
-              style={{ width: `${accelPos}%` }}
+              className="h-full bg-[var(--sev-ok)] origin-left"
+              style={{ transform: `scaleX(${Math.max(0, Math.min(100, accelPos)) / 100})` }}
           />
       </div>
 
-      {/* Autopilot Status */}
       {apState && (
-          <div className="text-center text-blue-500 font-semibold text-sm uppercase tracking-wide mt-2">
+          <div className="text-center text-[var(--accent)] font-semibold text-[16px] uppercase tracking-wide mt-2">
               {apState}
+          </div>
+      )}
+      {approximate && (
+          <div className="text-center text-[var(--muted)] font-semibold text-[16px] uppercase tracking-wide mt-2">
+              SYNC APPROX
           </div>
       )}
     </div>

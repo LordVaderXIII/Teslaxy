@@ -1,12 +1,12 @@
 package api
 
 import (
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"io"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jinzhu/gorm"
@@ -34,6 +34,8 @@ func SetupRoutes(r *gin.Engine) {
 	{
 		api.GET("/clips", getClips)
 		api.GET("/clips/:id", getClipDetails)
+		api.GET("/library", getLibrary)
+		api.GET("/library/files", getLibraryFiles)
 		// Apply CORS only to video serving to support 3D textures (crossOrigin)
 		api.GET("/video/*path", CORSMiddleware(), serveVideo)
 		api.GET("/thumbnail/*path", getThumbnail)
@@ -61,9 +63,9 @@ func SetupRoutes(r *gin.Engine) {
 // The frontend mergeClips() is now only a safety net for clips that the scanner hasn't grouped yet.
 //
 // Source of truth priority:
-//   1. event.json (city, reason, timestamp, coordinates)
-//   2. SEI telemetry extracted from Front camera MP4s (via aggregateTelemetry)
-//   3. Filename parsing as last resort
+//  1. event.json (city, reason, timestamp, coordinates)
+//  2. SEI telemetry extracted from Front camera MP4s (via aggregateTelemetry)
+//  3. Filename parsing as last resort
 func getClips(c *gin.Context) {
 	var clips []models.Clip
 	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, source_dir, telemetry_id").

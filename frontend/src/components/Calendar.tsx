@@ -72,7 +72,7 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
     const days = [];
     // Padding for first week
     for (let i = 0; i < firstDay; i++) {
-      days.push(<div key={`pad-${i}`} className="h-8 w-8" />);
+      days.push(<div key={`pad-${i}`} className="h-11 w-11" />);
     }
 
     for (let i = 1; i <= daysInMonth; i++) {
@@ -92,10 +92,10 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
           onClick={() => onDateSelect(date)}
           aria-label={label}
           className={`
-            h-8 w-8 rounded-full flex items-center justify-center text-sm transition outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900
-            ${selected ? 'bg-blue-600 text-white font-bold' : ''}
-            ${!selected && hasFootage ? 'bg-gray-700 text-gray-200 font-medium' : ''}
-            ${!selected && !hasFootage ? 'text-gray-500 hover:bg-gray-800' : ''}
+            h-11 w-11 rounded-[3px] flex items-center justify-center text-[16px] outline-none
+            ${selected ? 'bg-[var(--accent)] text-[var(--bg)] font-bold' : ''}
+            ${!selected && hasFootage ? 'bg-[var(--ghost)] text-[var(--ink)] font-medium' : ''}
+            ${!selected && !hasFootage ? 'text-[var(--muted)] hover:bg-[var(--panel-2)]' : ''}
           `}
         >
           {i}
@@ -110,23 +110,23 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
   // But for now, we keep existing logic to minimize regression risk.
 
   return (
-    <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+    <div className="bg-[var(--panel-2)] rounded-[5px] p-4 border border-[var(--line)]">
       <div className="flex justify-between items-center mb-4">
         <button
           onClick={handlePrevMonth}
-          className="p-1 hover:bg-gray-800 rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+          className="desk-iconbtn"
           aria-label="Previous Month"
         >
           <ChevronLeft size={16} />
         </button>
-        <span className="font-semibold text-sm">
+        <span className="font-semibold text-[16px] text-[var(--ink)]">
           {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
         </span>
         <div className="flex items-center gap-1">
           {!isCurrentMonth() && (
             <button
               onClick={handleJumpToToday}
-              className="px-2 py-0.5 text-xs font-bold text-blue-400 hover:text-blue-300 hover:bg-blue-900/30 rounded transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              className="desk-lightbtn px-2"
               aria-label="Jump to Today"
               title="Jump to Today"
             >
@@ -135,7 +135,7 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
           )}
           <button
             onClick={handleNextMonth}
-            className="p-1 hover:bg-gray-800 rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            className="desk-iconbtn"
             aria-label="Next Month"
           >
             <ChevronRight size={16} />
@@ -145,7 +145,7 @@ const Calendar: React.FC<CalendarProps> = ({ currentDate, onDateSelect, clips })
 
       <div className="grid grid-cols-7 gap-1 text-center mb-2">
         {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-          <div key={`${d}-${i}`} className="text-xs text-gray-500 font-mono">{d}</div>
+          <div key={`${d}-${i}`} className="text-[16px] text-[var(--muted)] font-mono">{d}</div>
         ))}
       </div>
 

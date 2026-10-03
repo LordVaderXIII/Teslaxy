@@ -1,0 +1,20 @@
+/* Vendor copy of Terminal design-system tokens.
+ * Provenance: /home/reuben/workspace/fleet/terminal-design-system/tokens/
+ * Do not import host absolute paths in built CSS. Keep this file in-repo. */
+:root {
+  --bg: #070806;
+  --panel: #0b0c08;
+  --panel-2: #0e100a;
+  --ghost: #3a2e10;
+  --line: #6b5322;
+  --line-2: #8a6c2c;
+  --ink: #f2d9a0;
+  --ink-2: #d6c08d;
+  --muted: #ad9459;
+  --accent: #ffb020;
+  --accent-2: #ff7a18;
+  --sev-crit: #ff4438;
+  --sev-ok: #37d67a;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
