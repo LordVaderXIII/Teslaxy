@@ -119,6 +119,7 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson
                     className="desk-hud-wheel"
                 />
            </div>
+           <span className="desk-hud-steer">{Math.round(steering)}°</span>
       </div>
 
       <div className="desk-hud-track" aria-label="Accelerator">
