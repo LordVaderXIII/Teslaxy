@@ -11,6 +11,14 @@ import {
   type CameraPoseRecord,
   type RigCamera,
 } from '../utils/cameraRig.mjs';
+import {
+  identityNudge,
+  moveNudge,
+  setCameraNudge,
+  type ImageNudge,
+  type NudgeDirection,
+} from '../utils/imageNudge.mjs';
+import HandAlign from './HandAlign';
 
 const SPHERE_RADIUS = 8;
 const GRID_X = 64;
@@ -177,6 +185,8 @@ uniform float camFisheye[6];
 uniform float camRole[6];
 uniform int camCount;
 uniform int selfIndex;
+uniform vec2 imagePan;
+uniform float imageZoom;
 varying vec2 vUv;
 varying vec3 vDir;
 
@@ -231,7 +241,10 @@ void main() {
     }
   }
   if (best != selfIndex) discard;
-  gl_FragColor = linearToOutputTexel(texture2D(map, vUv));
+  // sampleUv() in imageNudge.mjs. Pan and zoom move this image only.
+  vec2 sampleUv = vec2(0.5) + (vUv - vec2(0.5)) / imageZoom - imagePan;
+  if (sampleUv.x < 0.0 || sampleUv.x > 1.0 || sampleUv.y < 0.0 || sampleUv.y > 1.0) discard;
+  gl_FragColor = linearToOutputTexel(texture2D(map, sampleUv));
 }
 `;
 
@@ -249,11 +262,14 @@ function StitchMaterial({
   texture,
   owners,
   selfIndex,
+  nudge,
 }: {
   texture: THREE.VideoTexture;
   owners: OwnerUniform[];
   selfIndex: number;
+  nudge: ImageNudge;
 }) {
+  const invalidate = useThree((state) => state.invalidate);
   const material = useMemo(() => {
     const fx = new Float32Array(6);
     const fy = new Float32Array(6);
@@ -301,6 +317,8 @@ function StitchMaterial({
         camRole: { value: roles },
         camCount: { value: owners.length },
         selfIndex: { value: selfIndex },
+        imagePan: { value: new THREE.Vector2(nudge.panX, nudge.panY) },
+        imageZoom: { value: nudge.zoom },
       },
       vertexShader: stitchVertex,
       fragmentShader: stitchFragment,
@@ -309,7 +327,11 @@ function StitchMaterial({
       depthWrite: false,
       toneMapped: false,
     });
-  }, [owners, selfIndex, texture]);
+  }, [nudge.panX, nudge.panY, nudge.zoom, owners, selfIndex, texture]);
+
+  useEffect(() => {
+    invalidate();
+  }, [invalidate, nudge.panX, nudge.panY, nudge.zoom]);
 
   useEffect(() => () => material.dispose(), [material]);
 
@@ -321,11 +343,13 @@ function CameraPatch({
   video,
   owners,
   selfIndex,
+  nudge,
 }: {
   camera: RigCamera;
   video: HTMLVideoElement;
   owners: OwnerUniform[];
   selfIndex: number;
+  nudge: ImageNudge;
 }) {
   const invalidate = useThree((state) => state.invalidate);
   const geometry = useMemo(() => patchGeometry(camera), [camera]);
@@ -380,7 +404,7 @@ function CameraPatch({
 
   return (
     <mesh geometry={geometry} frustumCulled={false}>
-      <StitchMaterial texture={texture} owners={owners} selfIndex={selfIndex} />
+      <StitchMaterial texture={texture} owners={owners} selfIndex={selfIndex} nudge={nudge} />
     </mesh>
   );
 }
@@ -551,6 +575,8 @@ const Scene3D: React.FC<Scene3DProps> = ({
   };
 
   const [rig, setRig] = useState<readonly RigCamera[]>(HW3_CAMERAS);
+  const [nudges, setNudges] = useState<Record<string, ImageNudge>>({});
+  const [alignCamera, setAlignCamera] = useState('Front');
   useEffect(() => {
     const controller = new AbortController();
     fetch('/api/camera-poses', { signal: controller.signal })
@@ -619,8 +645,17 @@ const Scene3D: React.FC<Scene3DProps> = ({
     };
   }), [activeCameras]);
 
+  const alignNames = activeCameras.map((camera) => camera.name);
+  const selectedAlign = alignNames.includes(alignCamera) ? alignCamera : (alignNames[0] || 'Front');
+  const onNudge = useCallback((direction: NudgeDirection) => {
+    setNudges((current) => {
+      const next = moveNudge(current[selectedAlign], direction);
+      return setCameraNudge(current, selectedAlign, next);
+    });
+  }, [selectedAlign]);
+
   return (
-    <div className="w-full h-full bg-[var(--bg)]">
+    <div className="relative w-full h-full bg-[var(--bg)]">
       {rig.map((camera) => (
         <Feed
           key={camera.name}
@@ -651,9 +686,19 @@ const Scene3D: React.FC<Scene3DProps> = ({
             video={videos[camera.name]}
             owners={owners}
             selfIndex={activeCameras.findIndex((item) => item.name === camera.name)}
+            nudge={nudges[camera.name] ?? identityNudge()}
           />
         ))}
       </Canvas>
+      {alignNames.length > 0 && (
+        <HandAlign
+          cameras={alignNames}
+          selected={selectedAlign}
+          nudge={nudges[selectedAlign] ?? identityNudge()}
+          onSelect={setAlignCamera}
+          onNudge={onNudge}
+        />
+      )}
     </div>
   );
 };

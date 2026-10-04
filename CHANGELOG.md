@@ -34,6 +34,10 @@ This integration is not a production release. Do not deploy it as one.
   - Added explicit rule to `AGENTS.md`.
   - All future model changes must be additive fields only. No manual SQL migrations are permitted under the current strategy (documented in `backend/database/db.go`).
 
+## [0.1.23] - 2026-10-04
+### Added
+- The 3D stitch has a hand-align bar on wide and phone layouts. Each camera image can be moved and zoomed on its own. The adjustment changes that image's texture coordinates inside its existing patch. It does not change yaw, pitch, roll, mount position, ownership, or `GET /api/camera-poses`. It is a viewing adjustment, not a calibration.
+
 ## [0.1.22] - 2026-10-04
 ### Fixed
 - `GET /api/camera-poses` publishes one pose per dashcam camera in the `ground_nominal` frame (x forward, y left, z up, metres, origin on the ground): `camera`, `yaw_deg`, `pitch_deg`, `roll_deg`, `x_m`, `y_m`, `z_m`. The 3D stitch loads that response and projects with its yaw, pitch, and roll. Mount position is carried on the camera and does not slide a pixel, because no range is published.
