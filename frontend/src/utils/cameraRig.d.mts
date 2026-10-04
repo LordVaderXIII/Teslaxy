@@ -6,12 +6,31 @@ export interface RigCamera {
   vfovDeg: number;
   yawDeg: number;
   pitchDeg: number;
+  rollDeg: number;
+  xM: number;
+  yM: number;
+  zM: number;
   projection: LensProjection;
   role: 'front' | 'pillar' | 'repeater' | 'back';
 }
 
-export const SIDE_OVERLAP_DEG: number;
+export interface CameraPoseRecord {
+  camera: string;
+  yaw_deg: number;
+  pitch_deg: number;
+  roll_deg: number;
+  x_m: number;
+  y_m: number;
+  z_m: number;
+}
+
+export const GENERATION_POSES: readonly CameraPoseRecord[];
 export const HW3_CAMERAS: readonly RigCamera[];
+
+export function applyCameraPoses(
+  records: readonly CameraPoseRecord[],
+  base?: readonly RigCamera[],
+): readonly RigCamera[];
 
 export function angleDelta(a: number, b: number): number;
 
@@ -46,4 +65,5 @@ export function hiddenCameraNames(
   forwardZ: number,
   fovDeg: number,
   aspect: number,
+  cameras?: readonly RigCamera[],
 ): string[];

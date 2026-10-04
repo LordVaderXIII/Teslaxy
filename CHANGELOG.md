@@ -34,6 +34,13 @@ This integration is not a production release. Do not deploy it as one.
   - Added explicit rule to `AGENTS.md`.
   - All future model changes must be additive fields only. No manual SQL migrations are permitted under the current strategy (documented in `backend/database/db.go`).
 
+## [0.1.22] - 2026-10-04
+### Fixed
+- `GET /api/camera-poses` publishes one pose per dashcam camera in the `ground_nominal` frame (x forward, y left, z up, metres, origin on the ground): `camera`, `yaw_deg`, `pitch_deg`, `roll_deg`, `x_m`, `y_m`, `z_m`. The 3D stitch loads that response and projects with its yaw, pitch, and roll. Mount position is carried on the camera and does not slide a pixel, because no range is published.
+- Where a number is published it replaces the overlap reading. Left pillar and both repeaters use the StandardE2E NATIX nominal axes (commit `cff77e53`). Front yaw stays 0 and rear yaw stays 180 from the Tesla service direction text. Front position is (1.82, 0, 1.30) m. Repeater lateral positions are ±0.90 m.
+- The right pillar yaw stays −45°. No sourced replacement was found, so that previous reading is kept and is not labeled as factory geometry. Every roll stays 0. Translations other than the front mount and the repeater lateral values stay 0. Field-of-view pairs are unchanged.
+- Ownership is unchanged. The front camera keeps its 46°×34° frame, a pillar keeps a ray its repeater also sees, and a direction outside every published fan stays empty. The right pillar and right repeater fans no longer meet, so the wedge between them stays empty.
+
 ## [0.1.21] - 2026-10-04
 ### Fixed
 - 3D handoff follows the ownership marks on RecentClips/2026-02-18_17-34-39. The front camera keeps every direction inside its published frame, so a pillar cannot replace a garage corner or the forward yellow line. A pillar keeps every direction inside its fan when the matching repeater also sees it, so the repeater does not cut through the SUV; the repeater draws only outside that fan. Optical-axis yaw is unchanged and is still not a factory extrinsic. A pose is still required before the arch, the driveway, or the skyline can meet. Directions outside every published fan stay empty.

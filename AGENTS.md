@@ -33,6 +33,10 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - The frontend `clipMerge.ts` is now only a fallback compatibility layer. New code must not duplicate grouping logic on the client.
 - When modifying the scanner, always update `SourceDir` and prefer directory + event.json over pure timestamp heuristics.
 
+### 3D camera poses
+- `GET /api/camera-poses` (`backend/services/camerapose.go`) is the pose contract: per camera `camera`, `yaw_deg`, `pitch_deg`, `roll_deg`, `x_m`, `y_m`, `z_m` in StandardE2E `ground_nominal` (x forward, y left, z up, metres). The stitch in `frontend/src/utils/cameraRig.mjs` and `Scene3D.tsx` loads it.
+- Cite every pose number. If a component has no Tesla or open-source source, keep the previous value and mark `provenance.sourced` false. Do not treat the old ±45° / ±121.5° overlap reading as factory geometry. Do not fill a direction that no published fan contains.
+
 ### Frontend (React/TypeScript)
 - Use functional components and Hooks.
 - Use Tailwind CSS for styling.

@@ -27,6 +27,7 @@ func SetupRoutes(r *gin.Engine) {
 	// Login endpoint (public)
 	api.POST("/login", Login)
 	api.GET("/version", GetVersion)
+	api.GET("/camera-poses", GetCameraPoses)
 
 	// Apply Auth Middleware
 	api.Use(AuthMiddleware())

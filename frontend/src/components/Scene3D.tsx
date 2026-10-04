@@ -4,8 +4,11 @@ import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
 import {
   HW3_CAMERAS,
+  applyCameraPoses,
+  cameraBasis,
   hiddenCameraNames,
   imageDirection,
+  type CameraPoseRecord,
   type RigCamera,
 } from '../utils/cameraRig.mjs';
 
@@ -159,7 +162,15 @@ void main() {
 
 const stitchFragment = `
 uniform sampler2D map;
-uniform float camYaw[6];
+uniform float camFx[6];
+uniform float camFy[6];
+uniform float camFz[6];
+uniform float camRx[6];
+uniform float camRy[6];
+uniform float camRz[6];
+uniform float camUx[6];
+uniform float camUy[6];
+uniform float camUz[6];
 uniform float camHalfH[6];
 uniform float camHalfV[6];
 uniform float camFisheye[6];
@@ -170,12 +181,9 @@ varying vec2 vUv;
 varying vec3 vDir;
 
 float axisDistance(int i, vec3 dir) {
-  float yaw = camYaw[i];
-  float sy = sin(yaw);
-  float cy = cos(yaw);
-  vec3 forward = vec3(-sy, 0.0, -cy);
-  vec3 right = vec3(cy, 0.0, -sy);
-  vec3 up = vec3(0.0, 1.0, 0.0);
+  vec3 forward = vec3(camFx[i], camFy[i], camFz[i]);
+  vec3 right = vec3(camRx[i], camRy[i], camRz[i]);
+  vec3 up = vec3(camUx[i], camUy[i], camUz[i]);
   float cx = dot(dir, right);
   float cyv = dot(dir, up);
   float cz = dot(dir, forward);
@@ -228,7 +236,9 @@ void main() {
 `;
 
 interface OwnerUniform {
-  yawRad: number;
+  forward: { x: number; y: number; z: number };
+  right: { x: number; y: number; z: number };
+  up: { x: number; y: number; z: number };
   halfHRad: number;
   halfVRad: number;
   fisheye: number;
@@ -245,13 +255,29 @@ function StitchMaterial({
   selfIndex: number;
 }) {
   const material = useMemo(() => {
-    const yaws = new Float32Array(6);
+    const fx = new Float32Array(6);
+    const fy = new Float32Array(6);
+    const fz = new Float32Array(6);
+    const rx = new Float32Array(6);
+    const ry = new Float32Array(6);
+    const rz = new Float32Array(6);
+    const ux = new Float32Array(6);
+    const uy = new Float32Array(6);
+    const uz = new Float32Array(6);
     const halfH = new Float32Array(6);
     const halfV = new Float32Array(6);
     const fisheye = new Float32Array(6);
     const roles = new Float32Array(6);
     owners.forEach((owner, index) => {
-      yaws[index] = owner.yawRad;
+      fx[index] = owner.forward.x;
+      fy[index] = owner.forward.y;
+      fz[index] = owner.forward.z;
+      rx[index] = owner.right.x;
+      ry[index] = owner.right.y;
+      rz[index] = owner.right.z;
+      ux[index] = owner.up.x;
+      uy[index] = owner.up.y;
+      uz[index] = owner.up.z;
       halfH[index] = owner.halfHRad;
       halfV[index] = owner.halfVRad;
       fisheye[index] = owner.fisheye;
@@ -260,7 +286,15 @@ function StitchMaterial({
     return new THREE.ShaderMaterial({
       uniforms: {
         map: { value: texture },
-        camYaw: { value: yaws },
+        camFx: { value: fx },
+        camFy: { value: fy },
+        camFz: { value: fz },
+        camRx: { value: rx },
+        camRy: { value: ry },
+        camRz: { value: rz },
+        camUx: { value: ux },
+        camUy: { value: uy },
+        camUz: { value: uz },
         camHalfH: { value: halfH },
         camHalfV: { value: halfV },
         camFisheye: { value: fisheye },
@@ -354,9 +388,11 @@ function CameraPatch({
 function LookControls({
   economical,
   onHidden,
+  cameras,
 }: {
   economical: boolean;
   onHidden: (names: string[]) => void;
+  cameras: readonly RigCamera[];
 }) {
   const camera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls);
@@ -378,6 +414,7 @@ function LookControls({
           forward.z,
           camera.fov,
           camera.aspect || (size.width / Math.max(size.height, 1)),
+          cameras,
         ));
       }
       invalidate();
@@ -400,7 +437,7 @@ function LookControls({
       element.removeEventListener('wheel', onWheel);
       orbit?.removeEventListener?.('change', apply);
     };
-  }, [camera, controls, economical, gl, invalidate, onHidden, size.height, size.width]);
+  }, [camera, cameras, controls, economical, gl, invalidate, onHidden, size.height, size.width]);
 
   return (
     <OrbitControls
@@ -513,6 +550,19 @@ const Scene3D: React.FC<Scene3DProps> = ({
     'Right Pillar': rightPillarSrc || '',
   };
 
+  const [rig, setRig] = useState<readonly RigCamera[]>(HW3_CAMERAS);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/camera-poses', { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { cameras?: CameraPoseRecord[] } | null) => {
+        if (!body?.cameras?.length) return;
+        setRig(applyCameraPoses(body.cameras, HW3_CAMERAS));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
   const videos = useMemo(() => {
     const map: Record<string, HTMLVideoElement> = {};
     HW3_CAMERAS.forEach((camera) => {
@@ -554,19 +604,24 @@ const Scene3D: React.FC<Scene3DProps> = ({
       'Left Pillar': leftPillarSrc || '',
       'Right Pillar': rightPillarSrc || '',
     };
-    return HW3_CAMERAS.filter((camera) => byName[camera.name]);
-  }, [backSrc, frontSrc, leftPillarSrc, leftRepeaterSrc, rightPillarSrc, rightRepeaterSrc]);
-  const owners = useMemo<OwnerUniform[]>(() => activeCameras.map((camera) => ({
-    yawRad: (camera.yawDeg * Math.PI) / 180,
-    halfHRad: (camera.hfovDeg * Math.PI) / 180 / 2,
-    halfVRad: (camera.vfovDeg * Math.PI) / 180 / 2,
-    fisheye: camera.projection === 'equidistant' ? 1 : 0,
-    role: camera.role === 'front' ? 2 : camera.role === 'pillar' ? 1 : camera.role === 'back' ? 3 : 0,
-  })), [activeCameras]);
+    return rig.filter((camera) => byName[camera.name]);
+  }, [backSrc, frontSrc, leftPillarSrc, leftRepeaterSrc, rightPillarSrc, rightRepeaterSrc, rig]);
+  const owners = useMemo<OwnerUniform[]>(() => activeCameras.map((camera) => {
+    const basis = cameraBasis(camera);
+    return {
+      forward: basis.forward,
+      right: basis.right,
+      up: basis.up,
+      halfHRad: (camera.hfovDeg * Math.PI) / 180 / 2,
+      halfVRad: (camera.vfovDeg * Math.PI) / 180 / 2,
+      fisheye: camera.projection === 'equidistant' ? 1 : 0,
+      role: camera.role === 'front' ? 2 : camera.role === 'pillar' ? 1 : camera.role === 'back' ? 3 : 0,
+    };
+  }), [activeCameras]);
 
   return (
     <div className="w-full h-full bg-[var(--bg)]">
-      {HW3_CAMERAS.map((camera) => (
+      {rig.map((camera) => (
         <Feed
           key={camera.name}
           camera={camera}
@@ -588,7 +643,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
         }}
       >
         <PerspectiveCamera makeDefault position={[0, 0, 0.01]} fov={34} near={0.05} far={50} />
-        <LookControls economical={economical} onHidden={onHidden} />
+        <LookControls economical={economical} onHidden={onHidden} cameras={rig} />
         {activeCameras.map((camera) => (
           <CameraPatch
             key={camera.name}

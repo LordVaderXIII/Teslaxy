@@ -31,28 +31,40 @@
  *   AR0136A 1280×960 sensor (Wikipedia, "Tesla Autopilot hardware", citing
  *   the EE Times HW3 teardown) under the same equidistant model.
  *
- * Optical-axis yaw is NOT in those FOV tables. The service text only says
- * where each camera looks:
- * - Main: windshield centerline, forward. Yaw 0.
- * - Rear-view: behind the vehicle. Yaw 180.
- * - B-pillar: "each side and the front corners" (forward-looking side).
- *   The axis used here is the midpoint of that named sector, halfway from
- *   dead ahead to abeam: ±45°. That is a reading of the words, not a
- *   factory extrinsic.
- * - Repeater: rearward-looking side camera. Its axis is set so the
- *   published 75° fan overlaps the pillar's outer edge by SIDE_OVERLAP_DEG.
- *   It is not a measured aim. Glados rejected this placement on
- *   RecentClips/2026-02-18_17-34-39. The degrees are unchanged: there is
- *   no published replacement. Handoff below does not treat them as extrinsics.
- * Pitch is calibrated per car and is not published as a nominal degree.
- * Every camera uses pitch 0.
+ * Optical-axis yaw is NOT in those FOV tables. Pose comes from
+ * GET /api/camera-poses (backend/services/camerapose.go), in the
+ * ground_nominal FLU frame: x forward, y left, z up, metres, origin on
+ * the ground. Yaw is positive toward the vehicle's left. Pitch is
+ * positive up. The numbers below match that response.
  *
- * A per-car extrinsic (yaw, pitch, roll) is what would make one physical
- * edge land on one angle. The clip files and SEI metadata in this app do
- * not carry it. See the note in the pull request.
+ * Cited:
+ * - Main yaw 0 and rear yaw 180. Service text: the main camera looks
+ *   forward, the rear-view camera looks behind the vehicle. Same exhibit
+ *   as the field-of-view pairs.
+ * - Front position (1.82, 0, 1.30) m. StandardE2E NATIX geometry, commit
+ *   cff77e53: the front camera sits at (182, 0, 130) cm.
+ *   https://github.com/stepankonev/StandardE2E/blob/cff77e53c557906f76365bb9b547210ebed22806/standard_e2e/caching/src_datasets/natix_multicam/_natix_geometry.py
+ * - Left repeater lens axis (-0.848, +0.530, 0) and right repeater
+ *   (-0.848, -0.530, 0). The same file states both repeater axes as
+ *   (-0.848, +/-0.530, 0), and the left one as the +0.530 case.
+ *   Pitch is 0 because that z component is 0. Lateral position is
+ *   ty=+90 cm and ty=-90 cm.
+ * - Left pillar lens axis (+0.341, +0.936, +0.087) from the same file.
+ *
+ * Not cited, so the previous value stays. These are not factory extrinsics:
+ * - Right pillar yaw -45°. That is the rejected reading of the service
+ *   words. No sourced replacement was found. Its pitch, roll, and
+ *   position stay 0.
+ * - Every roll stays 0. A lens axis does not determine roll, and the
+ *   NATIX unit-test matrix is synthetic.
+ * - Front and rear pitch stay 0. Repeater and pillar translations other
+ *   than the repeater lateral values stay 0. The synthetic rear tx=-88
+ *   fixture is not a mount.
+ *
+ * The direction sphere uses yaw, pitch, and roll. Mount position is stored
+ * for the pose contract and is not used to move a pixel: no range is
+ * published, so an offset would be an assumed depth.
  */
-
-export const SIDE_OVERLAP_DEG = 6;
 
 const MAIN_HFOV = 46;
 const MAIN_VFOV = 34;
@@ -63,8 +75,23 @@ const REPEATER_VFOV = 55.4;
 const REAR_HFOV = 140;
 const REAR_VFOV = 105;
 
-const PILLAR_YAW = 45;
-const REPEATER_YAW = (PILLAR_YAW + PILLAR_HFOV / 2) - SIDE_OVERLAP_DEG + REPEATER_HFOV / 2;
+/** Previous right-pillar yaw. Unsourced. Not a factory extrinsic. */
+const UNSOURCED_RIGHT_PILLAR_YAW = -45;
+
+const RAD2DEG = 180 / Math.PI;
+
+/** Lens axis (forward, left, up) to yaw and pitch. Roll is not in the axis. */
+function yawPitch(forwardX, leftY, upZ) {
+  const norm = Math.hypot(forwardX, leftY, upZ);
+  return {
+    yawDeg: Math.atan2(leftY, forwardX) * RAD2DEG,
+    pitchDeg: Math.asin(upZ / norm) * RAD2DEG,
+  };
+}
+
+const leftRepeaterAim = yawPitch(-0.848, 0.530, 0);
+const rightRepeaterAim = yawPitch(-0.848, -0.530, 0);
+const leftPillarAim = yawPitch(0.341, 0.936, 0.087);
 
 /** @typedef {'rectilinear' | 'equidistant'} LensProjection */
 
@@ -74,31 +101,125 @@ const REPEATER_YAW = (PILLAR_YAW + PILLAR_HFOV / 2) - SIDE_OVERLAP_DEG + REPEATE
  * @property {number} hfovDeg
  * @property {number} vfovDeg
  * @property {number} yawDeg Positive yaw is toward the vehicle's left.
- * @property {number} pitchDeg
+ * @property {number} pitchDeg Positive pitch looks up.
+ * @property {number} rollDeg About the lens axis. 0 keeps image up vertical.
+ * @property {number} xM Forward, metres, ground_nominal.
+ * @property {number} yM Left, metres.
+ * @property {number} zM Up, metres.
  * @property {LensProjection} projection
  * @property {'front' | 'pillar' | 'repeater' | 'back'} role
  */
 
+/**
+ * @typedef {object} CameraPoseRecord
+ * @property {string} camera File token (front) or display name (Front).
+ * @property {number} yaw_deg
+ * @property {number} pitch_deg
+ * @property {number} roll_deg
+ * @property {number} x_m
+ * @property {number} y_m
+ * @property {number} z_m
+ */
+
+const CAMERA_TOKENS = Object.freeze({
+  Front: 'front',
+  'Left Pillar': 'left_pillar',
+  'Right Pillar': 'right_pillar',
+  'Left Repeater': 'left_repeater',
+  'Right Repeater': 'right_repeater',
+  Back: 'back',
+});
+
 /** @type {readonly RigCamera[]} */
-export const HW3_CAMERAS = Object.freeze([
-  cam('Front', MAIN_HFOV, MAIN_VFOV, 0, 'rectilinear', 'front'),
-  cam('Left Pillar', PILLAR_HFOV, PILLAR_VFOV, PILLAR_YAW, 'equidistant', 'pillar'),
-  cam('Right Pillar', PILLAR_HFOV, PILLAR_VFOV, -PILLAR_YAW, 'equidistant', 'pillar'),
-  cam('Left Repeater', REPEATER_HFOV, REPEATER_VFOV, REPEATER_YAW, 'equidistant', 'repeater'),
-  cam('Right Repeater', REPEATER_HFOV, REPEATER_VFOV, -REPEATER_YAW, 'equidistant', 'repeater'),
-  cam('Back', REAR_HFOV, REAR_VFOV, 180, 'equidistant', 'back'),
+const INTRINSICS = Object.freeze([
+  intrinsic('Front', MAIN_HFOV, MAIN_VFOV, 'rectilinear', 'front'),
+  intrinsic('Left Pillar', PILLAR_HFOV, PILLAR_VFOV, 'equidistant', 'pillar'),
+  intrinsic('Right Pillar', PILLAR_HFOV, PILLAR_VFOV, 'equidistant', 'pillar'),
+  intrinsic('Left Repeater', REPEATER_HFOV, REPEATER_VFOV, 'equidistant', 'repeater'),
+  intrinsic('Right Repeater', REPEATER_HFOV, REPEATER_VFOV, 'equidistant', 'repeater'),
+  intrinsic('Back', REAR_HFOV, REAR_VFOV, 'equidistant', 'back'),
 ]);
 
-function cam(name, hfovDeg, vfovDeg, yawDeg, projection, role) {
+/**
+ * Same numbers as GET /api/camera-poses. The viewer replaces these with
+ * the response when the request succeeds.
+ * @type {readonly CameraPoseRecord[]}
+ */
+export const GENERATION_POSES = Object.freeze([
+  poseRecord('front', 0, 0, 0, 1.82, 0, 1.30),
+  poseRecord('left_pillar', leftPillarAim.yawDeg, leftPillarAim.pitchDeg, 0, 0, 0, 0),
+  poseRecord('right_pillar', UNSOURCED_RIGHT_PILLAR_YAW, 0, 0, 0, 0, 0),
+  poseRecord('left_repeater', leftRepeaterAim.yawDeg, leftRepeaterAim.pitchDeg, 0, 0, 0.90, 0),
+  poseRecord('right_repeater', rightRepeaterAim.yawDeg, rightRepeaterAim.pitchDeg, 0, 0, -0.90, 0),
+  poseRecord('back', 180, 0, 0, 0, 0, 0),
+]);
+
+/** @type {readonly RigCamera[]} */
+export const HW3_CAMERAS = applyCameraPoses(GENERATION_POSES);
+
+function intrinsic(name, hfovDeg, vfovDeg, projection, role) {
   return Object.freeze({
     name,
     hfovDeg,
     vfovDeg,
-    yawDeg,
+    yawDeg: 0,
     pitchDeg: 0,
+    rollDeg: 0,
+    xM: 0,
+    yM: 0,
+    zM: 0,
     projection,
     role,
   });
+}
+
+function poseRecord(camera, yawDeg, pitchDeg, rollDeg, xM, yM, zM) {
+  return Object.freeze({
+    camera,
+    yaw_deg: yawDeg,
+    pitch_deg: pitchDeg,
+    roll_deg: rollDeg,
+    x_m: xM,
+    y_m: yM,
+    z_m: zM,
+  });
+}
+
+function finiteOr(value, fallback) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function poseToken(record) {
+  const raw = String(record.camera || record.name || '').trim().toLowerCase().replace(/ /g, '_');
+  return raw === 'rear' ? 'back' : raw;
+}
+
+/**
+ * Overlay API pose records on a rig. Omitted cameras keep `base`.
+ * The generation rig passes the intrinsic shells. The viewer passes
+ * HW3_CAMERAS so a short response does not wipe a sourced aim.
+ * @param {readonly CameraPoseRecord[]} records
+ * @param {readonly RigCamera[]} [base]
+ * @returns {readonly RigCamera[]}
+ */
+export function applyCameraPoses(records, base = INTRINSICS) {
+  const byToken = new Map();
+  for (const record of records || []) {
+    byToken.set(poseToken(record), record);
+  }
+  return Object.freeze(base.map((camera) => {
+    const record = byToken.get(CAMERA_TOKENS[camera.name]);
+    if (!record) return camera;
+    return Object.freeze({
+      ...camera,
+      yawDeg: finiteOr(record.yaw_deg, camera.yawDeg),
+      pitchDeg: finiteOr(record.pitch_deg, camera.pitchDeg),
+      rollDeg: finiteOr(record.roll_deg, camera.rollDeg),
+      xM: finiteOr(record.x_m, camera.xM),
+      yM: finiteOr(record.y_m, camera.yM),
+      zM: finiteOr(record.z_m, camera.zM),
+    });
+  }));
 }
 
 function rad(deg) {
@@ -126,16 +247,30 @@ export function angleDelta(a, b) {
 export function cameraBasis(camera) {
   const yaw = rad(camera.yawDeg);
   const pitch = rad(camera.pitchDeg);
+  const roll = rad(camera.rollDeg || 0);
   const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
   const sy = Math.sin(yaw);
   const cy = Math.cos(yaw);
+  const cr = Math.cos(roll);
+  const sr = Math.sin(roll);
   const forward = { x: -sy * cp, y: sp, z: -cy * cp };
-  const right = { x: cy, y: 0, z: -sy };
-  const up = {
+  const right0 = { x: cy, y: 0, z: -sy };
+  const up0 = {
     x: sy * sp,
     y: cp,
     z: cy * sp,
+  };
+  // Positive roll turns image up toward image left. Roll 0 is the old basis.
+  const right = {
+    x: right0.x * cr + up0.x * sr,
+    y: right0.y * cr + up0.y * sr,
+    z: right0.z * cr + up0.z * sr,
+  };
+  const up = {
+    x: -right0.x * sr + up0.x * cr,
+    y: -right0.y * sr + up0.y * cr,
+    z: -right0.z * sr + up0.z * cr,
   };
   return { forward, right, up };
 }
@@ -290,14 +425,15 @@ export function horizontalHalfRad(fovDeg, aspect) {
  * @param {number} forwardZ
  * @param {number} fovDeg Vertical field of the viewer, degrees.
  * @param {number} aspect Width / height.
+ * @param {readonly RigCamera[]} [cameras]
  * @returns {string[]}
  */
-export function hiddenCameraNames(forwardX, forwardY, forwardZ, fovDeg, aspect) {
+export function hiddenCameraNames(forwardX, forwardY, forwardZ, fovDeg, aspect, cameras = HW3_CAMERAS) {
   const viewAz = Math.atan2(-forwardX, -forwardZ);
   void forwardY;
   const viewHalf = horizontalHalfRad(fovDeg, aspect);
   const hidden = [];
-  for (const camera of HW3_CAMERAS) {
+  for (const camera of cameras) {
     const dist = Math.abs(angleDelta(viewAz, rad(camera.yawDeg)));
     const reaches = dist <= rad(camera.hfovDeg) / 2 + viewHalf;
     if (!reaches) hidden.push(camera.name);
