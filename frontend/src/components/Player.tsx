@@ -158,6 +158,26 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
 
   // Transcoding State
   const [quality, setQuality] = useState<string>('original');
+  // Phone 3D asks for the lowest quality the menu already offers, then
+  // puts the previous choice back when the 3D view closes.
+  const qualityBeforePhone3D = useRef<string | null>(null);
+  const qualityRef = useRef(quality);
+  qualityRef.current = quality;
+
+  useEffect(() => {
+    if (isPhone && is3D) {
+      if (qualityBeforePhone3D.current == null) {
+        qualityBeforePhone3D.current = qualityRef.current;
+        if (qualityRef.current !== '480p') setQuality('480p');
+      }
+      return;
+    }
+    if (qualityBeforePhone3D.current != null) {
+      const restore = qualityBeforePhone3D.current;
+      qualityBeforePhone3D.current = null;
+      if (qualityRef.current === '480p') setQuality(restore);
+    }
+  }, [isPhone, is3D]);
   const [encoderStatus, setEncoderStatus] = useState<{encoder: string, hw_accel: boolean} | null>(null);
   const [isQualityMenuOpen, setIsQualityMenuOpen] = useState(false);
 
@@ -733,7 +753,9 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
                     leftPillarSrc={getCurrentSegment('Left Pillar')?.file_path ? getUrl(getCurrentSegment('Left Pillar')!.file_path) : ''}
                     rightPillarSrc={getCurrentSegment('Right Pillar')?.file_path ? getUrl(getCurrentSegment('Right Pillar')!.file_path) : ''}
                     isPlaying={isPlaying}
+                    economical={isPhone}
                     onVideoReady={handlePlayerReady}
+                    onVideoDispose={releasePlayer}
                  />
              </Suspense>
              {hudLayer}

@@ -1,88 +1,464 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
+import {
+  HW3_CAMERAS,
+  hiddenCameraNames,
+  imageDirection,
+  type RigCamera,
+} from '../utils/cameraRig.mjs';
 
-const ZoomHandler = () => {
-  const { camera, gl } = useThree();
-
-  useEffect(() => {
-    const handleWheel = (e: WheelEvent) => {
-      if (camera instanceof THREE.PerspectiveCamera) {
-        const zoomSpeed = 0.05;
-        const newFov = camera.fov + e.deltaY * zoomSpeed;
-        camera.fov = THREE.MathUtils.clamp(newFov, 10, 120);
-        camera.updateProjectionMatrix();
-      }
-    };
-
-    const element = gl.domElement;
-    element.addEventListener('wheel', handleWheel, { passive: true });
-    return () => element.removeEventListener('wheel', handleWheel);
-  }, [camera, gl]);
-
-  return null;
-};
+const SPHERE_RADIUS = 8;
+const GRID_X = 64;
+const GRID_Y = 36;
 
 interface PlayerAdapter {
-    on: (event: string, callback: () => void) => void;
-    off: (event: string, callback: () => void) => void;
-    currentTime: (time?: number) => number;
-    currentSrc: () => string;
-    duration: () => number;
-    play: () => Promise<void>;
-    pause: () => void;
-    paused: () => boolean;
-    muted: (mute?: boolean) => boolean;
-    playbackRate: (rate?: number) => number;
-    dispose: () => void;
-    src: (source: { src: string; type: string }) => void;
-    isDisposed: () => boolean;
+  on: (event: string, callback: () => void) => void;
+  off: (event: string, callback: () => void) => void;
+  currentTime: (time?: number) => number;
+  currentSrc: () => string;
+  duration: () => number;
+  play: () => Promise<void>;
+  pause: () => void;
+  paused: () => boolean;
+  muted: (mute?: boolean) => boolean;
+  playbackRate: (rate?: number) => number;
+  dispose: () => void;
+  src: (source: { src: string; type: string }) => void;
+  isDisposed: () => boolean;
+  setHeld: (held: boolean) => void;
 }
 
-// Adapter to make HTMLVideoElement compatible with the interface expected by Player.tsx (video.js-like)
+// Video.js-shaped adapter. setHeld pauses a camera the phone viewer cannot
+// see without letting Player's play() start it decoding again.
 const createPlayerAdapter = (video: HTMLVideoElement): PlayerAdapter => {
+  let held = false;
+  let wantPlay = false;
+  let disposed = false;
+  let pendingTime: number | null = null;
   return {
-    on: (event: string, callback: () => void) => {
-       video.addEventListener(event, callback);
+    on: (event, callback) => {
+      video.addEventListener(event, callback);
     },
-    off: (event: string, callback: () => void) => {
-       video.removeEventListener(event, callback);
+    off: (event, callback) => {
+      video.removeEventListener(event, callback);
     },
     currentTime: (time?: number) => {
-       if (time !== undefined) {
-          video.currentTime = time;
-       }
-       return video.currentTime;
+      if (time !== undefined) {
+        if (held) pendingTime = time;
+        else video.currentTime = time;
+      }
+      return video.currentTime;
     },
     duration: () => video.duration,
-    play: () => video.play(),
-    pause: () => video.pause(),
+    play: () => {
+      wantPlay = true;
+      if (held) return Promise.resolve();
+      return video.play();
+    },
+    pause: () => {
+      wantPlay = false;
+      video.pause();
+    },
     paused: () => video.paused,
     currentSrc: () => video.currentSrc || video.src,
     muted: (mute?: boolean) => {
-       if (mute !== undefined) video.muted = mute;
-       return video.muted;
+      if (mute !== undefined) video.muted = mute;
+      return video.muted;
     },
     playbackRate: (rate?: number) => {
-       if (!video) return 1;
-       try {
-         if (rate !== undefined) video.playbackRate = rate;
-         return video.playbackRate;
-       } catch {
-         // A detached element surfaces as a null tech. Leave the caller alive.
-         return 1;
-       }
+      try {
+        if (rate !== undefined) video.playbackRate = rate;
+        return video.playbackRate;
+      } catch {
+        return 1;
+      }
     },
     dispose: () => {
-       // No-op for raw video element, managed by React lifecycle
+      disposed = true;
+      wantPlay = false;
+      video.pause();
     },
-    src: (source: { src: string; type: string }) => {
-       video.src = source.src;
+    src: (source) => {
+      video.src = source.src;
     },
-    isDisposed: () => false,
+    isDisposed: () => disposed,
+    setHeld: (next: boolean) => {
+      if (next === held) return;
+      held = next;
+      if (held) {
+        video.pause();
+        return;
+      }
+      if (pendingTime != null && Number.isFinite(pendingTime)) {
+        try {
+          video.currentTime = pendingTime;
+        } catch {
+          /* The element may not have metadata yet. Player will seek again. */
+        }
+      }
+      pendingTime = null;
+      if (wantPlay) video.play().catch(() => {});
+    },
   };
 };
+
+function makeVideo(): HTMLVideoElement {
+  const video = document.createElement('video');
+  video.crossOrigin = 'anonymous';
+  video.loop = true;
+  video.muted = true;
+  video.preload = 'metadata';
+  video.autoplay = false;
+  video.playsInline = true;
+  video.setAttribute('playsinline', 'true');
+  video.setAttribute('webkit-playsinline', 'true');
+  return video;
+}
+
+function patchGeometry(camera: RigCamera): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let y = 0; y <= GRID_Y; y += 1) {
+    for (let x = 0; x <= GRID_X; x += 1) {
+      const u = x / GRID_X;
+      const v = y / GRID_Y;
+      const dir = imageDirection(camera, u, v);
+      positions.push(dir.x * SPHERE_RADIUS, dir.y * SPHERE_RADIUS, dir.z * SPHERE_RADIUS);
+      uvs.push(u, v);
+    }
+  }
+  const stride = GRID_X + 1;
+  for (let y = 0; y < GRID_Y; y += 1) {
+    for (let x = 0; x < GRID_X; x += 1) {
+      const a = y * stride + x;
+      const b = a + 1;
+      const c = a + stride;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  return geometry;
+}
+
+const stitchVertex = `
+varying vec2 vUv;
+varying vec3 vDir;
+void main() {
+  vUv = uv;
+  vDir = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+const stitchFragment = `
+uniform sampler2D map;
+uniform float camYaw[6];
+uniform float camHalfH[6];
+uniform float camHalfV[6];
+uniform float camFisheye[6];
+uniform int camCount;
+uniform int selfIndex;
+varying vec2 vUv;
+varying vec3 vDir;
+
+float axisDistance(int i, vec3 dir) {
+  float yaw = camYaw[i];
+  float sy = sin(yaw);
+  float cy = cos(yaw);
+  vec3 forward = vec3(-sy, 0.0, -cy);
+  vec3 right = vec3(cy, 0.0, -sy);
+  vec3 up = vec3(0.0, 1.0, 0.0);
+  float cx = dot(dir, right);
+  float cyv = dot(dir, up);
+  float cz = dot(dir, forward);
+  if (cz <= 0.000001) return -1.0;
+  float u;
+  float v;
+  if (camFisheye[i] < 0.5) {
+    u = 0.5 + 0.5 * ((cx / cz) / tan(camHalfH[i]));
+    v = 0.5 + 0.5 * ((cyv / cz) / tan(camHalfV[i]));
+  } else {
+    float theta = atan(length(vec2(cx, cyv)), cz);
+    float radial = max(length(vec2(cx, cyv)), 0.000001);
+    u = 0.5 + ((cx / radial) * theta) / (camHalfH[i] * 2.0);
+    v = 0.5 + ((cyv / radial) * theta) / (camHalfV[i] * 2.0);
+  }
+  if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) return -1.0;
+  return acos(clamp(cz, -1.0, 1.0));
+}
+
+void main() {
+  vec3 dir = normalize(vDir);
+  int best = -1;
+  float bestDist = 100.0;
+  for (int i = 0; i < 6; i++) {
+    if (i < camCount) {
+      float dist = axisDistance(i, dir);
+      if (dist >= 0.0 && dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+  }
+  if (best != selfIndex) discard;
+  gl_FragColor = linearToOutputTexel(texture2D(map, vUv));
+}
+`;
+
+interface OwnerUniform {
+  yawRad: number;
+  halfHRad: number;
+  halfVRad: number;
+  fisheye: number;
+}
+
+function StitchMaterial({
+  texture,
+  owners,
+  selfIndex,
+}: {
+  texture: THREE.VideoTexture;
+  owners: OwnerUniform[];
+  selfIndex: number;
+}) {
+  const material = useMemo(() => {
+    const yaws = new Float32Array(6);
+    const halfH = new Float32Array(6);
+    const halfV = new Float32Array(6);
+    const fisheye = new Float32Array(6);
+    owners.forEach((owner, index) => {
+      yaws[index] = owner.yawRad;
+      halfH[index] = owner.halfHRad;
+      halfV[index] = owner.halfVRad;
+      fisheye[index] = owner.fisheye;
+    });
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: texture },
+        camYaw: { value: yaws },
+        camHalfH: { value: halfH },
+        camHalfV: { value: halfV },
+        camFisheye: { value: fisheye },
+        camCount: { value: owners.length },
+        selfIndex: { value: selfIndex },
+      },
+      vertexShader: stitchVertex,
+      fragmentShader: stitchFragment,
+      side: THREE.BackSide,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+  }, [owners, selfIndex, texture]);
+
+  useEffect(() => () => material.dispose(), [material]);
+
+  return <primitive object={material} attach="material" />;
+}
+
+function CameraPatch({
+  camera,
+  video,
+  owners,
+  selfIndex,
+}: {
+  camera: RigCamera;
+  video: HTMLVideoElement;
+  owners: OwnerUniform[];
+  selfIndex: number;
+}) {
+  const invalidate = useThree((state) => state.invalidate);
+  const geometry = useMemo(() => patchGeometry(camera), [camera]);
+  const texture = useMemo(() => {
+    const map = new THREE.VideoTexture(video);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.minFilter = THREE.LinearFilter;
+    map.magFilter = THREE.LinearFilter;
+    map.generateMipmaps = false;
+    return map;
+  }, [video]);
+
+  useEffect(() => () => {
+    geometry.dispose();
+    texture.dispose();
+  }, [geometry, texture]);
+
+  // Draw when a new video frame is presented, then wait. A paused camera
+  // does not present frames, so the demand loop sleeps.
+  useEffect(() => {
+    let stopped = false;
+    let handle = 0;
+    const arm = () => {
+      if (stopped || typeof video.requestVideoFrameCallback !== 'function') return;
+      handle = video.requestVideoFrameCallback(() => {
+        if (stopped) return;
+        invalidate();
+        if (!video.paused) arm();
+      });
+    };
+    const drawOnce = () => invalidate();
+    video.addEventListener('play', arm);
+    video.addEventListener('loadeddata', drawOnce);
+    video.addEventListener('seeked', drawOnce);
+    if (!video.paused) arm();
+    if (typeof video.requestVideoFrameCallback !== 'function') {
+      video.addEventListener('timeupdate', drawOnce);
+    }
+    return () => {
+      stopped = true;
+      if (typeof video.cancelVideoFrameCallback === 'function') {
+        video.cancelVideoFrameCallback(handle);
+      }
+      video.removeEventListener('play', arm);
+      video.removeEventListener('loadeddata', drawOnce);
+      video.removeEventListener('seeked', drawOnce);
+      video.removeEventListener('timeupdate', drawOnce);
+    };
+  }, [invalidate, video]);
+
+  if (selfIndex < 0) return null;
+
+  return (
+    <mesh geometry={geometry} frustumCulled={false}>
+      <StitchMaterial texture={texture} owners={owners} selfIndex={selfIndex} />
+    </mesh>
+  );
+}
+
+function LookControls({
+  economical,
+  onHidden,
+}: {
+  economical: boolean;
+  onHidden: (names: string[]) => void;
+}) {
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls);
+  const gl = useThree((state) => state.gl);
+  const invalidate = useThree((state) => state.invalidate);
+  const size = useThree((state) => state.size);
+
+  useEffect(() => {
+    const apply = () => {
+      if (!(camera instanceof THREE.PerspectiveCamera)) return;
+      if (!economical) {
+        onHidden([]);
+      } else {
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+        onHidden(hiddenCameraNames(
+          forward.x,
+          forward.y,
+          forward.z,
+          camera.fov,
+          camera.aspect || (size.width / Math.max(size.height, 1)),
+        ));
+      }
+      invalidate();
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (!(camera instanceof THREE.PerspectiveCamera)) return;
+      const next = camera.fov + event.deltaY * 0.05;
+      camera.fov = THREE.MathUtils.clamp(next, 10, 120);
+      camera.updateProjectionMatrix();
+      apply();
+    };
+
+    apply();
+    const element = gl.domElement;
+    element.addEventListener('wheel', onWheel, { passive: true });
+    const orbit = controls as { addEventListener?: (type: string, fn: () => void) => void; removeEventListener?: (type: string, fn: () => void) => void } | null;
+    orbit?.addEventListener?.('change', apply);
+    return () => {
+      element.removeEventListener('wheel', onWheel);
+      orbit?.removeEventListener?.('change', apply);
+    };
+  }, [camera, controls, economical, gl, invalidate, onHidden, size.height, size.width]);
+
+  return (
+    <OrbitControls
+      makeDefault
+      enablePan={false}
+      enableZoom={false}
+      enableRotate
+      target={[0, 0, 0]}
+      rotateSpeed={-0.5}
+    />
+  );
+}
+
+function Feed({
+  camera,
+  src,
+  isPlaying,
+  video,
+  held,
+  onReady,
+  onDispose,
+}: {
+  camera: RigCamera;
+  src: string;
+  isPlaying?: boolean;
+  video: HTMLVideoElement;
+  held: boolean;
+  onReady: (camera: string, player: PlayerAdapter) => void;
+  onDispose: (camera: string, player: PlayerAdapter) => void;
+}) {
+  const adapterRef = useRef<PlayerAdapter | null>(null);
+
+  useEffect(() => {
+    const adapter = createPlayerAdapter(video);
+    adapterRef.current = adapter;
+    onReady(camera.name, adapter);
+    return () => {
+      adapter.dispose();
+      onDispose(camera.name, adapter);
+      adapterRef.current = null;
+    };
+  }, [camera.name, onDispose, onReady, video]);
+
+  useEffect(() => {
+    adapterRef.current?.setHeld(held);
+  }, [held]);
+
+  useEffect(() => {
+    if (!src) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      return;
+    }
+    // HTMLVideoElement mutation; not React state.
+    // eslint-disable-next-line react-hooks/immutability -- media element API
+    video.src = src;
+  }, [src, video]);
+
+  useEffect(() => {
+    const adapter = adapterRef.current;
+    if (!src) {
+      video.pause();
+      return;
+    }
+    if (isPlaying) adapter?.play().catch(() => {});
+    else adapter?.pause();
+  }, [isPlaying, src, video]);
+
+  useEffect(() => () => {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }, [video]);
+
+  return null;
+}
 
 interface Scene3DProps {
   frontSrc: string;
@@ -92,189 +468,119 @@ interface Scene3DProps {
   leftPillarSrc?: string;
   rightPillarSrc?: string;
   isPlaying?: boolean;
+  economical?: boolean;
   onVideoReady?: (camera: string, player: PlayerAdapter) => void;
+  onVideoDispose?: (camera: string, player: PlayerAdapter) => void;
 }
-
-interface CurvedScreenProps {
-    src?: string;
-    radius: number;
-    height: number;
-    thetaStart: number;
-    thetaLength: number;
-    isPlaying?: boolean;
-    onReady?: (player: PlayerAdapter) => void;
-}
-
-const CurvedScreen = ({ src, radius, height, thetaStart, thetaLength, isPlaying, onReady }: CurvedScreenProps) => {
-    // Use useMemo to create a stable video element that doesn't trigger state setters
-    const video = useMemo(() => {
-        const vid = document.createElement('video');
-        vid.crossOrigin = 'Anonymous';
-        vid.loop = true;
-        vid.muted = true;
-        vid.preload = 'metadata';
-        vid.autoplay = false;
-        // iOS requires playsinline
-        vid.setAttribute('playsinline', 'true');
-        vid.setAttribute('webkit-playsinline', 'true');
-        return vid;
-    }, []);
-
-    useEffect(() => {
-        if (onReady && video) {
-            const adapter = createPlayerAdapter(video);
-            onReady(adapter);
-        }
-    }, [video, onReady]);
-
-    useEffect(() => {
-        if (src) {
-            // HTMLVideoElement mutation; not React state.
-            // eslint-disable-next-line react-hooks/immutability -- media element API
-            video.src = src;
-        }
-    }, [src, video]);
-
-    useEffect(() => {
-        if (!src) {
-            video.pause();
-            return;
-        }
-        if (isPlaying) {
-            video.play().catch(() => {});
-        } else {
-            video.pause();
-        }
-    }, [isPlaying, src, video]);
-
-    useEffect(() => {
-        return () => {
-            video.pause();
-            video.src = "";
-            video.load();
-        }
-    }, [video]);
-
-    if (!src) return null;
-
-    return (
-        <mesh>
-            {/* CylinderGeometry: radiusTop, radiusBottom, height, radialSegments, heightSegments, openEnded, thetaStart, thetaLength */}
-            <cylinderGeometry args={[radius, radius, height, 32, 1, true, thetaStart, thetaLength]} />
-            {/* side={THREE.DoubleSide} ensures it's visible from inside and outside */}
-            <meshBasicMaterial side={THREE.DoubleSide} toneMapped={false}>
-                <videoTexture attach="map" args={[video]} repeat={[-1, 1]} offset={[1, 0]} />
-            </meshBasicMaterial>
-        </mesh>
-    );
-}
-
 
 const Scene3D: React.FC<Scene3DProps> = ({
-  frontSrc, leftRepeaterSrc, rightRepeaterSrc, backSrc,
-  leftPillarSrc, rightPillarSrc, isPlaying, onVideoReady
+  frontSrc,
+  leftRepeaterSrc,
+  rightRepeaterSrc,
+  backSrc,
+  leftPillarSrc,
+  rightPillarSrc,
+  isPlaying,
+  economical = false,
+  onVideoReady,
+  onVideoDispose,
 }) => {
-  const radius = 8;
-  const height = 5;
-  const segmentAngle = Math.PI / 3; // 60 degrees
+  const sources: Record<string, string> = {
+    Front: frontSrc,
+    'Left Repeater': leftRepeaterSrc,
+    'Right Repeater': rightRepeaterSrc,
+    Back: backSrc,
+    'Left Pillar': leftPillarSrc || '',
+    'Right Pillar': rightPillarSrc || '',
+  };
 
-  // Layout (Counter-Clockwise from +Z=0):
-  // Back: 0. Range [-30, 30] -> Start -Pi/6
-  // Right Rep: 60 (Pi/3). Range [30, 90] -> Start Pi/6
-  // Right Pillar: 120 (2Pi/3). Range [90, 150] -> Start Pi/2
-  // Front: 180 (Pi). Range [150, 210] -> Start 5Pi/6
-  // Left Pillar: 240 (4Pi/3). Range [210, 270] -> Start 7Pi/6
-  // Left Rep: 300 (5Pi/3). Range [270, 330] -> Start 9Pi/6 (3Pi/2)
+  const videos = useMemo(() => {
+    const map: Record<string, HTMLVideoElement> = {};
+    HW3_CAMERAS.forEach((camera) => {
+      map[camera.name] = makeVideo();
+    });
+    return map;
+  }, []);
+
+  const onReadyRef = useRef(onVideoReady);
+  useEffect(() => {
+    onReadyRef.current = onVideoReady;
+  }, [onVideoReady]);
+  const onReady = useCallback((name: string, player: PlayerAdapter) => {
+    onReadyRef.current?.(name, player);
+  }, []);
+  const onDisposeRef = useRef(onVideoDispose);
+  useEffect(() => {
+    onDisposeRef.current = onVideoDispose;
+  }, [onVideoDispose]);
+  const onDispose = useCallback((name: string, player: PlayerAdapter) => {
+    onDisposeRef.current?.(name, player);
+  }, []);
+
+  const hiddenKey = useRef('');
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(() => new Set());
+  const onHidden = useCallback((names: string[]) => {
+    const key = names.slice().sort().join('|');
+    if (key === hiddenKey.current) return;
+    hiddenKey.current = key;
+    setHidden(new Set(names));
+  }, []);
+
+  const activeCameras = useMemo(() => {
+    const byName: Record<string, string> = {
+      Front: frontSrc,
+      'Left Repeater': leftRepeaterSrc,
+      'Right Repeater': rightRepeaterSrc,
+      Back: backSrc,
+      'Left Pillar': leftPillarSrc || '',
+      'Right Pillar': rightPillarSrc || '',
+    };
+    return HW3_CAMERAS.filter((camera) => byName[camera.name]);
+  }, [backSrc, frontSrc, leftPillarSrc, leftRepeaterSrc, rightPillarSrc, rightRepeaterSrc]);
+  const owners = useMemo<OwnerUniform[]>(() => activeCameras.map((camera) => ({
+    yawRad: (camera.yawDeg * Math.PI) / 180,
+    halfHRad: (camera.hfovDeg * Math.PI) / 180 / 2,
+    halfVRad: (camera.vfovDeg * Math.PI) / 180 / 2,
+    fisheye: camera.projection === 'equidistant' ? 1 : 0,
+  })), [activeCameras]);
 
   return (
     <div className="w-full h-full bg-[var(--bg)]">
-      <Canvas>
-        <ZoomHandler />
-        {/* Camera inside the "car" */}
-        <PerspectiveCamera makeDefault position={[0, 1.2, 0.1]} />
-        {/* Controls to look around (rotateSpeed negative for "drag to look") */}
-        <OrbitControls
-            enablePan={false}
-            enableZoom={false}
-            enableRotate={true}
-            target={[0, 1.2, 0]}
-            rotateSpeed={-0.5}
+      {HW3_CAMERAS.map((camera) => (
+        <Feed
+          key={camera.name}
+          camera={camera}
+          src={sources[camera.name]}
+          isPlaying={isPlaying}
+          video={videos[camera.name]}
+          held={economical && hidden.has(camera.name)}
+          onReady={onReady}
+          onDispose={onDispose}
         />
-
-        <ambientLight intensity={0.5} />
-
-        {/* Curved Screens */}
-
-        {/* Back Camera (Rear) - Center 0 */}
-        <CurvedScreen
-            src={backSrc}
-            radius={radius}
-            height={height}
-            thetaStart={-segmentAngle / 2}
-            thetaLength={segmentAngle}
-            isPlaying={isPlaying}
-            onReady={(p) => onVideoReady && onVideoReady('Back', p)}
-        />
-
-        {/* Right Repeater - Center 60 deg */}
-        <CurvedScreen
-            src={rightRepeaterSrc}
-            radius={radius}
-            height={height}
-            thetaStart={Math.PI / 3 - segmentAngle / 2}
-            thetaLength={segmentAngle}
-            isPlaying={isPlaying}
-            onReady={(p) => onVideoReady && onVideoReady('Right Repeater', p)}
-        />
-
-        {/* Right Pillar - Center 120 deg */}
-        <CurvedScreen
-            src={rightPillarSrc}
-            radius={radius}
-            height={height}
-            thetaStart={2 * Math.PI / 3 - segmentAngle / 2}
-            thetaLength={segmentAngle}
-            isPlaying={isPlaying}
-            onReady={(p) => onVideoReady && onVideoReady('Right Pillar', p)}
-        />
-
-        {/* Front Camera - Center 180 deg */}
-        <CurvedScreen
-            src={frontSrc}
-            radius={radius}
-            height={height}
-            thetaStart={Math.PI - segmentAngle / 2}
-            thetaLength={segmentAngle}
-            isPlaying={isPlaying}
-            onReady={(p) => onVideoReady && onVideoReady('Front', p)}
-        />
-
-        {/* Left Pillar - Center 240 deg */}
-        <CurvedScreen
-            src={leftPillarSrc}
-            radius={radius}
-            height={height}
-            thetaStart={4 * Math.PI / 3 - segmentAngle / 2}
-            thetaLength={segmentAngle}
-            isPlaying={isPlaying}
-            onReady={(p) => onVideoReady && onVideoReady('Left Pillar', p)}
-        />
-
-        {/* Left Repeater - Center 300 deg */}
-        <CurvedScreen
-            src={leftRepeaterSrc}
-            radius={radius}
-            height={height}
-            thetaStart={5 * Math.PI / 3 - segmentAngle / 2}
-            thetaLength={segmentAngle}
-            isPlaying={isPlaying}
-            onReady={(p) => onVideoReady && onVideoReady('Left Repeater', p)}
-        />
+      ))}
+      <Canvas
+        frameloop="demand"
+        dpr={economical ? 1 : [1, 2]}
+        gl={{
+          antialias: !economical,
+          powerPreference: economical ? 'low-power' : 'default',
+          alpha: false,
+        }}
+      >
+        <PerspectiveCamera makeDefault position={[0, 0, 0.01]} fov={34} near={0.05} far={50} />
+        <LookControls economical={economical} onHidden={onHidden} />
+        {activeCameras.map((camera) => (
+          <CameraPatch
+            key={camera.name}
+            camera={camera}
+            video={videos[camera.name]}
+            owners={owners}
+            selfIndex={activeCameras.findIndex((item) => item.name === camera.name)}
+          />
+        ))}
       </Canvas>
     </div>
   );
 };
 
-// Bolt: Memoize Scene3D to prevent re-renders on every timeline update (10Hz).
-// Only re-render when video sources change (segment switch).
 export default React.memo(Scene3D);

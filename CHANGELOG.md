@@ -34,6 +34,11 @@ This integration is not a production release. Do not deploy it as one.
   - Added explicit rule to `AGENTS.md`.
   - All future model changes must be additive fields only. No manual SQL migrations are permitted under the current strategy (documented in `backend/database/db.go`).
 
+## [0.1.20] - 2026-10-04
+### Fixed
+- The 3D viewer no longer stretches each camera across an equal 60° cylinder slice. Each camera is a spherical patch of the published HW2.5/HW3 field of view (main 46°×34° rectilinear, B-pillar 90°×65.3° equidistant, repeater 75°×55.4° equidistant, rear 140°×105° equidistant). A direction is drawn by the camera whose lens contains it and whose optical axis is closest, so overlapping fans do not ghost. Optical-axis yaw other than forward (0°) and rearward (180°) is a reading of Tesla's direction words, not a factory extrinsic. Per-car yaw, pitch, and roll are not in the clip files.
+- Phone 3D draws at 1× with antialiasing off, redraws when a video frame is presented, requests the existing 480p quality, and pauses cameras whose horizontal fan misses the view. A camera that still reaches the edge of the view keeps decoding. Desktop keeps its pixel ratio, antialiasing, and selected quality, and skips redraws when the frame has not changed.
+
 ## [0.1.19] - 2026-10-04
 ### Fixed
 - Phone playback uses one 24px bar across the top of the picture for gear, steering, speed, brake, and accelerator. There is no side column. The desktop panel is unchanged: up to 20rem wide, 3rem speed, 4rem steering wheel.
