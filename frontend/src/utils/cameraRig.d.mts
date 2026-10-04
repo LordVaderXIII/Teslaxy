@@ -7,6 +7,7 @@ export interface RigCamera {
   yawDeg: number;
   pitchDeg: number;
   projection: LensProjection;
+  role: 'front' | 'pillar' | 'repeater' | 'back';
 }
 
 export const SIDE_OVERLAP_DEG: number;

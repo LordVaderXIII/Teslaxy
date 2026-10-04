@@ -41,7 +41,9 @@
  *   factory extrinsic.
  * - Repeater: rearward-looking side camera. Its axis is set so the
  *   published 75° fan overlaps the pillar's outer edge by SIDE_OVERLAP_DEG.
- *   It is not a measured aim.
+ *   It is not a measured aim. Glados rejected this placement on
+ *   RecentClips/2026-02-18_17-34-39. The degrees are unchanged: there is
+ *   no published replacement. Handoff below does not treat them as extrinsics.
  * Pitch is calibrated per car and is not published as a nominal degree.
  * Every camera uses pitch 0.
  *
@@ -74,19 +76,20 @@ const REPEATER_YAW = (PILLAR_YAW + PILLAR_HFOV / 2) - SIDE_OVERLAP_DEG + REPEATE
  * @property {number} yawDeg Positive yaw is toward the vehicle's left.
  * @property {number} pitchDeg
  * @property {LensProjection} projection
+ * @property {'front' | 'pillar' | 'repeater' | 'back'} role
  */
 
 /** @type {readonly RigCamera[]} */
 export const HW3_CAMERAS = Object.freeze([
-  cam('Front', MAIN_HFOV, MAIN_VFOV, 0, 'rectilinear'),
-  cam('Left Pillar', PILLAR_HFOV, PILLAR_VFOV, PILLAR_YAW, 'equidistant'),
-  cam('Right Pillar', PILLAR_HFOV, PILLAR_VFOV, -PILLAR_YAW, 'equidistant'),
-  cam('Left Repeater', REPEATER_HFOV, REPEATER_VFOV, REPEATER_YAW, 'equidistant'),
-  cam('Right Repeater', REPEATER_HFOV, REPEATER_VFOV, -REPEATER_YAW, 'equidistant'),
-  cam('Back', REAR_HFOV, REAR_VFOV, 180, 'equidistant'),
+  cam('Front', MAIN_HFOV, MAIN_VFOV, 0, 'rectilinear', 'front'),
+  cam('Left Pillar', PILLAR_HFOV, PILLAR_VFOV, PILLAR_YAW, 'equidistant', 'pillar'),
+  cam('Right Pillar', PILLAR_HFOV, PILLAR_VFOV, -PILLAR_YAW, 'equidistant', 'pillar'),
+  cam('Left Repeater', REPEATER_HFOV, REPEATER_VFOV, REPEATER_YAW, 'equidistant', 'repeater'),
+  cam('Right Repeater', REPEATER_HFOV, REPEATER_VFOV, -REPEATER_YAW, 'equidistant', 'repeater'),
+  cam('Back', REAR_HFOV, REAR_VFOV, 180, 'equidistant', 'back'),
 ]);
 
-function cam(name, hfovDeg, vfovDeg, yawDeg, projection) {
+function cam(name, hfovDeg, vfovDeg, yawDeg, projection, role) {
   return Object.freeze({
     name,
     hfovDeg,
@@ -94,6 +97,7 @@ function cam(name, hfovDeg, vfovDeg, yawDeg, projection) {
     yawDeg,
     pitchDeg: 0,
     projection,
+    role,
   });
 }
 
@@ -229,8 +233,21 @@ export function azimuthDegOf(x, _y, z) {
 }
 
 /**
- * Camera that should draw this direction. Among cameras whose published
- * lens contains the ray, the one whose optical axis is closest wins.
+ * Camera that should draw this direction.
+ *
+ * Ownership on RecentClips/2026-02-18_17-34-39, from the annotated sheets.
+ * These rules choose among cameras whose published lens already contains
+ * the ray. They do not move an optical axis.
+ * - Front keeps its whole frame: garage door, jambs, eaves, hatchback,
+ *   forward carriageway, and the yellow line. A pillar must not replace
+ *   a garage corner. No garage corner was verified in the raw pillar frames,
+ *   so nothing is invented past that edge.
+ * - A pillar keeps its whole frame when a repeater also sees the ray, so
+ *   the repeater cannot cut through the SUV. The repeater draws only
+ *   outside the pillar fan (driveway and road past the tail).
+ * - Where those rules do not choose, the closest optical axis wins.
+ *   A direction outside every published fan stays empty. That lower wedge
+ *   is a coverage hole, not a splice.
  * @param {number} x
  * @param {number} y
  * @param {number} z
@@ -238,15 +255,23 @@ export function azimuthDegOf(x, _y, z) {
  */
 export function directionOwner(x, y, z) {
   const dir = normalize({ x, y, z });
-  let best = null;
-  let bestDist = Infinity;
+  const seen = [];
   for (const camera of HW3_CAMERAS) {
     if (!projectToImage(camera, dir.x, dir.y, dir.z)) continue;
     const axis = imageDirection(camera, 0.5, 0.5);
     const dist = Math.acos(Math.min(1, Math.max(-1, dot(dir, axis))));
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = camera.name;
+    seen.push({ camera, dist });
+  }
+  if (seen.length === 0) return null;
+  if (seen.some((item) => item.camera.role === 'front')) return 'Front';
+  const pillarSees = seen.some((item) => item.camera.role === 'pillar');
+  let best = null;
+  let bestDist = Infinity;
+  for (const item of seen) {
+    if (pillarSees && item.camera.role === 'repeater') continue;
+    if (item.dist < bestDist) {
+      bestDist = item.dist;
+      best = item.camera.name;
     }
   }
   return best;

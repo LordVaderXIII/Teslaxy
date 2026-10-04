@@ -34,6 +34,10 @@ This integration is not a production release. Do not deploy it as one.
   - Added explicit rule to `AGENTS.md`.
   - All future model changes must be additive fields only. No manual SQL migrations are permitted under the current strategy (documented in `backend/database/db.go`).
 
+## [0.1.21] - 2026-10-04
+### Fixed
+- 3D handoff follows the ownership marks on RecentClips/2026-02-18_17-34-39. The front camera keeps every direction inside its published frame, so a pillar cannot replace a garage corner or the forward yellow line. A pillar keeps every direction inside its fan when the matching repeater also sees it, so the repeater does not cut through the SUV; the repeater draws only outside that fan. Optical-axis yaw is unchanged and is still not a factory extrinsic. A pose is still required before the arch, the driveway, or the skyline can meet. Directions outside every published fan stay empty.
+
 ## [0.1.20] - 2026-10-04
 ### Fixed
 - The 3D viewer no longer stretches each camera across an equal 60° cylinder slice. Each camera is a spherical patch of the published HW2.5/HW3 field of view (main 46°×34° rectilinear, B-pillar 90°×65.3° equidistant, repeater 75°×55.4° equidistant, rear 140°×105° equidistant). A direction is drawn by the camera whose lens contains it and whose optical axis is closest, so overlapping fans do not ghost. Optical-axis yaw other than forward (0°) and rearward (180°) is a reading of Tesla's direction words, not a factory extrinsic. Per-car yaw, pitch, and roll are not in the clip files.

@@ -111,4 +111,37 @@ assert(joinHidden.includes('Right Repeater'), 'the far repeater stays paused at 
 const outside = projectToImage(front, 1, 0, 0);
 assert(outside === null, 'a ray 90° off the main axis is outside the 46° lens');
 
+function ray(azimuth, elevation = 0) {
+  const a = (azimuth * Math.PI) / 180;
+  const e = (elevation * Math.PI) / 180;
+  const ce = Math.cos(e);
+  return [-Math.sin(a) * ce, Math.sin(e), -Math.cos(a) * ce];
+}
+
+const rightPillar = byName('Right Pillar');
+const rightRepeater = byName('Right Repeater');
+
+// Right pillar/repeater overlap. The pillar raw frame holds the whole SUV;
+// the repeater must not cut the arch. It still draws outside the pillar fan.
+const suvOverlap = ray(-87);
+assert(projectToImage(rightPillar, ...suvOverlap), 'right pillar sees the overlap');
+assert(projectToImage(rightRepeater, ...suvOverlap), 'right repeater sees the overlap');
+assert(directionOwner(...suvOverlap) === 'Right Pillar', 'right pillar keeps the SUV overlap');
+const pastTail = ray(-110);
+assert(projectToImage(rightPillar, ...pastTail) === null, 'past the pillar fan is not the pillar');
+assert(directionOwner(...pastTail) === 'Right Repeater', 'repeater keeps background outside the pillar fan');
+const leftOverlap = ray(87);
+assert(directionOwner(...leftOverlap) === 'Left Pillar', 'left pillar keeps its repeater overlap');
+
+// Front keeps garage corners and the yellow line. A pillar that also
+// contains that ray does not replace them.
+const frontEdge = imageDirection(front, 0.98, 0.5);
+const frontCorner = imageDirection(front, 0.98, 0.02);
+assert(directionOwner(frontEdge.x, frontEdge.y, frontEdge.z) === 'Front', 'front edge stays on the front camera');
+assert(directionOwner(frontCorner.x, frontCorner.y, frontCorner.z) === 'Front', 'front corner stays on the front camera');
+
+// The lower wedge is still uncovered. Do not fill it with a neighbour.
+const hole = ray(0, -34);
+assert(directionOwner(...hole) === null, 'the coverage hole under the front stays empty');
+
 console.log('camera rig ok');

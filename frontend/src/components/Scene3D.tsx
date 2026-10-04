@@ -163,6 +163,7 @@ uniform float camYaw[6];
 uniform float camHalfH[6];
 uniform float camHalfV[6];
 uniform float camFisheye[6];
+uniform float camRole[6];
 uniform int camCount;
 uniform int selfIndex;
 varying vec2 vUv;
@@ -196,10 +197,24 @@ float axisDistance(int i, vec3 dir) {
 
 void main() {
   vec3 dir = normalize(vDir);
+  float frontSees = 0.0;
+  float pillarSees = 0.0;
+  for (int i = 0; i < 6; i++) {
+    if (i < camCount && axisDistance(i, dir) >= 0.0) {
+      // 0 repeater, 1 pillar, 2 front, 3 back.
+      if (camRole[i] > 1.5 && camRole[i] < 2.5) frontSees = 1.0;
+      if (camRole[i] > 0.5 && camRole[i] < 1.5) pillarSees = 1.0;
+    }
+  }
   int best = -1;
   float bestDist = 100.0;
   for (int i = 0; i < 6; i++) {
     if (i < camCount) {
+      // Front keeps every ray inside its frame, including the garage
+      // corners and the yellow line.
+      if (frontSees > 0.5 && (camRole[i] < 1.5 || camRole[i] > 2.5)) continue;
+      // A pillar keeps the SUV. The repeater draws only outside that fan.
+      if (pillarSees > 0.5 && camRole[i] < 0.5) continue;
       float dist = axisDistance(i, dir);
       if (dist >= 0.0 && dist < bestDist) {
         bestDist = dist;
@@ -217,6 +232,7 @@ interface OwnerUniform {
   halfHRad: number;
   halfVRad: number;
   fisheye: number;
+  role: number;
 }
 
 function StitchMaterial({
@@ -233,11 +249,13 @@ function StitchMaterial({
     const halfH = new Float32Array(6);
     const halfV = new Float32Array(6);
     const fisheye = new Float32Array(6);
+    const roles = new Float32Array(6);
     owners.forEach((owner, index) => {
       yaws[index] = owner.yawRad;
       halfH[index] = owner.halfHRad;
       halfV[index] = owner.halfVRad;
       fisheye[index] = owner.fisheye;
+      roles[index] = owner.role;
     });
     return new THREE.ShaderMaterial({
       uniforms: {
@@ -246,6 +264,7 @@ function StitchMaterial({
         camHalfH: { value: halfH },
         camHalfV: { value: halfV },
         camFisheye: { value: fisheye },
+        camRole: { value: roles },
         camCount: { value: owners.length },
         selfIndex: { value: selfIndex },
       },
@@ -542,6 +561,7 @@ const Scene3D: React.FC<Scene3DProps> = ({
     halfHRad: (camera.hfovDeg * Math.PI) / 180 / 2,
     halfVRad: (camera.vfovDeg * Math.PI) / 180 / 2,
     fisheye: camera.projection === 'equidistant' ? 1 : 0,
+    role: camera.role === 'front' ? 2 : camera.role === 'pillar' ? 1 : camera.role === 'back' ? 3 : 0,
   })), [activeCameras]);
 
   return (
