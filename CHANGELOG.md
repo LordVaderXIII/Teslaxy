@@ -34,6 +34,11 @@ This integration is not a production release. Do not deploy it as one.
   - Added explicit rule to `AGENTS.md`.
   - All future model changes must be additive fields only. No manual SQL migrations are permitted under the current strategy (documented in `backend/database/db.go`).
 
+## [0.1.19] - 2026-10-04
+### Fixed
+- Phone playback keeps a small driving HUD in the corner of the picture. The desktop panel is unchanged: up to 20rem wide, 3rem speed, 4rem steering wheel. Below 768px the panel is capped at 10.25rem (and 46vw), with a 1.35rem speed and a 1.75rem wheel, so the video and the camera chips stay usable.
+- Brake and accelerator now follow the SEI sample. `accelerator_pedal_position` (percent of travel; Tesla's 15.60 sample is 15.6% of the bar) sets the accelerator bar width. `brake_applied` fills the brake icon and the brake bar. The player still has no pedal keyboard, pointer, or gamepad handler; those graphics read `telemetry.full_data_json`.
+
 ## [0.1.18] - 2025-12-22
 ### Fixed
 - Fixed Docker build failure on Unraid (`npm run build` failing during `tsc -b && vite build`).

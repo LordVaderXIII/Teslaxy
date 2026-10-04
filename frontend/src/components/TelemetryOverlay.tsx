@@ -1,15 +1,18 @@
 import React, { useMemo } from 'react';
 import { ArrowLeft, ArrowRight, CircleAlert } from 'lucide-react';
 import { telemetryIndex } from '../utils/telemetryIndex.mjs';
+import { pedalState } from '../utils/pedalState.mjs';
 
 interface TelemetryPoint {
   frame_seq_no?: number;
   vehicle_speed_mps: number;
   accelerator_pedal_position: number;
+  acceleratorPedalPosition?: number;
   steering_wheel_angle: number;
   blinker_on_left: boolean;
   blinker_on_right: boolean;
   brake_applied: boolean;
+  brakeApplied?: boolean;
   autopilot_state: number; // 0: None, 1: Self-Driving, 2: Autosteer, 3: TACC
   gear_state: number; // 0: Park, 1: Drive, 2: Reverse, 3: Neutral
 }
@@ -64,70 +67,80 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson
   const gear = getGearLabel(currentPoint.gear_state);
   const steering = currentPoint.steering_wheel_angle || 0;
   const apState = getAutopilotLabel(currentPoint.autopilot_state);
-  const brakeApplied = !!currentPoint.brake_applied;
-  const accelPos = currentPoint.accelerator_pedal_position || 0;
+  // SEI pedal sample → bar width and brake fill. See pedalState.mjs.
+  const pedals = pedalState(currentPoint);
+  const accelPercent = `${pedals.accelerator * 100}%`;
 
   return (
     <div
-      className="absolute top-8 left-1/2 -translate-x-1/2 p-4 rounded-[5px] bg-[var(--panel)] border border-[var(--line)] text-[var(--ink)] font-[var(--font-mono)] select-none z-50 pointer-events-none"
-      style={{ maxWidth: 'min(20rem, calc(100% - 24px))', width: '100%' }}
+      className="desk-hud"
+      data-brake={pedals.brakeApplied ? 'applied' : 'released'}
+      data-accelerator={pedals.accelerator}
     >
 
-      <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center space-x-2">
-            <div className={`text-xl font-bold ${gear === 'D' || gear === 'R' ? 'text-[var(--accent)]' : 'text-[var(--muted)]'}`}>
+      <div className="desk-hud-row">
+          <div className="desk-hud-gearbox">
+            <div className={`desk-hud-gear ${gear === 'D' || gear === 'R' ? 'is-moving' : ''}`}>
                 {gear}
             </div>
             <CircleAlert
                 size={20}
-                className={`${brakeApplied ? 'text-[var(--sev-crit)]' : 'text-[var(--ghost)]'}`}
+                className={`desk-hud-brake-icon ${pedals.brakeApplied ? 'is-applied' : ''}`}
+                fill={pedals.brakeApplied ? 'currentColor' : 'none'}
+                aria-label={pedals.brakeApplied ? 'Brake applied' : 'Brake released'}
             />
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="desk-hud-speedbox">
               <ArrowLeft
                 size={24}
-                className={`${isBlinkerLeft ? 'text-[var(--sev-ok)]' : 'text-[var(--ghost)]'}`}
+                className={`desk-hud-blink ${isBlinkerLeft ? 'is-on' : ''}`}
               />
 
-              <div className="flex flex-col items-center">
-                <div className="text-5xl font-light tracking-tighter leading-none">
+              <div className="desk-hud-speedcol">
+                <div className="desk-hud-speed">
                     {speed}
                 </div>
-                <div className="text-[16px] text-[var(--muted)] font-medium tracking-wider uppercase mt-1">
+                <div className="desk-hud-unit">
                     km/h
                 </div>
               </div>
 
               <ArrowRight
                 size={24}
-                className={`${isBlinkerRight ? 'text-[var(--sev-ok)]' : 'text-[var(--ghost)]'}`}
+                className={`desk-hud-blink ${isBlinkerRight ? 'is-on' : ''}`}
               />
           </div>
 
-           <div style={{ transform: `rotate(${steering}deg)` }} className="desk-motion">
+           <div style={{ transform: `rotate(${steering}deg)` }} className="desk-motion desk-hud-wheel-wrap">
                 <img
                     src="/steering_wheel.png"
                     alt="Steering Wheel"
-                    className="w-16 h-16 object-contain"
+                    className="desk-hud-wheel"
                 />
            </div>
       </div>
 
-      <div className="w-full h-2 bg-[var(--ghost)] rounded-[3px] overflow-hidden mb-2 relative">
+      <div className="desk-hud-track" aria-label="Accelerator">
           <div
-              className="h-full bg-[var(--sev-ok)] origin-left"
-              style={{ transform: `scaleX(${Math.max(0, Math.min(100, accelPos)) / 100})` }}
+              className="desk-hud-accel"
+              style={{ width: accelPercent }}
+          />
+      </div>
+      <div className="desk-hud-track desk-hud-track-brake" aria-label="Brake">
+          <div
+              className="desk-hud-brake-fill"
+              style={{ width: pedals.brakeApplied ? '100%' : '0%' }}
           />
       </div>
 
       {apState && (
-          <div className="text-center text-[var(--accent)] font-semibold text-[16px] uppercase tracking-wide mt-2">
+          <div className="desk-hud-ap">
               {apState}
           </div>
       )}
       {approximate && (
-          <div className="text-center text-[var(--muted)] font-semibold text-[16px] uppercase tracking-wide mt-2">
+          <div className="desk-hud-sync">
               SYNC APPROX
           </div>
       )}
