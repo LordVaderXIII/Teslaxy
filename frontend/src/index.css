@@ -580,6 +580,262 @@ button:disabled {
   }
 }
 
+/* Driving HUD.
+   Desktop keeps the previous 20rem / 3rem-speed / 4rem-wheel panel.
+   Phones collapse the same nodes into one full-width strip along the
+   top of the picture. Sizing lives here so an inline width cannot
+   force the panel back open. */
+.desk-hud {
+  position: absolute;
+  top: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: min(20rem, calc(100% - 24px));
+  padding: 1rem;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  user-select: none;
+  pointer-events: none;
+}
+
+.desk-hud-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.desk-hud-gearbox,
+.desk-hud-speedbox,
+.desk-hud-speedcol {
+  display: flex;
+  align-items: center;
+}
+
+.desk-hud-gearbox {
+  gap: 0.5rem;
+  flex: none;
+}
+
+.desk-hud-speedbox {
+  gap: 1rem;
+  min-width: 0;
+}
+
+.desk-hud-speedcol {
+  flex-direction: column;
+}
+
+.desk-hud-gear {
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.desk-hud-gear.is-moving {
+  color: var(--accent);
+}
+
+.desk-hud-brake-icon {
+  color: var(--ghost);
+  flex: none;
+}
+
+.desk-hud-brake-icon.is-applied {
+  color: var(--sev-crit);
+}
+
+.desk-hud-blink {
+  color: var(--ghost);
+  flex: none;
+}
+
+.desk-hud-blink.is-on {
+  color: var(--sev-ok);
+}
+
+.desk-hud-speed {
+  font-size: 3rem;
+  font-weight: 300;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.desk-hud-unit,
+.desk-hud-ap,
+.desk-hud-sync {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.desk-hud-unit {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+
+.desk-hud-wheel-wrap {
+  flex: none;
+}
+
+.desk-hud-wheel {
+  display: block;
+  width: 4rem;
+  height: 4rem;
+  object-fit: contain;
+}
+
+.desk-hud-steer {
+  display: none;
+}
+
+.desk-hud-track {
+  width: 100%;
+  height: 0.5rem;
+  margin-bottom: 0.5rem;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--ghost);
+}
+
+.desk-hud-accel,
+.desk-hud-brake-fill {
+  height: 100%;
+  width: 0%;
+  transition: width 180ms ease-out;
+}
+
+.desk-hud-accel {
+  background: var(--sev-ok);
+}
+
+.desk-hud-brake-fill {
+  background: var(--sev-crit);
+}
+
+.desk-hud-ap {
+  margin-top: 0.5rem;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.desk-hud-sync {
+  margin-top: 0.5rem;
+  text-align: center;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+@media (max-width: 767px) {
+  /* One horizontal strip. Gear, steering, speed, brake, and accelerator
+     are siblings on that line. No side column and no second row. */
+  .desk-hud {
+    top: 0;
+    left: 0;
+    right: 0;
+    transform: none;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: none;
+    height: 24px;
+    min-height: 24px;
+    max-height: 24px;
+    padding: 0 6px;
+    border-radius: 0;
+    border-width: 0 0 1px;
+    overflow: hidden;
+  }
+
+  .desk-hud-row {
+    display: contents;
+  }
+
+  .desk-hud-gearbox,
+  .desk-hud-speedbox {
+    gap: 3px;
+  }
+
+  .desk-hud-speedcol {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 2px;
+  }
+
+  .desk-hud-gear {
+    font-size: 13px;
+  }
+
+  .desk-hud-brake-icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .desk-hud-blink {
+    display: none;
+  }
+
+  .desk-hud-speed {
+    font-size: 13px;
+    letter-spacing: 0;
+  }
+
+  .desk-hud-unit {
+    font-size: 9px;
+    margin-top: 0;
+    letter-spacing: 0;
+  }
+
+  .desk-hud-wheel {
+    width: 16px;
+    height: 16px;
+  }
+
+  .desk-hud-steer {
+    display: inline;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .desk-hud-track,
+  .desk-hud-track-brake {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 56px;
+    max-width: none;
+    height: 10px;
+    margin: 0;
+    box-shadow: inset 0 0 0 1px var(--sev-ok);
+  }
+
+  .desk-hud-track-brake {
+    box-shadow: inset 0 0 0 1px var(--sev-crit);
+  }
+
+  .desk-hud-ap,
+  .desk-hud-sync {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

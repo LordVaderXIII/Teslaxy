@@ -45,6 +45,9 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Ensure `ffmpeg` with NVENC support is available or injected.
 - Expose port 80.
 
+### Cloud agent environment
+- `.cursor/environment.json` is the build setup: `.cursor/Dockerfile` (Node 22, Go 1.24, gcc, ffmpeg) plus `.cursor/install.sh` (`npm ci` in `frontend/`, `go mod download` in `backend/`). No snapshot id. Do not put secrets in that file.
+
 ## Instructions
 - Always verify changes with `read_file` or `ls` after creating/modifying files.
 - Run tests where possible.
