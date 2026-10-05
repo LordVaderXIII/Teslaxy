@@ -104,31 +104,63 @@ const AlignControls: React.FC<AlignControlsProps> = ({
   const camera = cameraById(alignment, selected);
   const label = CAMERA_LABELS[selected] || selected;
 
+  const readout = camera
+    ? `x ${formatNum(camera.x, 2)}  y ${formatNum(camera.y, 2)}  z ${formatNum(camera.z, 2)}   yaw ${formatNum(camera.yaw_deg, 1)}°  pitch ${formatNum(camera.pitch_deg, 1)}°  roll ${formatNum(camera.roll_deg, 1)}°  fov ${formatNum(camera.fov_deg, 1)}°`
+    : '';
+
   return (
     <div className="align-panel" role="dialog" aria-label="Align cameras">
-      <div className="align-head">
-        <div className="min-w-0">
-          <div className="desk-eyebrow">// ALIGN</div>
-          <div
-            className="align-status"
-            role={notice.includes('alignment file') ? 'alert' : 'status'}
+      <div
+        className="align-status"
+        role={notice.includes('alignment file') ? 'alert' : 'status'}
+      >
+        {notice || (usingDefaults
+          ? 'Loaded defaults from camera-alignment.json'
+          : `Adjusted ${label}`)}
+      </div>
+      <div className="align-chips" role="group" aria-label="Camera to align">
+        {CAMERA_IDS.map((id) => (
+          <button
+            key={id}
+            type="button"
+            className="align-btn"
+            aria-pressed={id === selected}
+            onClick={() => onSelect(id)}
           >
-            {notice || (usingDefaults
-              ? 'Loaded defaults from camera-alignment.json'
-              : `Adjusted ${label}`)}
-          </div>
-        </div>
-        <div className="align-head-actions">
-          <button type="button" className="align-btn" onClick={onExport}>
-            Export
+            {CAMERA_SHORT_LABELS[id] || id}
           </button>
-          <button type="button" className="align-btn" onClick={() => fileRef.current?.click()}>
-            Import
-          </button>
-          <button type="button" className="align-btn" onClick={onClose} aria-label="Close align mode">
-            Close
-          </button>
-        </div>
+        ))}
+      </div>
+      {camera && <p className="align-readout">{readout}</p>}
+      <div className="align-nudge" role="group" aria-label={`Nudge ${label}`}>
+        <HoldButton label="X−" aria={`Decrease ${label} x`} onFire={() => onNudge('x', -1)} />
+        <HoldButton label="X+" aria={`Increase ${label} x`} onFire={() => onNudge('x', 1)} />
+        <HoldButton label="Y−" aria={`Decrease ${label} y`} onFire={() => onNudge('y', -1)} />
+        <HoldButton label="Y+" aria={`Increase ${label} y`} onFire={() => onNudge('y', 1)} />
+        <HoldButton label="Z−" aria={`Decrease ${label} z`} onFire={() => onNudge('z', -1)} />
+        <HoldButton label="Z+" aria={`Increase ${label} z`} onFire={() => onNudge('z', 1)} />
+        <HoldButton label="Yaw−" aria={`Decrease ${label} yaw`} onFire={() => onNudge('yaw_deg', -1)} />
+        <HoldButton label="Yaw+" aria={`Increase ${label} yaw`} onFire={() => onNudge('yaw_deg', 1)} />
+        <HoldButton label="Pitch−" aria={`Decrease ${label} pitch`} onFire={() => onNudge('pitch_deg', -1)} />
+        <HoldButton label="Pitch+" aria={`Increase ${label} pitch`} onFire={() => onNudge('pitch_deg', 1)} />
+        <HoldButton label="Roll−" aria={`Decrease ${label} roll`} onFire={() => onNudge('roll_deg', -1)} />
+        <HoldButton label="Roll+" aria={`Increase ${label} roll`} onFire={() => onNudge('roll_deg', 1)} />
+        <HoldButton label="FOV−" aria={`Decrease ${label} field of view`} onFire={() => onNudge('fov_deg', -1)} />
+        <HoldButton label="FOV+" aria={`Increase ${label} field of view`} onFire={() => onNudge('fov_deg', 1)} />
+      </div>
+      <div className="align-actions">
+        <button type="button" className="align-btn" onClick={onReset}>
+          Reset
+        </button>
+        <button type="button" className="align-btn" onClick={onExport}>
+          Export
+        </button>
+        <button type="button" className="align-btn" onClick={() => fileRef.current?.click()}>
+          Import
+        </button>
+        <button type="button" className="align-btn" onClick={onClose} aria-label="Close align mode">
+          Close
+        </button>
       </div>
       <input
         ref={fileRef}
@@ -142,47 +174,6 @@ const AlignControls: React.FC<AlignControlsProps> = ({
           if (file) onImport(file);
         }}
       />
-      <div className="align-scroll">
-        <div className="align-chips" role="group" aria-label="Camera to align">
-          {CAMERA_IDS.map((id) => (
-            <button
-              key={id}
-              type="button"
-              className="align-btn"
-              aria-pressed={id === selected}
-              onClick={() => onSelect(id)}
-            >
-              {CAMERA_SHORT_LABELS[id] || id}
-            </button>
-          ))}
-        </div>
-        {camera && (
-          <p className="align-readout">
-            x {formatNum(camera.x, 2)} · y {formatNum(camera.y, 2)} · z {formatNum(camera.z, 2)}
-            <br />
-            yaw {formatNum(camera.yaw_deg, 1)}° · pitch {formatNum(camera.pitch_deg, 1)}° · roll {formatNum(camera.roll_deg, 1)}° · fov {formatNum(camera.fov_deg, 1)}°
-          </p>
-        )}
-        <div className="align-grid" role="group" aria-label={`Nudge ${label}`}>
-          <HoldButton label="X−" aria={`Decrease ${label} x`} onFire={() => onNudge('x', -1)} />
-          <HoldButton label="X+" aria={`Increase ${label} x`} onFire={() => onNudge('x', 1)} />
-          <HoldButton label="Y−" aria={`Decrease ${label} y`} onFire={() => onNudge('y', -1)} />
-          <HoldButton label="Y+" aria={`Increase ${label} y`} onFire={() => onNudge('y', 1)} />
-          <HoldButton label="Z−" aria={`Decrease ${label} z`} onFire={() => onNudge('z', -1)} />
-          <HoldButton label="Z+" aria={`Increase ${label} z`} onFire={() => onNudge('z', 1)} />
-          <HoldButton label="Yaw−" aria={`Decrease ${label} yaw`} onFire={() => onNudge('yaw_deg', -1)} />
-          <HoldButton label="Yaw+" aria={`Increase ${label} yaw`} onFire={() => onNudge('yaw_deg', 1)} />
-          <HoldButton label="Pitch−" aria={`Decrease ${label} pitch`} onFire={() => onNudge('pitch_deg', -1)} />
-          <HoldButton label="Pitch+" aria={`Increase ${label} pitch`} onFire={() => onNudge('pitch_deg', 1)} />
-          <HoldButton label="Roll−" aria={`Decrease ${label} roll`} onFire={() => onNudge('roll_deg', -1)} />
-          <HoldButton label="Roll+" aria={`Increase ${label} roll`} onFire={() => onNudge('roll_deg', 1)} />
-          <HoldButton label="FOV−" aria={`Decrease ${label} field of view`} onFire={() => onNudge('fov_deg', -1)} />
-          <HoldButton label="FOV+" aria={`Increase ${label} field of view`} onFire={() => onNudge('fov_deg', 1)} />
-          <button type="button" className="align-btn" onClick={onReset}>
-            Reset
-          </button>
-        </div>
-      </div>
     </div>
   );
 };

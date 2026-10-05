@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-10-05
+### Fixed
+- Phone align mode keeps 44px targets. Camera choice, nudges, Reset, Export, Import, and Close sit on horizontal rows. Export, Import, and Close no longer stack into a column that leaves only a sliver for the nudge controls at 390×844.
+
 ## [0.2.0] - 2026-10-05
 ### Added
 - 3D align mode. Pick one of the six cameras and nudge its view position (x, y, z), yaw, pitch, roll, and field of view. The other five stay put. Reset puts that camera back. Export downloads `camera-alignment.json` (schema version 1). Import loads a file of that schema and leaves the view unchanged if the file is unreadable or a different version.

@@ -37,6 +37,7 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - `frontend/src/data/camera-alignment.json` (schema version 1) is the viewing layout the 3D player loads. The frontend imports it; it is not served from the Go API.
 - The committed values are the production cylinder slices (60° each, radius 8, height 5). They are not vehicle mounts. Do not replace them with unsourced pose numbers. A later hand-aligned export is what gets committed over this file.
 - `frontend/tests/camera-alignment-check.mjs` compares that file's cylinder geometry with the production slice angles. Run it with `node frontend/tests/camera-alignment-check.mjs`.
+- On a phone the align panel is a short stack of horizontal rows: cameras, nudges, then Reset / Export / Import / Close. Do not wrap those actions into a column, and do not cap the panel with a percentage max-height. That clips the 44px controls at 390×844.
 
 ### Frontend (React/TypeScript)
 - Use functional components and Hooks.
