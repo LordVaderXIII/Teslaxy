@@ -23,6 +23,7 @@ import {
   type CylinderSpec,
   type SegmentPlacement,
 } from '../utils/cameraAlignment.mjs';
+import { revokeDownloadLater } from '../utils/nudgeGesture.mjs';
 
 const ZoomHandler = () => {
   const { camera, gl } = useThree();
@@ -261,8 +262,8 @@ const Scene3D: React.FC<Scene3DProps> = ({
     link.download = 'camera-alignment.json';
     document.body.appendChild(link);
     link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+    // Safari fetches the blob after this turn. Revoke only once that has started.
+    revokeDownloadLater(url, () => link.remove());
     setNotice('Exported camera-alignment.json.');
   };
 

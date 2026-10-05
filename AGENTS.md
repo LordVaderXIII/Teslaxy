@@ -38,6 +38,7 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - The committed values are the production cylinder slices (60° each, radius 8, height 5). They are not vehicle mounts. Do not replace them with unsourced pose numbers. A later hand-aligned export is what gets committed over this file.
 - `frontend/tests/camera-alignment-check.mjs` compares that file's cylinder geometry with the production slice angles. Run it with `node frontend/tests/camera-alignment-check.mjs`.
 - On a phone the align panel is a short stack of horizontal rows: cameras, nudges, then Reset / Export / Import / Close. Do not wrap those actions into a column, and do not cap the panel with a percentage max-height. That clips the 44px controls at 390×844. On a phone the panel is in the document flow under the canvas (`.align-host.is-open`). Do not put it back to a full-stage overlay: the overlay covers the cylinder and the nudge has no visible preview.
+- Nudge buttons must not fire on `pointerdown`. A sideways swipe of `.align-nudge` is a scroll (`classifyNudgeMove`). A tap fires once on click. A hold that stays inside the slop repeats. Export must not call `URL.revokeObjectURL` in the same turn as `link.click()`; Safari drops the file. `revokeDownloadLater` waits. Run `node frontend/tests/align-gesture-check.mjs`.
 
 ### Frontend (React/TypeScript)
 - Use functional components and Hooks.

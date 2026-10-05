@@ -954,6 +954,10 @@ button:disabled {
   -webkit-overflow-scrolling: touch;
 }
 
+.align-nudge .align-btn {
+  touch-action: pan-x;
+}
+
 .align-btn {
   flex: 0 0 auto;
   box-sizing: border-box;

@@ -6,6 +6,11 @@ import {
   cameraById,
   type CameraAlignment,
 } from '../utils/cameraAlignment.mjs';
+import {
+  NUDGE_HOLD_DELAY_MS,
+  NUDGE_REPEAT_MS,
+  classifyNudgeMove,
+} from '../utils/nudgeGesture.mjs';
 
 type NudgeField = 'x' | 'y' | 'z' | 'yaw_deg' | 'pitch_deg' | 'roll_deg' | 'fov_deg';
 
@@ -32,7 +37,8 @@ const HoldButton = ({
   onFire: () => void;
 }) => {
   const onFireRef = useRef(onFire);
-  const holdTimer = useRef<number | null>(null);
+  const repeatTimer = useRef<number | null>(null);
+  const armTimer = useRef<number | null>(null);
   const skipClick = useRef(false);
 
   useEffect(() => {
@@ -40,27 +46,22 @@ const HoldButton = ({
   }, [onFire]);
 
   useEffect(() => () => {
-    if (holdTimer.current != null) window.clearInterval(holdTimer.current);
+    if (repeatTimer.current != null) window.clearInterval(repeatTimer.current);
+    if (armTimer.current != null) window.clearTimeout(armTimer.current);
   }, []);
 
-  const stopHold = () => {
-    if (holdTimer.current != null) {
-      window.clearInterval(holdTimer.current);
-      holdTimer.current = null;
+  const stopRepeat = () => {
+    if (repeatTimer.current != null) {
+      window.clearInterval(repeatTimer.current);
+      repeatTimer.current = null;
     }
   };
 
-  const startHold = () => {
-    stopHold();
-    onFireRef.current();
-    holdTimer.current = window.setInterval(() => onFireRef.current(), 90);
-    const stop = () => {
-      stopHold();
-      window.removeEventListener('pointerup', stop);
-      window.removeEventListener('pointercancel', stop);
-    };
-    window.addEventListener('pointerup', stop);
-    window.addEventListener('pointercancel', stop);
+  const stopArm = () => {
+    if (armTimer.current != null) {
+      window.clearTimeout(armTimer.current);
+      armTimer.current = null;
+    }
   };
 
   return (
@@ -70,8 +71,38 @@ const HoldButton = ({
       aria-label={aria}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
-        skipClick.current = true;
-        startHold();
+        // Do not fire yet. A sideways swipe of this row is a scroll.
+        // A scroll may not emit click, so drop any leftover swallow here.
+        skipClick.current = false;
+        stopArm();
+        stopRepeat();
+        const originX = event.clientX;
+        const originY = event.clientY;
+        let scrolling = false;
+        armTimer.current = window.setTimeout(() => {
+          armTimer.current = null;
+          if (scrolling) return;
+          skipClick.current = true;
+          onFireRef.current();
+          repeatTimer.current = window.setInterval(() => onFireRef.current(), NUDGE_REPEAT_MS);
+        }, NUDGE_HOLD_DELAY_MS);
+        const onMove = (move: PointerEvent) => {
+          if (scrolling || repeatTimer.current != null) return;
+          if (classifyNudgeMove(move.clientX - originX, move.clientY - originY) !== 'scroll') return;
+          scrolling = true;
+          skipClick.current = true;
+          stopArm();
+        };
+        const finish = () => {
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', finish);
+          window.removeEventListener('pointercancel', finish);
+          stopArm();
+          stopRepeat();
+        };
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', finish);
+        window.addEventListener('pointercancel', finish);
       }}
       onClick={() => {
         if (skipClick.current) {
