@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "note": "Production 3D layout from commit 73adf67. Six 60 degree cylinder slices. These numbers are not a vehicle mount.",
+  "viewer": {
+    "radius": 8,
+    "height": 5,
+    "radial_segments": 32,
+    "height_segments": 1,
+    "position": [0, 1.2, 0.1],
+    "target": [0, 1.2, 0]
+  },
+  "cameras": [
+    {
+      "camera": "front",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "yaw_deg": 180,
+      "pitch_deg": 0,
+      "roll_deg": 0,
+      "fov_deg": 60
+    },
+    {
+      "camera": "back",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "yaw_deg": 0,
+      "pitch_deg": 0,
+      "roll_deg": 0,
+      "fov_deg": 60
+    },
+    {
+      "camera": "left_pillar",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "yaw_deg": 240,
+      "pitch_deg": 0,
+      "roll_deg": 0,
+      "fov_deg": 60
+    },
+    {
+      "camera": "right_pillar",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "yaw_deg": 120,
+      "pitch_deg": 0,
+      "roll_deg": 0,
+      "fov_deg": 60
+    },
+    {
+      "camera": "left_repeater",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "yaw_deg": 300,
+      "pitch_deg": 0,
+      "roll_deg": 0,
+      "fov_deg": 60
+    },
+    {
+      "camera": "right_repeater",
+      "x": 0,
+      "y": 0,
+      "z": 0,
+      "yaw_deg": 60,
+      "pitch_deg": 0,
+      "roll_deg": 0,
+      "fov_deg": 60
+    }
+  ]
+}
