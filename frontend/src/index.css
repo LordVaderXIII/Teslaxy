@@ -827,6 +827,180 @@ button:disabled {
   }
 }
 
+/* 3D align mode. Phone chrome is three horizontal rows (cameras, nudges,
+   Reset/Export/Import/Close). Rows scroll sideways. They do not wrap into
+   a column, and the panel is not capped to a percentage of the stage:
+   that left the 44px controls in a ~27px slot. */
+.align-stage {
+  position: absolute;
+  inset: 0;
+}
+
+/* On a phone the stage is short. An overlay panel covers the cylinder, so
+   the picture being aligned disappears. Stack the panel under the canvas. */
+@media (max-width: 767px) {
+  .align-host.is-open {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .align-host.is-open .align-stage {
+    position: relative;
+    inset: auto;
+    flex: 1 1 0;
+    min-height: 80px;
+    overflow: hidden;
+  }
+
+  .align-host.is-open .align-stage > div {
+    width: 100%;
+    height: 100%;
+  }
+
+  .align-host.is-open .align-panel {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    flex: none;
+  }
+}
+
+.align-open {
+  position: absolute;
+  z-index: 30;
+  top: max(8px, env(safe-area-inset-top, 0px));
+  right: max(8px, env(safe-area-inset-right, 0px));
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.align-panel {
+  position: absolute;
+  z-index: 30;
+  left: max(8px, env(safe-area-inset-left, 0px));
+  right: max(8px, env(safe-area-inset-right, 0px));
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  width: auto;
+  max-height: none;
+  overflow: visible;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.align-status {
+  flex: none;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.align-readout {
+  flex: none;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.align-chips,
+.align-nudge,
+.align-actions {
+  display: flex;
+  flex: none;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.align-nudge .align-btn {
+  touch-action: pan-x;
+}
+
+.align-btn {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 44px;
+  height: 44px;
+  padding: 0 12px;
+  background: var(--panel);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 15px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.align-actions .align-btn {
+  flex: 1 0 auto;
+}
+
+.align-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.align-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 767px) {
+  .align-open {
+    top: calc(28px + env(safe-area-inset-top, 0px));
+  }
+}
+
+@media (min-width: 768px) {
+  .align-panel {
+    left: 50%;
+    right: auto;
+    width: min(640px, calc(100% - max(16px, env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px))));
+    transform: translateX(-50%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

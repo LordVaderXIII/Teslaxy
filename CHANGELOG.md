@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-10-05
+### Fixed
+- Swiping the nudge row no longer moves the camera. A tap still steps once, and a held press still repeats.
+- Export keeps the alignment file URL long enough for Safari and iOS to start the download.
+
+## [0.2.2] - 2026-10-05
+### Fixed
+- On a phone, align controls sit under the cylinder instead of covering it. Nudging a camera still shows the picture. The 44px rows stay horizontal.
+
+## [0.2.1] - 2026-10-05
+### Fixed
+- Phone align mode keeps 44px targets. Camera choice, nudges, Reset, Export, Import, and Close sit on horizontal rows. Export, Import, and Close no longer stack into a column that leaves only a sliver for the nudge controls at 390×844.
+
+## [0.2.0] - 2026-10-05
+### Added
+- 3D align mode. Pick one of the six cameras and nudge its view position (x, y, z), yaw, pitch, roll, and field of view. The other five stay put. Reset puts that camera back. Export downloads `camera-alignment.json` (schema version 1). Import loads a file of that schema and leaves the view unchanged if the file is unreadable or a different version.
+- The player loads `frontend/src/data/camera-alignment.json` on start. The committed numbers are the production cylinder (six 60° slices, radius 8, height 5, viewer at (0, 1.2, 0.1)). They are a viewing layout, not a vehicle mount. Replacing that file is how a later export becomes the default.
+
 ## [Unreleased]
 
 This integration is not a production release. Do not deploy it as one.
