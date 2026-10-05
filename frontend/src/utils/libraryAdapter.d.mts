@@ -2,8 +2,6 @@ import type { Clip, VideoFile } from './clipMerge.mjs';
 
 export const MAX_LIBRARY_FILE_IDS: 64;
 
-export function isValidMapPoint(lat: unknown, lon: unknown): boolean;
-
 export function clipMapPoint(
   clip: { telemetry?: { latitude?: number; longitude?: number } }
 ): [number, number] | null;

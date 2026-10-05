@@ -6,7 +6,7 @@ export const MAX_LIBRARY_FILE_IDS = 64;
  * @param {unknown} lon
  * @returns {boolean}
  */
-export function isValidMapPoint(lat, lon) {
+function isValidMapPoint(lat, lon) {
   if (typeof lat !== 'number' || typeof lon !== 'number') return false;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
   if (lat === 0 && lon === 0) return false;

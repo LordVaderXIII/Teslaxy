@@ -1,11 +1,11 @@
 /** Playback timeline, speed, and multi-camera drift helpers. */
 
-export const DEFAULT_SEGMENT_SECONDS = 60;
-export const SYNC_DRIFT_SECONDS = 0.3;
+const DEFAULT_SEGMENT_SECONDS = 60;
+const SYNC_DRIFT_SECONDS = 0.3;
 /** A seek counts as landed once media time is within this of the requested offset. */
-export const SEEK_LANDED_SECONDS = 0.5;
+const SEEK_LANDED_SECONDS = 0.5;
 /** HTMLMediaElement.HAVE_CURRENT_DATA. Below this, a paused seek never finishes. */
-export const HAVE_CURRENT_DATA = 2;
+const HAVE_CURRENT_DATA = 2;
 
 const MIN_SEGMENT_SECONDS = 1;
 const MAX_SEGMENT_SECONDS = 120;
@@ -130,7 +130,7 @@ export function assignPlaybackRate(player, rate) {
   }
 }
 
-export function elementIsSeeking(player) {
+function elementIsSeeking(player) {
   if (!player || typeof player.seeking !== 'function') return false;
   try {
     return Boolean(player.seeking());
@@ -173,7 +173,7 @@ export function mediaSeekBlocked(player) {
 }
 
 /** Whether this transport should assign currentTime. Rate changes are separate. */
-export function shouldIssueMediaSeek(player, targetLocal) {
+function shouldIssueMediaSeek(player, targetLocal) {
   if (!Number.isFinite(targetLocal) || mediaSeekBlocked(player)) return false;
   let now = Number.NaN;
   try {
