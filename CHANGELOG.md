@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-10-05
+### Fixed
+- On a phone, align controls sit under the cylinder instead of covering it. Nudging a camera still shows the picture. The 44px rows stay horizontal.
+
 ## [0.2.1] - 2026-10-05
 ### Fixed
 - Phone align mode keeps 44px targets. Camera choice, nudges, Reset, Export, Import, and Close sit on horizontal rows. Export, Import, and Close no longer stack into a column that leaves only a sliver for the nudge controls at 390×844.

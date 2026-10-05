@@ -311,10 +311,11 @@ const Scene3D: React.FC<Scene3DProps> = ({
 
   return (
     <div
-      className="relative w-full h-full bg-[var(--bg)]"
+      className={`align-host relative w-full h-full bg-[var(--bg)]${alignOpen ? ' is-open' : ''}`}
       data-alignment-source={usingDefaults ? 'defaults' : 'adjusted'}
     >
-      <Canvas>
+      <div className="align-stage">
+        <Canvas style={{ width: '100%', height: '100%' }}>
         <ZoomHandler />
         <PerspectiveCamera makeDefault position={cameraPosition} />
         <OrbitControls
@@ -339,7 +340,8 @@ const Scene3D: React.FC<Scene3DProps> = ({
             />
           );
         })}
-      </Canvas>
+        </Canvas>
+      </div>
       {alignOpen ? (
         <AlignControls
           alignment={alignment}
