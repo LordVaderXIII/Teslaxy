@@ -20,12 +20,12 @@ export const DEFAULT_CLIP_FILTERS: ClipFilterState = {
   sentryOther: true,
 };
 
-export function clipDateKey(clip: Clip): string {
+function clipDateKey(clip: Clip): string {
   return clip.date_key || new Date(clip.timestamp).toDateString();
 }
 
 /** Existing Sidebar date/reason predicate. Keep Recent / Saved / Sentry keys exact. */
-export function matchesClipReasonFilter(clip: Clip, filters: ClipFilterState): boolean {
+function matchesClipReasonFilter(clip: Clip, filters: ClipFilterState): boolean {
   // Recent
   if (clip.event === 'Recent') {
     return filters.recent;

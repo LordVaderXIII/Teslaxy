@@ -197,15 +197,6 @@ func extractProtoPayload(nal []byte) []byte {
 		return nil
 	}
 
-	// Python:
-	// for i in range(3, len(nal) - 1):
-	//     byte = nal[i]
-	//     if byte == 0x42: continue
-	//     if byte == 0x69:
-	//         if i > 2: return strip_emulation_prevention_bytes(nal[i + 1:-1])
-	//         break
-	//     break
-
 	for i := 3; i < len(nal)-1; i++ {
 		b := nal[i]
 		if b == 0x42 {

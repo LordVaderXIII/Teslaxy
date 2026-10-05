@@ -40,14 +40,14 @@ func TestTokenValidation(t *testing.T) {
 	}
 	tamperedToken := parts[0] + "." + parts[1] + "." + fakeSignature
 
-	valid, err = validateToken(tamperedToken)
+	valid, _ = validateToken(tamperedToken)
 	if valid {
 		t.Error("Expected invalid token for tampered signature, got valid")
 	}
 
 	// 3. Test Invalid Base64 Signature (should fail gracefully)
 	invalidBase64Token := parts[0] + "." + parts[1] + "." + "InvalidBase64!!!!"
-	valid, err = validateToken(invalidBase64Token)
+	valid, _ = validateToken(invalidBase64Token)
 	if valid {
 		t.Error("Expected invalid token for bad base64, got valid")
 	}

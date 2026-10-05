@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This integration is not a production release. Do not deploy it as one.
 
+### Removed
+- Dead code only. Playback and library helpers that nothing imported are file-private. Removed the unused `.desk-dialog` rule, the unused `--accent-2` token, a commented-out SEI Python loop, unused token-test error values, and orphaned files the build does not reference.
+
 ### Fixed
 - Viewer playback speed no longer blanks the app after a camera is focused. Unmounted cameras left disposed video.js players in the registry, and setting `playbackRate` wrote through a null media element.
 - Six-camera playback now seeks a camera back to the feature camera's clock when it drifts by more than 0.3s, and mosaic tiles preload metadata so a late start does not stay a constant offset.
