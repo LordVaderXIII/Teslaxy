@@ -51,6 +51,7 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Use multi-stage builds to keep the final image size small.
 - Ensure `ffmpeg` with NVENC support is available or injected.
 - Expose port 80.
+- Prod runtime is `debian:bookworm-slim` (glibc), not Alpine. The pinned BtbN linux64 ffmpeg is a glibc binary and does not run under Alpine/`gcompat` (build-time `h264_nvenc` check exits 1). Backend builder is `golang:1.24-bookworm` so CGO matches. Keep the sha256 pin and run `scripts/check-ffmpeg-nvenc.sh` at build time (binary must execute, then list `h264_nvenc`). Smoke: `scripts/verify-docker-ffmpeg.sh`.
 
 ### Footage retention
 - Implemented in `backend/services/retention.go` (+ `retention_config.go`, `retention_path.go`, `retention_scheduler.go`).

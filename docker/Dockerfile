@@ -9,10 +9,13 @@ RUN npm run build
 RUN ls -la dist/ || (echo "ERROR: Frontend build did not produce dist/ directory" && exit 1)
 
 # Stage 2: Build Backend
-FROM golang:1.24-alpine AS backend-builder
+# glibc (bookworm) so the runtime binary matches the BtbN linux64 ffmpeg ABI.
+FROM golang:1.24-bookworm AS backend-builder
 WORKDIR /app/backend
 # Install build dependencies for CGO (SQLite)
-RUN apk add --no-cache gcc musl-dev
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends gcc libc6-dev \
+	&& rm -rf /var/lib/apt/lists/*
 
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
@@ -26,14 +29,18 @@ COPY --from=frontend-builder /app/frontend/dist ./public
 RUN CGO_ENABLED=1 GOOS=linux go build -o teslaxy .
 
 # Stage 3: Runtime
-FROM alpine:3.21
+# debian-slim (glibc): BtbN linux64 ffmpeg is a glibc binary. Alpine + gcompat cannot
+# execute it (missing symbols / libs), so the build-time h264_nvenc check exited 1
+# even though the tarball and sha256 were correct.
+FROM debian:bookworm-slim
 WORKDIR /app
 
+# Loud build-time encoder check (must run after ffmpeg install).
+COPY scripts/check-ffmpeg-nvenc.sh /usr/local/share/teslaxy/check-ffmpeg-nvenc.sh
+
 # Install Runtime Dependencies
-# Alpine's apk ffmpeg is built without NVENC. Under `runtime: nvidia` that made every
-# export fail with "Unknown encoder 'h264_nvenc'" once nvidia-smi succeeded (H5).
-# Ship a pinned BtbN GPL static build that includes h264_nvenc; CUDA libs still come
-# from the NVIDIA Container Toolkit at runtime. gcompat covers glibc symbols on musl.
+# Distro ffmpeg lacks NVENC; ship a pinned BtbN GPL build. CUDA libs still come
+# from the NVIDIA Container Toolkit at runtime.
 #
 # Source: https://github.com/BtbN/FFmpeg-Builds (GPL linux64 shared-free static tarball).
 # Release tag autobuild-2026-10-13-13-05, asset ffmpeg-n8.1.3-18-g46d899d7a0-linux64-gpl-8.1.tar.xz.
@@ -46,7 +53,8 @@ RUN arch="${TARGETARCH:-}" \
 	&& if [ -z "$arch" ]; then arch="$(uname -m)"; fi \
 	&& case "$arch" in amd64|x86_64) ;; *) \
 		echo "ERROR: BtbN linux64 ffmpeg is amd64-only (TARGETARCH/uname=$arch)" >&2; exit 1 ;; esac \
-	&& apk add --no-cache ca-certificates tzdata libva gcompat curl xz \
+	&& apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates tzdata libva2 curl xz-utils \
 	&& curl -fsSL -o /tmp/ffmpeg.tar.xz "${FFMPEG_BTBN_URL}" \
 	&& echo "${FFMPEG_BTBN_SHA256}  /tmp/ffmpeg.tar.xz" | sha256sum -c - \
 	&& mkdir -p /tmp/ffmpeg \
@@ -54,8 +62,11 @@ RUN arch="${TARGETARCH:-}" \
 	&& install -m755 /tmp/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg \
 	&& install -m755 /tmp/ffmpeg/bin/ffprobe /usr/local/bin/ffprobe \
 	&& rm -rf /tmp/ffmpeg /tmp/ffmpeg.tar.xz \
-	&& apk del curl xz \
-	&& /usr/local/bin/ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc
+	&& apt-get purge -y curl xz-utils \
+	&& apt-get autoremove -y \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& chmod +x /usr/local/share/teslaxy/check-ffmpeg-nvenc.sh \
+	&& /usr/local/share/teslaxy/check-ffmpeg-nvenc.sh
 
 # Copy Binary
 COPY --from=backend-builder /app/backend/teslaxy /usr/local/bin/teslaxy

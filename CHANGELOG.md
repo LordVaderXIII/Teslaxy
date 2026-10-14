@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-14
+### Fixed
+- Prod Docker runtime switches from Alpine+gcompat to `debian:bookworm-slim` (glibc) so the pinned BtbN linux64 ffmpeg binary actually executes; Alpine could pass the tarball sha256 and still fail `h264_nvenc` because the binary would not run.
+- Backend builder uses `golang:1.24-bookworm` so the CGO binary matches the glibc runtime.
+- Build-time ffmpeg check (`scripts/check-ffmpeg-nvenc.sh`) fails loudly with version/encoder output: verify the binary runs, then require `h264_nvenc` in `-encoders` (no GPU required).
+
 ## [0.3.0] - 2026-10-14
 ### Added
 - Footage retention: scheduled oldest-first pruning by age (default 90 days) and size cap (default ~300 GB).
