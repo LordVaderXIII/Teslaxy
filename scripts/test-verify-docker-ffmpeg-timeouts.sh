@@ -442,6 +442,160 @@ for msg in "Cannot load libcuda.so.1" "CUDA_ERROR_NO_DEVICE" "no CUDA-capable de
 	assert_encode_fail "GPU present + ffmpeg says: ${msg}"
 done
 
+# --- 6b) nvidia-smi probe: ambiguous/error results are FAIL, not SKIP ---
+SMI_STUB="$STUB_DIR/fake-nvidia-smi"
+write_ffmpeg_ok_stub
+
+assert_probe_fail() {
+	local label="$1"
+	set +e
+	unset TESLAXY_NVENC_FORCE_GPU || true
+	TESLAXY_NVENC_NVIDIA_SMI="$SMI_STUB" NVENC_SMI_TIMEOUT_SEC=2 \
+		FFMPEG_BIN="$FFMPEG_STUB" \
+		"$ENCODE_CHECK" >"${LOG_DIR}/probe-fail.log" 2>&1
+	ec=$?
+	set -e
+	if [[ "$ec" -eq 1 ]] && grep -q 'ERROR: GPU probe failed' "${LOG_DIR}/probe-fail.log" \
+		&& ! grep -q '^SKIP:' "${LOG_DIR}/probe-fail.log"; then
+		pass "probe FAIL (not SKIP): ${label}"
+	else
+		fail "expected probe FAIL exit 1 for '${label}' (got ${ec}); log: $(tr '\n' ' ' <"${LOG_DIR}/probe-fail.log")"
+	fi
+}
+
+# probe-missing: explicit nvidia-smi path does not exist
+set +e
+unset TESLAXY_NVENC_FORCE_GPU || true
+TESLAXY_NVENC_NVIDIA_SMI="${STUB_DIR}/missing-nvidia-smi" NVENC_SMI_TIMEOUT_SEC=2 \
+	FFMPEG_BIN="$FFMPEG_STUB" \
+	"$ENCODE_CHECK" >"${LOG_DIR}/probe-missing.log" 2>&1
+probe_missing_ec=$?
+set -e
+if [[ "$probe_missing_ec" -eq 1 ]] && grep -qi 'probe missing' "${LOG_DIR}/probe-missing.log" \
+	&& ! grep -q '^SKIP:' "${LOG_DIR}/probe-missing.log"; then
+	pass "probe-missing → exit 1"
+else
+	fail "probe-missing expected exit 1 (got ${probe_missing_ec}); log: $(tr '\n' ' ' <"${LOG_DIR}/probe-missing.log")"
+fi
+
+# driver-error (exit 9)
+cat >"$SMI_STUB" <<'EOF'
+#!/usr/bin/env bash
+exit 9
+EOF
+chmod +x "$SMI_STUB"
+assert_probe_fail "driver-error (exit 9)"
+
+# empty stdout, exit 0
+cat >"$SMI_STUB" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$SMI_STUB"
+assert_probe_fail "empty nvidia-smi output"
+
+# partial (GPU without required 'GPU N: ' form)
+cat >"$SMI_STUB" <<'EOF'
+#!/usr/bin/env bash
+echo "GPU"
+exit 0
+EOF
+chmod +x "$SMI_STUB"
+assert_probe_fail "partial nvidia-smi output"
+
+# indented GPU line (unparseable — not column-0 '^GPU ')
+cat >"$SMI_STUB" <<'EOF'
+#!/usr/bin/env bash
+echo "  GPU 0: Fake Device"
+exit 0
+EOF
+chmod +x "$SMI_STUB"
+assert_probe_fail "indented nvidia-smi GPU line"
+
+# Clean non-GPU listing → positively confirmed absence → SKIP
+cat >"$SMI_STUB" <<'EOF'
+#!/usr/bin/env bash
+echo "No devices were found."
+exit 0
+EOF
+chmod +x "$SMI_STUB"
+set +e
+unset TESLAXY_NVENC_FORCE_GPU || true
+TESLAXY_NVENC_NVIDIA_SMI="$SMI_STUB" NVENC_SMI_TIMEOUT_SEC=2 \
+	FFMPEG_BIN="$FFMPEG_STUB" \
+	"$ENCODE_CHECK" >"${LOG_DIR}/probe-absent-ok.log" 2>&1
+probe_absent_ec=$?
+set -e
+[[ "$probe_absent_ec" -eq 2 ]] && grep -qi 'SKIP:.*no GPU' "${LOG_DIR}/probe-absent-ok.log" \
+	&& pass "clean no-devices listing → SKIP exit 2" \
+	|| fail "clean absence expected SKIP exit 2 (got ${probe_absent_ec})"
+
+# Valid '^GPU ' listing → present → encode runs (OK with stub ffmpeg)
+cat >"$SMI_STUB" <<'EOF'
+#!/usr/bin/env bash
+echo "GPU 0: Fake Device"
+exit 0
+EOF
+chmod +x "$SMI_STUB"
+set +e
+unset TESLAXY_NVENC_FORCE_GPU || true
+TESLAXY_NVENC_NVIDIA_SMI="$SMI_STUB" NVENC_SMI_TIMEOUT_SEC=2 \
+	FFMPEG_BIN="$FFMPEG_STUB" \
+	"$ENCODE_CHECK" >"${LOG_DIR}/probe-present-ok.log" 2>&1
+probe_present_ec=$?
+set -e
+[[ "$probe_present_ec" -eq 0 ]] && grep -q 'OK: h264_nvenc encode succeeded' "${LOG_DIR}/probe-present-ok.log" \
+	&& pass "valid GPU listing → encode OK" \
+	|| fail "valid GPU listing expected encode OK (got ${probe_present_ec})"
+
+# --- 6c) hung nvidia-smi: timeout is FAIL, bounded by NVENC_SMI_TIMEOUT_SEC ---
+cat >"$SMI_STUB" <<'EOF'
+#!/usr/bin/env bash
+# Sleep with no output — must not hang the probe forever.
+sleep 60
+EOF
+chmod +x "$SMI_STUB"
+start=$SECONDS
+set +e
+unset TESLAXY_NVENC_FORCE_GPU || true
+TESLAXY_NVENC_NVIDIA_SMI="$SMI_STUB" NVENC_SMI_TIMEOUT_SEC=2 \
+	FFMPEG_BIN="$FFMPEG_STUB" \
+	"$ENCODE_CHECK" >"${LOG_DIR}/probe-hang-silent.log" 2>&1
+hang_silent_ec=$?
+set -e
+hang_silent_elapsed=$((SECONDS - start))
+if [[ "$hang_silent_ec" -eq 1 ]] && (( hang_silent_elapsed <= 2 + 3 )) \
+	&& grep -qi 'timed out' "${LOG_DIR}/probe-hang-silent.log" \
+	&& ! grep -q '^SKIP:' "${LOG_DIR}/probe-hang-silent.log"; then
+	pass "hung nvidia-smi (no output) → exit 1 within deadline (${hang_silent_elapsed}s)"
+else
+	fail "hung silent smi expected exit 1 within ~5s (got ${hang_silent_ec}, elapsed=${hang_silent_elapsed}s); log: $(tr '\n' ' ' <"${LOG_DIR}/probe-hang-silent.log")"
+fi
+
+cat >"$SMI_STUB" <<'EOF'
+#!/usr/bin/env bash
+# Print a GPU line then hang — timeout must still be FAIL (not present).
+echo "GPU 0: Fake Device"
+sleep 60
+EOF
+chmod +x "$SMI_STUB"
+start=$SECONDS
+set +e
+unset TESLAXY_NVENC_FORCE_GPU || true
+TESLAXY_NVENC_NVIDIA_SMI="$SMI_STUB" NVENC_SMI_TIMEOUT_SEC=2 \
+	FFMPEG_BIN="$FFMPEG_STUB" \
+	"$ENCODE_CHECK" >"${LOG_DIR}/probe-hang-output.log" 2>&1
+hang_out_ec=$?
+set -e
+hang_out_elapsed=$((SECONDS - start))
+if [[ "$hang_out_ec" -eq 1 ]] && (( hang_out_elapsed <= 2 + 3 )) \
+	&& grep -qi 'timed out' "${LOG_DIR}/probe-hang-output.log" \
+	&& ! grep -q '^SKIP:' "${LOG_DIR}/probe-hang-output.log"; then
+	pass "hung nvidia-smi (with output) → exit 1 within deadline (${hang_out_elapsed}s)"
+else
+	fail "hung output smi expected exit 1 within ~5s (got ${hang_out_ec}, elapsed=${hang_out_elapsed}s); log: $(tr '\n' ' ' <"${LOG_DIR}/probe-hang-output.log")"
+fi
+
 # --- 7) Whole verify-docker-ffmpeg.sh exit codes for encode outcomes ---
 OK_PORT=$((PORT + 3))
 start_http_mock "$OK_PORT" "0" "pong" 200
@@ -459,6 +613,36 @@ else
 	fail "REQUIRE_NVENC_ENCODE=1 should fail on SKIP (exit=${req_ec}); log: $(tail -6 "${LOG_DIR}/verify-require-skip.log" | tr '\n' ' ')"
 fi
 
+# Default require: unset REQUIRE_NVENC_ENCODE → FAIL on SKIP
+set +e
+STUB_ENCODE_EXIT=2 \
+	env -u REQUIRE_NVENC_ENCODE \
+	PING_DEADLINE_SEC=4 CURL_MAX_TIME=2 \
+	PORT="$OK_PORT" IMAGE_TAG=stub TMPDIR="$TMP_BASE" \
+	"$VERIFY" >"${LOG_DIR}/verify-require-unset.log" 2>&1
+unset_ec=$?
+set -e
+if [[ "$unset_ec" -ne 0 ]] && grep -q 'REQUIRE_NVENC_ENCODE' "${LOG_DIR}/verify-require-unset.log"; then
+	pass "verify exit non-zero: REQUIRE_NVENC_ENCODE unset + SKIP (exit=${unset_ec})"
+else
+	fail "unset REQUIRE_NVENC_ENCODE should fail on SKIP (exit=${unset_ec}); log: $(tail -6 "${LOG_DIR}/verify-require-unset.log" | tr '\n' ' ')"
+fi
+
+# Empty REQUIRE_NVENC_ENCODE → treated as default require → FAIL on SKIP
+set +e
+STUB_ENCODE_EXIT=2 REQUIRE_NVENC_ENCODE= \
+	PING_DEADLINE_SEC=4 CURL_MAX_TIME=2 \
+	PORT="$OK_PORT" IMAGE_TAG=stub TMPDIR="$TMP_BASE" \
+	"$VERIFY" >"${LOG_DIR}/verify-require-empty.log" 2>&1
+empty_ec=$?
+set -e
+if [[ "$empty_ec" -ne 0 ]] && grep -q 'REQUIRE_NVENC_ENCODE' "${LOG_DIR}/verify-require-empty.log"; then
+	pass "verify exit non-zero: REQUIRE_NVENC_ENCODE empty + SKIP (exit=${empty_ec})"
+else
+	fail "empty REQUIRE_NVENC_ENCODE should fail on SKIP (exit=${empty_ec}); log: $(tail -6 "${LOG_DIR}/verify-require-empty.log" | tr '\n' ' ')"
+fi
+
+# Explicit opt-out only: REQUIRE_NVENC_ENCODE=0 allows SKIP
 set +e
 STUB_ENCODE_EXIT=2 REQUIRE_NVENC_ENCODE=0 \
 	PING_DEADLINE_SEC=4 CURL_MAX_TIME=2 \
@@ -467,9 +651,9 @@ STUB_ENCODE_EXIT=2 REQUIRE_NVENC_ENCODE=0 \
 skip_ec=$?
 set -e
 if [[ "$skip_ec" -eq 0 ]] && grep -q '^SKIP: nvenc encode' "${LOG_DIR}/verify-skip-ok.log"; then
-	pass "verify exit 0: SKIP without require + smoke ok"
+	pass "verify exit 0: SKIP with explicit REQUIRE_NVENC_ENCODE=0 + smoke ok"
 else
-	fail "SKIP without require should allow smoke success (exit=${skip_ec})"
+	fail "explicit REQUIRE_NVENC_ENCODE=0 should allow smoke success (exit=${skip_ec})"
 fi
 
 set +e
@@ -503,15 +687,17 @@ if grep -q 'OWNED_FIX' "$VERIFY" \
 	&& grep -q 'mktemp -d "${TMP_BASE}/teslaxy-docker-verify-' "$VERIFY" \
 	&& grep -q 'now_ns\|deadline_ns' "$VERIFY" \
 	&& grep -q 'deadline_ns' "$VERIFY" \
-	&& grep -q 'REQUIRE_NVENC_ENCODE' "$VERIFY" \
+	&& grep -q 'REQUIRE_NVENC_ENCODE:-1' "$VERIFY" \
 	&& grep -q 'NVIDIA_VISIBLE_DEVICES' "$VERIFY" \
 	&& grep -q 'check-ffmpeg-nvenc-encode.sh' "$VERIFY" \
 	&& ! grep -q 'curl_get .*/api/version.*|| true' "$VERIFY" \
 	&& grep -q 'NVIDIA_VISIBLE_DEVICES=all' "$ROOT/docker/docker-compose.yml" \
 	&& grep -q 'NVIDIA_DRIVER_CAPABILITIES=compute,video,utility' "$ROOT/docker/docker-compose.yml" \
 	&& grep -q 'REQUIRE_NVENC_ENCODE=1' "$ROOT/docker/docker-compose.yml" \
-	&& grep -q 'gpu_present\|TESLAXY_NVENC_FORCE_GPU\|/dev/nvidia' "$ENCODE_CHECK"; then
-	pass "verify + compose wire OWNED_FIX, ns deadline, NVIDIA env, pre-encode GPU check"
+	&& grep -q 'TESLAXY_NVENC_FORCE_GPU\|/dev/nvidia' "$ENCODE_CHECK" \
+	&& grep -q 'NVENC_SMI_TIMEOUT_SEC\|timeout' "$ENCODE_CHECK" \
+	&& grep -q 'TESLAXY_NVENC_NVIDIA_SMI' "$ENCODE_CHECK"; then
+	pass "verify + compose wire OWNED_FIX, ns deadline, NVIDIA env, require-default, bounded GPU probe"
 else
 	fail "missing required ownership/deadline/NVIDIA/encode wiring"
 fi

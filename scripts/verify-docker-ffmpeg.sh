@@ -4,7 +4,7 @@
 #   ./scripts/verify-docker-ffmpeg.sh
 #   IMAGE_TAG=teslaxy:local ./scripts/verify-docker-ffmpeg.sh
 #   FIX=/path/to/existing/dir ./scripts/verify-docker-ffmpeg.sh   # caller-owned; not deleted
-#   REQUIRE_NVENC_ENCODE=1 ./scripts/verify-docker-ffmpeg.sh    # SKIP becomes FAIL (prod GPU hosts)
+#   REQUIRE_NVENC_ENCODE=0 ./scripts/verify-docker-ffmpeg.sh    # allow SKIP (GPU-less CI); default is 1
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,8 +16,9 @@ CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-2}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-5}"
 # Overall poll budget for /ping becoming ready (seconds).
 PING_DEADLINE_SEC="${PING_DEADLINE_SEC:-60}"
-# When 1/true: a no-GPU nvenc SKIP fails the script (use on prod GPU boxes).
-REQUIRE_NVENC_ENCODE="${REQUIRE_NVENC_ENCODE:-0}"
+# Default 1: a no-GPU nvenc SKIP fails the script. Explicit opt-out (0/false/no)
+# is required to allow SKIP on GPU-less hosts. Unset or empty → require.
+REQUIRE_NVENC_ENCODE="${REQUIRE_NVENC_ENCODE:-1}"
 # Extra docker run flags for GPU (e.g. --gpus all or --runtime=nvidia).
 NVENC_DOCKER_GPU_ARGS="${NVENC_DOCKER_GPU_ARGS:-}"
 NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-all}"
@@ -124,11 +125,15 @@ case "$encode_ec" in
 		echo "OK: nvenc encode probe passed"
 		;;
 	2)
-		if [[ "$REQUIRE_NVENC_ENCODE" == "1" || "$REQUIRE_NVENC_ENCODE" == "true" ]]; then
-			echo "ERROR: REQUIRE_NVENC_ENCODE=${REQUIRE_NVENC_ENCODE} but encode was SKIP (no GPU/driver)" >&2
-			exit 1
-		fi
-		echo "SKIP: nvenc encode (no GPU/driver); set REQUIRE_NVENC_ENCODE=1 to fail on GPU hosts"
+		case "$REQUIRE_NVENC_ENCODE" in
+			0|false|no)
+				echo "SKIP: nvenc encode (no GPU/driver); REQUIRE_NVENC_ENCODE=${REQUIRE_NVENC_ENCODE} allows SKIP"
+				;;
+			*)
+				echo "ERROR: REQUIRE_NVENC_ENCODE=${REQUIRE_NVENC_ENCODE} but encode was SKIP (no GPU/driver); set REQUIRE_NVENC_ENCODE=0 to allow on GPU-less hosts" >&2
+				exit 1
+				;;
+		esac
 		;;
 	*)
 		echo "ERROR: nvenc encode probe failed (exit ${encode_ec})" >&2
