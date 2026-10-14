@@ -27,6 +27,11 @@ type Clip struct {
 	// are also treated as protected without requiring this flag.
 	Protected bool `json:"protected" gorm:"index"`
 
+	// RetentionPending is set only by retention when it soft-deletes a clip
+	// ahead of unlink. Reconcile tombstones leave this false so recovery must
+	// not unlink restored footage, and a rescan can clear those tombstones.
+	RetentionPending bool `json:"-" gorm:"index"`
+
 	VideoFiles  []VideoFile `json:"video_files"`
 	TelemetryID uint        `json:"-"`
 	Telemetry   Telemetry   `json:"telemetry"`
@@ -42,6 +47,10 @@ type VideoFile struct {
 	Camera    string    `json:"camera"` // "Front", "Left Repeater", etc.
 	FilePath  string    `json:"file_path"`
 	Timestamp time.Time `json:"timestamp" gorm:"index"`
+
+	// RetentionPending marks a soft-delete that retention itself initiated and
+	// still owes an unlink/hard-delete. Reconcile soft-deletes must not set this.
+	RetentionPending bool `json:"-" gorm:"index"`
 }
 
 type Telemetry struct {

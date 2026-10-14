@@ -38,6 +38,7 @@ func main() {
 
 	// Init Scanner
 	scanner := services.NewScannerService(footagePath, database.DB)
+	api.SetScannerService(scanner)
 	scanner.Start()
 
 	// Footage retention (scheduled prune; disabled + dry-run by default)

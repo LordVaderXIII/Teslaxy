@@ -53,6 +53,9 @@ func SetupRoutes(r *gin.Engine) {
 		api.PUT("/retention/settings", RequireAuthAlways(), MutationGuard(), putRetentionSettings)
 		api.POST("/retention/run", RequireAuthAlways(), MutationGuard(), postRetentionRun)
 		api.POST("/clips/:id/protect", RequireAuthAlways(), MutationGuard(), setClipProtected)
+
+		// Scanner operator purge (always requires auth + CSRF)
+		api.POST("/scanner/purge-missing", RequireAuthAlways(), MutationGuard(), postPurgeMissing)
 	}
 }
 

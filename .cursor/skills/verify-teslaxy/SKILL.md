@@ -1,11 +1,11 @@
 ---
 name: verify-teslaxy
-description: "Verify Teslaxy (Go API + React player) locally: launch backend against a fixture TeslaCam tree, doctor via /ping and /api/version, drive library/retention endpoints with curl, capture evidence under /opt/cursor/artifacts. Use when proving Teslaxy behavior, retention pruning, or after backend/API changes."
+description: "Verify Teslaxy (Go API + React player) locally: launch backend against a fixture TeslaCam tree, doctor via /ping and /api/version, drive library/retention/scanner endpoints with curl, capture evidence under /opt/cursor/artifacts. Use when proving Teslaxy behavior, retention pruning, scanner reconciliation, or after backend/API changes."
 ---
 
 # Verify Teslaxy
 
-Agents read this cold. Prefer fixture footage over any live NAS share. Use IPs only (never `.local`); Valhalla is `192.168.86.41` if a live share is ever required — default to fixtures.
+Agents read this cold. Prefer fixture footage under `/tmp` over any live NAS share. Use IPs only (never `.local`); Valhalla is `192.168.86.41` if a live share is ever required — default to fixtures. Never touch real footage.
 
 ## Launch
 
@@ -13,9 +13,11 @@ From repo root with Go 1.24+ and GCC available:
 
 ```bash
 FIX="/tmp/teslaxy-verify-$$"
-mkdir -p "$FIX/footage/RecentClips" "$FIX/config"
-# Minimal seed file so the scanner has something to watch
-dd if=/dev/zero of="$FIX/footage/RecentClips/seed.mp4" bs=1024 count=4 status=none
+mkdir -p "$FIX/footage/RecentClips" "$FIX/footage/SentryClips" "$FIX/config"
+# Minimal H.264 seed so the scanner has something real to index
+ffmpeg -y -f lavfi -i testsrc=size=320x240:rate=30 -t 1 -c:v libx264 -pix_fmt yuv420p \
+  "$FIX/footage/RecentClips/2024-03-10_14-00-00-front.mp4" 2>/dev/null || \
+  dd if=/dev/zero of="$FIX/footage/RecentClips/seed.mp4" bs=1024 count=4 status=none
 export FOOTAGE_PATH="$FIX/footage" CONFIG_PATH="$FIX/config" PORT=18080 AUTH_ENABLED=false
 export RETENTION_ENABLED=false RETENTION_DRY_RUN=true
 cd backend && go build -o /tmp/teslaxy-verify ./
@@ -69,15 +71,27 @@ curl -sf -X POST "http://127.0.0.1:18080/api/clips/ID/protect" \
   -d '{"protected":true}'
 ```
 
-Also see `features/retention.md` and helper `scripts/verify-retention.sh`.
+Scanner library / explicit purge (writes always need auth + CSRF):
+
+```bash
+curl -sf "http://127.0.0.1:18080/api/library"
+curl -sf "http://127.0.0.1:18080/api/library/files?id=CLIP_ID"
+# Operator purge after a recreated empty root (auth + CSRF required):
+# curl -sf -X POST "http://127.0.0.1:18080/api/scanner/purge-missing" \
+#   -H "Authorization: Bearer $TOKEN" -H "X-Requested-With: XMLHttpRequest"
+```
+
+Also see `features/retention.md`, `features/scanner.md`, and helper `scripts/verify-retention.sh`.
 
 ## Evidence
 
 Write proof under `/opt/cursor/artifacts/` (survives cleanup):
 
-- `go-test-full.log` — full `go test ./...`
+- `go-test-full.log` — full `go test -race ./...`
+- `go-vet.log` — `go vet ./...`
 - `retention-dry-run.json` — structured dry-run report
 - `verify-retention-http.log` — curl transcript when the server path was used
+- `verify-scanner-http.log` — curl transcript when the scanner fixture path was used
 
 Proof standards: dry-run must leave fixture files intact; age/size/protect cases are covered by `go test ./services/ -run Retention`.
 

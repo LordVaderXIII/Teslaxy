@@ -32,6 +32,7 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
   - SEI data extracted from Front camera videos (via `aggregateTelemetry`) is the source for speed/steering/autopilot telemetry.
 - The frontend `clipMerge.ts` is now only a fallback compatibility layer. New code must not duplicate grouping logic on the client.
 - When modifying the scanner, always update `SourceDir` and prefer directory + event.json over pure timestamp heuristics.
+- `ReconcileMissing` holds `mediaOpMu`'s write lock. Scan indexing (`ScanAll`, `scanDir`, `scanTree`) holds the read lock and releases it before reconcile. Refuse to reconcile when the footage root is missing or an empty directory while clips for that root remain (`ErrReconcileRefused`); scope clip cleanup to the requested root. A moved directory is walked recursively. Recent find-or-create is serialized and matches an existing Recent clip by file path so deleting the first minute cannot duplicate the rest.
 
 ### 3D camera alignment
 - `frontend/src/data/camera-alignment.json` (schema version 1) is the viewing layout the 3D player loads. The frontend imports it; it is not served from the Go API.
@@ -57,7 +58,7 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Implemented in `backend/services/retention.go` (+ `retention_config.go`, `retention_path.go`, `retention_scheduler.go`).
 - Defaults: disabled, dry-run on, 90 days, 300 GB, 24h interval, 15m min file age.
 - Never prune `Event == "Saved"` or `Clip.Protected == true`. Re-check protect inside the prune transaction under `clipMu`.
-- Soft-delete only selected `VideoFile` rows before `unlinkat`; recover pending VF tombstones and orphan soft-deleted clip/telemetry on the next run. Hard-delete telemetry before the clip; on telemetry failure keep the clip soft-deleted and record `errors[]`; sweep stranded telemetry with no clip in fixed-size batches (large backlogs / mid-sweep failure resume on the next run). Scanner skips pending-delete paths/source dirs, holds `mediaOpMu` RLock while indexing, and re-stats before insert.
+- Soft-delete only selected `VideoFile` rows before `unlinkat`, setting `retention_pending` on those rows (and the clip when fully soft-deleted). Recovery unlinks only `retention_pending` tombstones — reconcile soft-deletes must not be unlinked if footage was restored. Hard-delete telemetry before the clip; on telemetry failure keep the clip soft-deleted and record `errors[]`; sweep stranded telemetry with no clip in fixed-size batches (large backlogs / mid-sweep failure resume on the next run). Scanner skips retention-pending paths/source dirs, clears non-retention tombstones on rescan when files exist, holds `mediaOpMu` RLock while indexing (no nested RLock in workers), and re-stats before insert.
 - Safety: pin `footageRoot` fd (`openFootageRoot`) for the whole pass; resolve/unlink via that fd only; never delete whole event folders; skip recent mtimes at delete time; size-cap estimates count a hardlinked inode only when all known links are selected; unlink freed bytes only on last link.
 - Write APIs always need auth + CSRF headers; malformed `dry_run` → 400; unknown `RETENTION_DRY_RUN` keeps dry-run ON.
 - Verify: `scripts/verify-retention.sh` and `.cursor/skills/verify-teslaxy/`. Fixture dry-run: `go run ./cmd/retention-dry-run` from `backend/`.

@@ -179,14 +179,15 @@ func TestRetentionRecoversOrphanSoftDeletedClip(t *testing.T) {
 	writeFixtureFile(t, path, 1024, now.Add(-time.Hour))
 	clip := seedClip(t, db, "Recent", old, false, filepath.Join(root, "RecentClips"), map[string]string{"Front": path})
 
-	// Simulate: files unlinked + VF hard-deleted, clip+telemetry still soft-deleted.
+	// Simulate: files unlinked + VF hard-deleted, retention-marked clip+telemetry still soft-deleted.
 	var vfs []models.VideoFile
 	db.Where("clip_id = ?", clip.ID).Find(&vfs)
 	for i := range vfs {
 		_ = db.Delete(&vfs[i])
 		_ = db.Unscoped().Delete(&models.VideoFile{}, vfs[i].ID)
 	}
-	_ = db.Delete(&clip)
+	_ = db.Model(&models.Clip{}).Where("id = ?", clip.ID).Update("retention_pending", true)
+	_ = db.Where("id = ?", clip.ID).Delete(&models.Clip{})
 	_ = os.Remove(path)
 
 	var tel models.Telemetry
