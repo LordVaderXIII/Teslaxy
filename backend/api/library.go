@@ -21,6 +21,7 @@ type LibraryEvent struct {
 	City               string     `json:"city"`
 	Reason             string     `json:"reason"`
 	SourceDir          string     `json:"source_dir,omitempty"`
+	Protected          bool       `json:"protected"`
 	Latitude           *float64   `json:"latitude,omitempty"`
 	Longitude          *float64   `json:"longitude,omitempty"`
 	VideoFileCount     int        `json:"video_file_count"`
@@ -64,6 +65,7 @@ type libraryClipRow struct {
 	City           string
 	Reason         string
 	SourceDir      string
+	Protected      bool
 	Latitude       float64
 	Longitude      float64
 }
@@ -172,7 +174,7 @@ func libraryFilterSQL(date *time.Time, events, reasons []string) (string, []inte
 func loadLibraryClips(date *time.Time, events, reasons []string) ([]libraryClipRow, error) {
 	var rows []libraryClipRow
 	q := applyLibraryClipFilters(database.DB.Table("clips"), date, events, reasons)
-	err := q.Select(`clips.id, clips.timestamp, clips.event_timestamp, clips.event, clips.city, clips.reason, clips.source_dir,
+	err := q.Select(`clips.id, clips.timestamp, clips.event_timestamp, clips.event, clips.city, clips.reason, clips.source_dir, clips.protected,
 		telemetries.latitude, telemetries.longitude`).
 		Joins("LEFT JOIN telemetries ON telemetries.id = clips.telemetry_id AND telemetries.deleted_at IS NULL").
 		Order("clips.timestamp DESC").
@@ -314,6 +316,7 @@ func toLibraryEvent(clip libraryClipRow, fileCount int, preview libraryPreviewRo
 		City:           clip.City,
 		Reason:         clip.Reason,
 		SourceDir:      clip.SourceDir,
+		Protected:      clip.Protected,
 		VideoFileCount: fileCount,
 	}
 	if services.ValidGeographicPoint(clip.Latitude, clip.Longitude) {

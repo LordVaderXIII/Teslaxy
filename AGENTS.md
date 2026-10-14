@@ -52,6 +52,17 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Use multi-stage builds to keep the final image size small.
 - Ensure `ffmpeg` with NVENC support is available or injected.
 - Expose port 80.
+- Prod runtime is `debian:bookworm-slim` (glibc), not Alpine. The pinned BtbN linux64 ffmpeg is a glibc binary and does not run under Alpine/`gcompat` (build-time `h264_nvenc` check exits 1). Backend builder is `golang:1.24-bookworm` so CGO matches. Keep the sha256 pin and run `scripts/check-ffmpeg-nvenc.sh` at build time (binary must execute, then list `h264_nvenc`). Smoke: `scripts/verify-docker-ffmpeg.sh`.
+
+### Footage retention
+- Implemented in `backend/services/retention.go` (+ `retention_config.go`, `retention_path.go`, `retention_scheduler.go`).
+- Defaults: disabled, dry-run on, 90 days, 300 GB, 24h interval, 15m min file age.
+- Never prune `Event == "Saved"` or `Clip.Protected == true`. Re-check protect inside the prune transaction under `clipMu`.
+- Soft-delete only selected `VideoFile` rows before `unlinkat`; recover pending VF tombstones and orphan soft-deleted clip/telemetry on the next run. Hard-delete telemetry before the clip; on telemetry failure keep the clip soft-deleted and record `errors[]`; sweep stranded telemetry with no clip in fixed-size batches (large backlogs / mid-sweep failure resume on the next run). Scanner skips pending-delete paths/source dirs, holds `mediaOpMu` RLock while indexing, and re-stats before insert.
+- Safety: pin `footageRoot` fd (`openFootageRoot`) for the whole pass; resolve/unlink via that fd only; never delete whole event folders; skip recent mtimes at delete time; size-cap estimates count a hardlinked inode only when all known links are selected; unlink freed bytes only on last link.
+- Write APIs always need auth + CSRF headers; malformed `dry_run` → 400; unknown `RETENTION_DRY_RUN` keeps dry-run ON.
+- Verify: `scripts/verify-retention.sh` and `.cursor/skills/verify-teslaxy/`. Fixture dry-run: `go run ./cmd/retention-dry-run` from `backend/`.
+- Do not target live NAS hosts in agents unless asked; use IPs only (Valhalla `192.168.86.41`), never `.local`.
 
 ### Cloud agent environment
 - `.cursor/environment.json` is the build setup: `.cursor/Dockerfile` (Node 22, Go 1.24, gcc, ffmpeg) plus `.cursor/install.sh` (`npm ci` in `frontend/`, `go mod download` in `backend/`). No snapshot id. Do not put secrets in that file.

@@ -14,12 +14,6 @@ import (
 	"teslaxy/models"
 )
 
-var (
-	gpuChecked   bool
-	hasNvidiaGPU bool
-	gpuCheckLock sync.Mutex
-)
-
 // ExportRequest defines the parameters for exporting a clip
 type ExportRequest struct {
 	ClipID    uint     `json:"clip_id"`
@@ -95,27 +89,18 @@ func init() {
 	go cleanupExportHistory()
 }
 
-// CheckForNvidiaGPU checks if an NVIDIA GPU is available via nvidia-smi
+// CheckForNvidiaGPU reports whether NVENC is safe to use for exports.
+// It uses the shared runtime probe only (no exporter-side cache): timeouts and
+// ffmpeg slot starvation are not treated as a permanent "no GPU" answer.
+// Alpine/apk ffmpeg can lack h264_nvenc even when a GPU is present, and compiled-in
+// nvenc still fails on GPU-less hosts.
 func CheckForNvidiaGPU() bool {
-	gpuCheckLock.Lock()
-	defer gpuCheckLock.Unlock()
+	return HasWorkingNVENC()
+}
 
-	if gpuChecked {
-		return hasNvidiaGPU
-	}
-
-	cmd := exec.Command("nvidia-smi", "-L")
-	err := cmd.Run()
-	if err == nil {
-		hasNvidiaGPU = true
-		log.Println("NVIDIA GPU detected. NVENC will be used.")
-	} else {
-		hasNvidiaGPU = false
-		log.Println("No NVIDIA GPU detected. Using CPU encoding.")
-	}
-
-	gpuChecked = true
-	return hasNvidiaGPU
+// ResetGPUCheckForTest clears shared encoder probe state used by CheckForNvidiaGPU (tests only).
+func ResetGPUCheckForTest() {
+	ResetEncoderDetectionForTest()
 }
 
 // QueueExport adds an export job to the queue

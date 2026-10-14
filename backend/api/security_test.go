@@ -19,17 +19,13 @@ func TestServeVideo_PathTraversal(t *testing.T) {
 	r.GET("/api/video/*path", serveVideo)
 
 	// Create a dummy footage directory and file
-	footageDir := "/tmp/footage_test"
-	os.MkdirAll(footageDir, 0755)
-	defer os.RemoveAll(footageDir)
-
+	footageDir := t.TempDir()
 	allowedFile := filepath.Join(footageDir, "test.mp4")
 	os.WriteFile(allowedFile, []byte("video content"), 0644)
 
 	// Create a sensitive file outside footage dir
-	sensitiveFile := "/tmp/sensitive_test.txt"
+	sensitiveFile := filepath.Join(t.TempDir(), "sensitive_test.txt")
 	os.WriteFile(sensitiveFile, []byte("secret password"), 0644)
-	defer os.Remove(sensitiveFile)
 
 	// Set env var so the handler knows where footage is allowed
 	os.Setenv("FOOTAGE_PATH", footageDir)
@@ -138,9 +134,7 @@ func TestCORS(t *testing.T) {
 	t.Run("Video Endpoint - Has CORS", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		// Setup mock file
-		footageDir := "/tmp/footage_cors_test"
-		os.MkdirAll(footageDir, 0755)
-		defer os.RemoveAll(footageDir)
+		footageDir := t.TempDir()
 		os.Setenv("FOOTAGE_PATH", footageDir)
 		defer os.Unsetenv("FOOTAGE_PATH")
 		os.WriteFile(filepath.Join(footageDir, "test.mp4"), []byte("video"), 0644)

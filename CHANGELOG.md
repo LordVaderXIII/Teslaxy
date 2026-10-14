@@ -5,26 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.5] - 2026-10-14
+## [0.3.2] - 2026-10-14
 ### Fixed
-- Reconcile refuses when the footage root is missing or empty while clips for that root are still in the database, instead of soft-deleting the library.
-- The scanner holds the media read lock while indexing, so reconcile cannot delete clips mid-scan.
+- Soft-delete of missing footage requires a persisted, time-separated confirmation (or explicit operator purge); a missing mount still refuses forever, and same-inode empty / SavedClips outages no longer wipe the library on first sighting.
+- Pending reconcile confirmation rejects missing/null/future `first_seen`, mismatched file/clip ID arrays, and symlink-substituted pending paths or temp files.
+- Failed confirmation clears propagate as errors and invalidate canceled state so a restored library cannot silently reuse a mature pending purge.
+- Candidates restored between collection and delete are re-stat'd and dropped from the purge set.
+- Confirmation timing uses process-local monotonic observation plus pending-file mtime (Lstat), not unchecked wall-clock JSON alone.
+- Scanner walk no longer aborts the whole library when one subdirectory is unreadable.
+- Recent clip fallback no longer attaches to a Sentry/Saved clip that shares the same timestamp.
 - Deleting the first Recent minute and scanning again no longer duplicates the remaining footage.
-- A moved directory tree is scanned recursively, so nested events are indexed.
-- Concurrent Recent scans are idempotent.
-- Clip cleanup during reconcile is limited to the requested footage root.
+- A moved directory tree is scanned recursively; concurrent Recent scans are idempotent; clip cleanup is scoped to the requested root.
+- Concurrent `scanDir` on the same event directory no longer creates duplicate clips.
+- The scanner holds the media read lock while indexing so reconcile cannot delete clips mid-scan.
+
+### Added
+- Exported `services.ReconcileMissing` / `PurgeMissingFootage` plus `media_coord.go` lock helpers shared with retention.
+- `POST /api/scanner/purge-missing` (auth + CSRF) as the operator entry for `ScannerService.PurgeMissing`.
+- `.cursor/skills/verify-teslaxy/` `features/scanner.md` proofs.
+
+### Security
+- Pending purge state is read/written with `O_NOFOLLOW` (directory and file) so symlink swaps cannot authorize deletes or overwrite unrelated files via the temp path.
+
+## [0.3.1] - 2026-10-14
+### Fixed
+- Prod Docker runtime switches from Alpine+gcompat to `debian:bookworm-slim` (glibc) so the pinned BtbN linux64 ffmpeg binary actually executes; Alpine could pass the tarball sha256 and still fail `h264_nvenc` because the binary would not run.
+- Backend builder uses `golang:1.24-bookworm` so the CGO binary matches the glibc runtime.
+- Build-time ffmpeg check (`scripts/check-ffmpeg-nvenc.sh`) fails loudly with version/encoder output: verify the binary runs, then require `h264_nvenc` in `-encoders` (no GPU required).
+
+## [0.3.0] - 2026-10-14
+### Added
+- Footage retention: scheduled oldest-first pruning by age (default 90 days) and size cap (default ~300 GB).
+- Protection for Tesla SavedClips and user-flagged clips (`protected` on `Clip`; `POST /api/clips/:id/protect`).
+- Dry-run mode with structured JSON logging of candidates and bytes that would be freed.
+- Config via env (`RETENTION_*`), `$CONFIG_PATH/retention.json`, and `GET`/`PUT` `/api/retention/settings`; manual `POST /api/retention/run`.
+- `go run ./cmd/retention-dry-run` fixture harness and `.cursor/skills/verify-teslaxy` verification skill.
+
+### Security
+- Retention pins a footage-root directory fd (`O_DIRECTORY|O_NOFOLLOW`) for each prune pass and deletes only selected clip files via `openat`/`unlinkat` (symlinked parents refused; root path swaps mid-pass cannot redirect unlinks). Never wipes event folders.
+- Write endpoints (`PUT /api/retention/settings`, `POST /api/retention/run`, `POST /api/clips/:id/protect`) always require a Bearer JWT plus CSRF (`X-Requested-With` or `X-Teslaxy-CSRF`) and same-origin checks, even when `AUTH_ENABLED=false`.
+- `dry_run` must be a JSON boolean (malformed → 400). Unknown `RETENTION_DRY_RUN` env values keep dry-run ON.
+- Protect vs prune is serialized; protection is re-checked inside the deletion transaction.
+- Soft-deleted video rows and orphan soft-deleted clip/telemetry rows are recovered on the next run. Telemetry hard-delete runs before the clip row; failures leave the clip soft-deleted and appear in `errors[]`, with an orphan-telemetry sweep for stranded rows (fixed-size delete batches so large backlogs past SQLite’s bind limit still drain and mid-sweep failures resume). Scanner indexing shares a media lock with prune and re-stats before insert.
+- Config numerics are clamped; size accounting includes fresh files, dedupes paths/hardlinks, estimates size-cap savings per inode only when all known links are selected, and counts freed bytes only when the last hard link is removed. Partial prune keeps DB rows for paths that remain.
 
 ## [0.2.4] - 2026-10-14
 ### Fixed
-- Scanner walk no longer aborts the whole library when one subdirectory is unreadable (H1).
-- Recent clip fallback no longer attaches to a Sentry/Saved clip that shares the same timestamp (H2).
-- Deleted footage is soft-removed from the DB via shared `ReconcileMissing` on scan and after filesystem removes (M1).
-- Moving a pre-populated event directory into SentryClips/SavedClips is scanned immediately, not only watched (M2).
-- Concurrent `scanDir` on the same event directory no longer creates duplicate clips (L3).
+- Transcode no longer treats a compiled-in `h264_nvenc` as usable: a runtime probe must succeed before NVENC is selected, so GPU-less hosts fall back to `libx264` instead of returning empty HTTP 200 bodies.
+- Transcoded `?quality=` responses peek the first ffmpeg bytes before committing status; a failed encode returns 5xx instead of an empty 200.
+- Export GPU selection uses the same NVENC runtime probe (not `nvidia-smi` alone), so a GPU without an NVENC-capable ffmpeg no longer queues exports that fail with `Unknown encoder 'h264_nvenc'`.
+- Docker runtime ships a pinned BtbN GPL ffmpeg build that includes `h264_nvenc` (Alpine `apk` ffmpeg does not), with `gcompat` for glibc symbols on musl.
+- Transcode and thumbnail ffmpeg work is capped (default 4 concurrent) and timed out; thumbnail cache keys normalize seek time so `0.1` / `0.10` / `0.100` share one file.
+- Thumbnail `time` rejects NaN/Inf/negatives and seeks past EOF with HTTP 400 and a log line.
+- Thumbnail duration lookups share only the in-flight ffprobe. A replaced file is measured again, so a stale duration no longer rejects a valid seek with HTTP 400. A caller whose context is cancelled returns without waiting out that shared probe.
+- A cancelled or timed-out NVENC probe is not stored as "no GPU". The next request runs the probe again.
+- Thumbnail ffmpeg writes a private temp file and renames it into the cache, so concurrent misses cannot publish a partial JPEG.
 
-### Added
-- Exported `services.ReconcileMissing` plus `media_coord.go` lock helpers for retention (#238) to reuse.
-- `.cursor/skills/verify-teslaxy/` skill with `features/scanner.md` proofs.
 
 ## [0.2.3] - 2026-10-05
 ### Fixed

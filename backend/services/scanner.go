@@ -463,6 +463,8 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	if len(filePaths) == 0 {
 		return
 	}
+	lockMediaRead()
+	defer unlockMediaRead()
 
 	// Parse Metadata
 	var city string
@@ -524,6 +526,12 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 
 	var files []fileInfo
 	for _, path := range filePaths {
+		if s.isPendingDeletePath(path) {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
 		matches := fileRegex.FindStringSubmatch(filepath.Base(path))
 		if len(matches) == 3 {
 			// Using matches[1] (date-time)
@@ -570,6 +578,10 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	var clip models.Clip
 	if err := s.DB.Where("source_dir = ?", dirPath).First(&clip).Error; err != nil {
 		if gorm.IsRecordNotFoundError(err) {
+			// Do not recreate a soft-deleted (pending prune) event directory.
+			if s.isPendingDeleteSourceDir(dirPath) {
+				return
+			}
 			clip = models.Clip{
 				Timestamp:      minTime,
 				Event:          eventType,
@@ -676,6 +688,12 @@ func (s *ScannerService) processRecentGroupLocked(filePaths []string) {
 
 	var files []fileInfo
 	for _, path := range filePaths {
+		if s.isPendingDeletePath(path) {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
 		matches := fileRegex.FindStringSubmatch(filepath.Base(path))
 		if len(matches) == 3 {
 			t, err := time.ParseInLocation("2006-01-02_15-04-05", matches[1], timezone)
@@ -793,6 +811,14 @@ func (s *ScannerService) processRecentGroupLocked(filePaths []string) {
 
 func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 	for _, f := range files {
+		if s.isPendingDeletePath(f.path) {
+			continue
+		}
+		// Re-stat before insert so a prune that already removed the file cannot
+		// leave a live DB row pointing at nothing.
+		if _, err := os.Stat(f.path); err != nil {
+			continue
+		}
 		matches := fileRegex.FindStringSubmatch(filepath.Base(f.path))
 		cameraName := "Unknown"
 		if len(matches) == 3 {
@@ -811,6 +837,13 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 			log.Printf("addFilesToClip: lookup %s: %v", f.path, err)
 			continue
 		}
+		// Re-check tombstone + existence under the same conditions after the lookup.
+		if s.isPendingDeletePath(f.path) {
+			continue
+		}
+		if _, err := os.Stat(f.path); err != nil {
+			continue
+		}
 		vf = models.VideoFile{
 			ClipID:    clip.ID,
 			Camera:    cameraName,
@@ -821,6 +854,25 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 			log.Printf("addFilesToClip: create %s: %v", f.path, err)
 		}
 	}
+}
+
+// isPendingDeletePath is true when retention soft-deleted a VideoFile for this path.
+// The scanner must not recreate rows for files still awaiting unlink / hard-delete.
+func (s *ScannerService) isPendingDeletePath(path string) bool {
+	var n int
+	s.DB.Unscoped().Model(&models.VideoFile{}).
+		Where("file_path = ? AND deleted_at IS NOT NULL", path).
+		Count(&n)
+	return n > 0
+}
+
+// isPendingDeleteSourceDir is true when a soft-deleted Clip still owns this event directory.
+func (s *ScannerService) isPendingDeleteSourceDir(dir string) bool {
+	var n int
+	s.DB.Unscoped().Model(&models.Clip{}).
+		Where("source_dir = ? AND deleted_at IS NOT NULL", dir).
+		Count(&n)
+	return n > 0
 }
 
 // aggregateTelemetry iterates through all 'Front' files in the clip, extracts SEI, and updates the Telemetry record.

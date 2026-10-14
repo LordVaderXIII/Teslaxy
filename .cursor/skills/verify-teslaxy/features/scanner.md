@@ -8,7 +8,8 @@ Synthetic fixtures only (`/tmp`, `ffmpeg -f lavfi -i testsrc`). Never real foota
 cd backend
 go vet ./...
 go test -race ./services -count=1 \
-  -run 'TestScanAll_UnreadableSubdirContinues|TestRecentFallback_DoesNotAttachToSentry|TestReconcileMissing_SoftDeletesGoneFootage|TestHandleFileCreate_ScansPrepopulatedDir|TestScanDir_ConcurrentNoDuplicateClips|TestReconcileMissing_RefusesMissingOrEmptyRoot|TestScanner_TakesMediaLock|TestRecentRescan_DeletedFirstMinuteNotDuplicated|TestHandleFileCreate_ScansNestedEvents|TestScanAll_ConcurrentRecentIsIdempotent|TestReconcileMissing_ClipCleanupScopedToRoot|TestReconcileMissing_AbortsWhenRootVanishesMidDelete|TestReconcileMissing_AbortsWhenRootSwappedEmptyMidDelete|TestReconcileMissing_EmptiesLibraryAfterTwoStableEmptyScans|TestReconcileMissing_DeletesOnlyTopLevelVideoAfterConfirm|TestReconcileMissing_ForceEmptyPurgeSkipsConfirm'
+  -run 'TestScanAll_UnreadableSubdirContinues|TestRecentFallback_DoesNotAttachToSentry|TestReconcileMissing_SoftDeletesGoneFootage|TestHandleFileCreate_ScansPrepopulatedDir|TestScanDir_ConcurrentNoDuplicateClips|TestReconcileMissing_RefusesMissingRoot|TestScanner_TakesMediaLock|TestRecentRescan_DeletedFirstMinuteNotDuplicated|TestHandleFileCreate_ScansNestedEvents|TestScanAll_ConcurrentRecentIsIdempotent|TestReconcileMissing_ClipCleanupScopedToRoot|TestReconcileMissing_RejectsTamperedFirstSeen|TestReconcileMissing_RejectsPendingSymlinks|TestReconcileMissing_FailedClearDoesNotReuseConfirmation|TestReconcileMissing_RestoreDuringCollectionPreservesRows|TestReconcileMissing_ClockAnomaliesDoNotAuthorize'
+go test -race ./api -count=1 -run 'TestPurgeMissing'
 go test -race ./... -count=1
 ```
 
@@ -19,23 +20,24 @@ go test -race ./... -count=1
 | M1 | `TestReconcileMissing_SoftDeletesGoneFootage` |
 | M2 | `TestHandleFileCreate_ScansPrepopulatedDir` |
 | L3 | `TestScanDir_ConcurrentNoDuplicateClips` |
-| P1 | `TestReconcileMissing_RefusesMissingOrEmptyRoot` |
+| P1 | `TestReconcileMissing_RefusesMissingRoot` |
 | P2 lock | `TestScanner_TakesMediaLock` |
 | P2 recent dup | `TestRecentRescan_DeletedFirstMinuteNotDuplicated` |
 | P2 nested walk | `TestHandleFileCreate_ScansNestedEvents` |
 | P3 recent race | `TestScanAll_ConcurrentRecentIsIdempotent` |
 | P3 root scope | `TestReconcileMissing_ClipCleanupScopedToRoot` |
-| Round-3 P1 mid-pass vanish | `TestReconcileMissing_AbortsWhenRootVanishesMidDelete` |
-| Round-3 P1 mid-pass empty swap | `TestReconcileMissing_AbortsWhenRootSwappedEmptyMidDelete` |
-| Round-3 P2 empty library | `TestReconcileMissing_EmptiesLibraryAfterTwoStableEmptyScans` |
-| Round-3 P2 top-level video | `TestReconcileMissing_DeletesOnlyTopLevelVideoAfterConfirm` |
-| Round-3 P2 force purge | `TestReconcileMissing_ForceEmptyPurgeSkipsConfirm` |
+| Round-5 High first_seen | `TestReconcileMissing_RejectsTamperedFirstSeen` |
+| Round-5 High symlinks | `TestReconcileMissing_RejectsPendingSymlinks` |
+| Round-5 Medium clear reuse | `TestReconcileMissing_FailedClearDoesNotReuseConfirmation` |
+| Round-5 Medium restore TOCTOU | `TestReconcileMissing_RestoreDuringCollectionPreservesRows` |
+| Round-5 Medium clock | `TestReconcileMissing_ClockAnomaliesDoNotAuthorize` |
+| Round-5 Medium purge API | `TestPurgeMissingReachableViaAPI` |
 
-## Reconcile root safety (round 3)
+## Reconcile root safety (round 4/5)
 
-`ReconcileMissing` captures the footage root's device+inode at start and re-checks that identity before every soft-delete batch (`ErrReconcileRootChanged` if it vanishes or is swapped).
+`ReconcileMissing` never soft-deletes on first sighting. A persisted pending confirm (`.teslaxy-reconcile-pending.json`) plus `reconcileConfirmMinInterval` (or `POST /api/scanner/purge-missing` / `PurgeMissing`) is required. Missing mounts still refuse forever (`ErrReconcileRefused`). Mid-delete root vanish/swap still aborts (`ErrReconcileRootChanged`).
 
-An empty-but-present root with live DB rows is refused on the first sighting (`ErrReconcileRefused`). A second consecutive scan with the **same** device/inode soft-deletes the dead rows (intentional empty library). An empty directory whose inode differs from the last non-empty sighting is refused (drive drop-out / placeholder). `ReconcileOpts.ForceEmptyPurge` skips the two-scan confirm while still requiring the root to exist.
+Pending state is validated (non-zero / non-future `first_seen`, fingerprint matches ID arrays) and read/written with `O_NOFOLLOW`. Confirmation timing uses process-local monotonic observation and pending-file mtime, not JSON wall clock alone. Candidates are re-stat'd before delete.
 
 ## Manual fixture (run the code)
 

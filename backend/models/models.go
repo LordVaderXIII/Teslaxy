@@ -20,10 +20,16 @@ type Clip struct {
 	// For SentryClips/SavedClips: the full path to the event directory (contains event.json)
 	// For Recent: a synthetic key based on the first segment's directory + time bucket.
 	// This field makes the backend the source of truth for "which 1-min files belong together".
-	SourceDir  string      `json:"source_dir,omitempty" gorm:"index"`
-	VideoFiles []VideoFile `json:"video_files"`
-	TelemetryID    uint        `json:"-"`
-	Telemetry      Telemetry   `json:"telemetry"`
+	SourceDir string `json:"source_dir,omitempty" gorm:"index"`
+
+	// Protected marks a clip the user flagged to keep forever.
+	// Retention never prunes protected clips. Tesla SavedClips (Event == "Saved")
+	// are also treated as protected without requiring this flag.
+	Protected bool `json:"protected" gorm:"index"`
+
+	VideoFiles  []VideoFile `json:"video_files"`
+	TelemetryID uint        `json:"-"`
+	Telemetry   Telemetry   `json:"telemetry"`
 }
 
 type VideoFile struct {
