@@ -16,39 +16,63 @@ CURL_MAX_TIME="${CURL_MAX_TIME:-5}"
 # Overall poll budget for /ping becoming ready (seconds).
 PING_DEADLINE_SEC="${PING_DEADLINE_SEC:-60}"
 
+TMP_BASE="${TMPDIR:-/tmp}"
+TMP_BASE="${TMP_BASE%/}"
+
 # Only a directory this script creates via mktemp is deleted on EXIT.
 # A caller-supplied FIX is used as-is and never removed.
 OWNED_FIX=""
 if [[ -n "${FIX:-}" ]]; then
 	:
 else
-	FIX="$(mktemp -d /tmp/teslaxy-docker-verify-XXXXXX)"
+	FIX="$(mktemp -d "${TMP_BASE}/teslaxy-docker-verify-XXXXXX")"
 	OWNED_FIX="$FIX"
 fi
 
+# Nanosecond monotonic-ish wall clock for sub-second deadline accuracy.
+# bash SECONDS is whole seconds only and can miss a late pong.
+now_ns() {
+	date +%s%N
+}
+
 # Set once before polling; curl_get caps --max-time to remaining budget.
-deadline=0
+deadline_ns=0
+
+remaining_ns() {
+	echo $((deadline_ns - $(now_ns)))
+}
+
+# Format remaining nanoseconds as a curl --max-time value (seconds, 3dp),
+# capped by $1 (usually CURL_MAX_TIME), at least 0.001s.
+curl_time_budget() {
+	local cap="$1"
+	local rem
+	rem="$(remaining_ns)"
+	if (( rem <= 0 )); then
+		echo "0"
+		return
+	fi
+	awk -v ns="$rem" -v cap="$cap" 'BEGIN {
+		s = ns / 1e9
+		if (s > cap) s = cap
+		if (s < 0.001) s = 0.001
+		printf "%.3f", s
+	}'
+}
 
 curl_get() {
 	local url="$1"
-	local remaining=$((deadline - SECONDS))
-	if (( remaining < 1 )); then
+	local rem
+	rem="$(remaining_ns)"
+	if (( rem <= 0 )); then
 		return 28
 	fi
-	local max_time="$CURL_MAX_TIME"
-	if (( remaining < max_time )); then
-		max_time=$remaining
+	local max_time connect
+	max_time="$(curl_time_budget "$CURL_MAX_TIME")"
+	if [[ "$max_time" == "0" ]]; then
+		return 28
 	fi
-	if (( max_time < 1 )); then
-		max_time=1
-	fi
-	local connect="$CURL_CONNECT_TIMEOUT"
-	if (( connect > max_time )); then
-		connect=$max_time
-	fi
-	if (( connect < 1 )); then
-		connect=1
-	fi
+	connect="$(curl_time_budget "$CURL_CONNECT_TIMEOUT")"
 	curl -sf \
 		--connect-timeout "$connect" \
 		--max-time "$max_time" \
@@ -85,31 +109,35 @@ CID="$(docker run -d --rm \
 	-v "$FIX/config:/config" \
 	"$IMAGE_TAG")"
 
-deadline=$((SECONDS + PING_DEADLINE_SEC))
-while (( SECONDS < deadline )); do
+deadline_ns=$(( $(now_ns) + PING_DEADLINE_SEC * 1000000000 ))
+while (( $(now_ns) < deadline_ns )); do
 	body=""
 	if body="$(curl_get "http://127.0.0.1:${PORT}/ping" 2>/dev/null)"; then
-		# Cap each request to the remaining budget; still reject a late reply.
-		if (( SECONDS > deadline )); then
+		# Reject a reply that arrives at or after the deadline (ns clock).
+		if (( $(now_ns) >= deadline_ns )); then
 			echo "ERROR: /ping succeeded after the ${PING_DEADLINE_SEC}s deadline" >&2
 			docker logs "$CID" >&2 || true
 			exit 1
 		fi
 		if printf '%s\n' "$body" | grep -q pong; then
 			echo "ping ok"
-			curl_get "http://127.0.0.1:${PORT}/api/version" || true
+			curl_get "http://127.0.0.1:${PORT}/api/version"
 			echo
 			exit 0
 		fi
 	fi
-	remaining=$((deadline - SECONDS))
-	if (( remaining <= 0 )); then
+	rem="$(remaining_ns)"
+	if (( rem <= 0 )); then
 		break
 	fi
-	# Don't sleep past the deadline.
-	if (( remaining > 0 )); then
-		sleep 0.5
-	fi
+	# Don't sleep past the deadline (cap at 0.5s).
+	sleep_s="$(awk -v ns="$rem" 'BEGIN {
+		s = ns / 1e9
+		if (s > 0.5) s = 0.5
+		if (s < 0.001) s = 0.001
+		printf "%.3f", s
+	}')"
+	sleep "$sleep_s"
 done
 
 echo "ERROR: /ping did not become ready within ${PING_DEADLINE_SEC}s" >&2
