@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -302,5 +305,212 @@ func TestGetThumbnail_DurationProbeCoalescedAndCapped(t *testing.T) {
 	}
 	if services.FFmpegPeakConcurrentForTest() > 2 {
 		t.Fatalf("peak slots %d exceeds cap 2", services.FFmpegPeakConcurrentForTest())
+	}
+}
+
+func TestProbeVideoDuration_WaiterHonorsOwnDeadline(t *testing.T) {
+	// A waiter blocked inside sync.Once.Do used to ignore its deadline and
+	// return only after the leader's probe finished (100ms came back at 2.78s).
+	services.SetMaxConcurrentFFmpegForTest(4)
+	defer services.SetMaxConcurrentFFmpegForTest(services.DefaultMaxConcurrentFFmpeg)
+	ResetDurationFlightForTest()
+	defer SetFFProbeDurationCmdForTest(nil)
+
+	gate := filepath.Join(t.TempDir(), "gate")
+	video := filepath.Join(t.TempDir(), "clip.mp4")
+	release := func() { _ = os.WriteFile(gate, []byte("1"), 0644) }
+	defer release()
+
+	started := make(chan struct{})
+	var probes atomic.Int64
+	var startedOnce sync.Once
+	SetFFProbeDurationCmdForTest(func(ctx context.Context, path string) *exec.Cmd {
+		probes.Add(1)
+		startedOnce.Do(func() { close(started) })
+		script := fmt.Sprintf("while [ ! -f %s ]; do sleep 0.05; done; echo 2.5", strconv.Quote(gate))
+		return exec.CommandContext(ctx, "sh", "-c", script)
+	})
+
+	type probeResult struct {
+		dur float64
+		err error
+	}
+	leaderCh := make(chan probeResult, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		dur, err := probeVideoDurationSeconds(ctx, video)
+		leaderCh <- probeResult{dur, err}
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("duration probe never started")
+	}
+
+	type waiterResult struct {
+		elapsed time.Duration
+		err     error
+	}
+	waiterCh := make(chan waiterResult, 1)
+	go func() {
+		wctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		t0 := time.Now()
+		_, err := probeVideoDurationSeconds(wctx, video)
+		waiterCh <- waiterResult{time.Since(t0), err}
+	}()
+
+	select {
+	case res := <-waiterCh:
+		if res.elapsed > time.Second {
+			t.Fatalf("waiter returned after %s; a 100ms deadline must not wait out the in-flight probe", res.elapsed)
+		}
+		if !errors.Is(res.err, context.DeadlineExceeded) {
+			t.Fatalf("waiter err = %v, want deadline exceeded", res.err)
+		}
+	case <-time.After(time.Second):
+		t.Error("waiter still blocked after 1s while the shared probe was in flight")
+	}
+
+	release()
+	select {
+	case res := <-leaderCh:
+		if res.err != nil {
+			t.Fatalf("leader: %v", res.err)
+		}
+		if res.dur != 2.5 {
+			t.Fatalf("leader duration = %v, want 2.5", res.dur)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("leader did not receive the shared probe result")
+	}
+	if probes.Load() != 1 {
+		t.Fatalf("expected 1 shared probe, got %d", probes.Load())
+	}
+}
+
+func TestGetThumbnail_ReplacedFileDoesNotReuseStaleDuration(t *testing.T) {
+	// A duration cached by path alone rejects a valid seek with 400 after the
+	// file is replaced by a longer one.
+	services.SetMaxConcurrentFFmpegForTest(4)
+	defer services.SetMaxConcurrentFFmpegForTest(services.DefaultMaxConcurrentFFmpeg)
+	ResetDurationFlightForTest()
+	defer SetFFProbeDurationCmdForTest(nil)
+
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed")
+	}
+
+	var probes atomic.Int64
+	SetFFProbeDurationCmdForTest(func(ctx context.Context, path string) *exec.Cmd {
+		probes.Add(1)
+		return exec.CommandContext(ctx, "ffprobe",
+			"-v", "error",
+			"-show_entries", "format=duration",
+			"-of", "default=noprint_wrappers=1:nokey=1",
+			path,
+		)
+	})
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/thumbnail/*path", getThumbnail)
+
+	footage := t.TempDir()
+	t.Setenv("FOOTAGE_PATH", footage)
+	t.Setenv("CONFIG_PATH", t.TempDir())
+
+	video := filepath.Join(footage, "clip-front.mp4")
+	makeSyntheticMP4(t, video, 1.0)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/thumbnail/clip-front.mp4?time=2.5", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("short file: expected 400, got %d body=%s", w.Code, w.Body.String())
+	}
+	if probes.Load() != 1 {
+		t.Fatalf("expected 1 probe for the short file, got %d", probes.Load())
+	}
+
+	makeSyntheticMP4(t, video, 5.0)
+
+	w = httptest.NewRecorder()
+	req, _ = http.NewRequest("GET", "/api/thumbnail/clip-front.mp4?time=2.5", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("replaced file: expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	if probes.Load() != 2 {
+		t.Fatalf("replaced file must be probed again, probes=%d", probes.Load())
+	}
+	body := w.Body.Bytes()
+	if len(body) < 3 || body[0] != 0xFF || body[1] != 0xD8 {
+		t.Fatalf("expected a JPEG thumbnail, len=%d", len(body))
+	}
+}
+
+func TestGetThumbnail_ConcurrentMissesReturnNonEmpty(t *testing.T) {
+	// Concurrent cache misses used to share one output path and could publish
+	// an empty 200. Each request now writes a temp file and renames it.
+	services.SetMaxConcurrentFFmpegForTest(4)
+	defer services.SetMaxConcurrentFFmpegForTest(services.DefaultMaxConcurrentFFmpeg)
+	ResetDurationFlightForTest()
+	defer SetFFProbeDurationCmdForTest(nil)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/thumbnail/*path", getThumbnail)
+
+	footage := t.TempDir()
+	config := t.TempDir()
+	t.Setenv("FOOTAGE_PATH", footage)
+	t.Setenv("CONFIG_PATH", config)
+
+	video := filepath.Join(footage, "clip-front.mp4")
+	makeSyntheticMP4(t, video, 1.0)
+
+	const n = 4
+	var wg sync.WaitGroup
+	bodies := make(chan []byte, n)
+	codes := make(chan int, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rw := httptest.NewRecorder()
+			rreq, _ := http.NewRequest("GET", "/api/thumbnail/clip-front.mp4?time=0.1", nil)
+			r.ServeHTTP(rw, rreq)
+			codes <- rw.Code
+			bodies <- rw.Body.Bytes()
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	close(bodies)
+
+	for code := range codes {
+		if code != http.StatusOK {
+			t.Fatalf("concurrent thumbnail expected 200, got %d", code)
+		}
+	}
+	for body := range bodies {
+		if len(body) < 3 || body[0] != 0xFF || body[1] != 0xD8 {
+			t.Fatalf("concurrent thumbnail was not a JPEG (len=%d)", len(body))
+		}
+	}
+
+	entries, err := os.ReadDir(filepath.Join(config, "thumbnails"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("expected 1 published thumbnail, got %d (%v)", len(entries), names)
 	}
 }

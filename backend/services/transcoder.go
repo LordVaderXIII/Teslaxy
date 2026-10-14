@@ -12,13 +12,13 @@ import (
 )
 
 var (
-	encoderMu        sync.Mutex
-	encoderDetected  bool
-	encoderInFlight  bool
-	encoder          string
-	hasNvenc         bool
-	encoderReady     chan struct{} // closed when a probe attempt finishes
-	encoderProbeErr  error         // set if the leader failed before caching a result
+	encoderMu       sync.Mutex
+	encoderDetected bool
+	encoderInFlight bool
+	encoder         string
+	hasNvenc        bool
+	encoderReady    chan struct{} // closed when a probe attempt finishes
+	encoderProbeErr error         // set if the leader failed before caching a result
 
 	// probeNVENCFn is swappable in tests. Must respect ctx cancellation.
 	probeNVENCFn = probeNVENCRuntime
@@ -83,7 +83,9 @@ func ffmpegHasNVENCEncoder(ctx context.Context) bool {
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-encoders")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("Warning: Failed to check ffmpeg encoders: %v", err)
+		if ctx.Err() == nil {
+			log.Printf("Warning: Failed to check ffmpeg encoders: %v", err)
+		}
 		return false
 	}
 	return strings.Contains(string(output), "h264_nvenc")
@@ -109,7 +111,9 @@ func probeNVENCRuntime(ctx context.Context) bool {
 		"-",
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("Transcoder: h264_nvenc listed but runtime probe failed (%v): %s", err, strings.TrimSpace(string(out)))
+		if ctx.Err() == nil {
+			log.Printf("Transcoder: h264_nvenc listed but runtime probe failed (%v): %s", err, strings.TrimSpace(string(out)))
+		}
 		return false
 	}
 	return true
@@ -173,6 +177,11 @@ func runEncoderProbe(ctx context.Context) error {
 	defer ReleaseFFmpeg()
 
 	ok := probeNVENCFn(probeCtx)
+	// Cancellation or the probe deadline is not a "no GPU" answer. Leave the
+	// cache empty so a later request runs the check again.
+	if !ok && probeCtx.Err() != nil {
+		return probeCtx.Err()
+	}
 
 	encoderMu.Lock()
 	hasNvenc = ok

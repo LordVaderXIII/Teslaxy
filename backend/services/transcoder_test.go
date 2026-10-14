@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -254,6 +255,96 @@ func TestColdStartFirstTranscodeUsesProbedEncoder(t *testing.T) {
 	}
 	if FFmpegPeakConcurrentForTest() > 4 {
 		t.Fatalf("peak %d exceeds cap", FFmpegPeakConcurrentForTest())
+	}
+}
+
+func TestEncoderProbe_CancelledCheckIsNotCached(t *testing.T) {
+	// A cancelled first GPU check used to be stored as "no GPU" for good.
+	ResetEncoderDetectionForTest()
+	defer func() {
+		SetNVENCProbeForTest(nil)
+		ResetEncoderDetectionForTest()
+	}()
+
+	entered := make(chan struct{})
+	var calls atomic.Int64
+	SetNVENCProbeForTest(func(ctx context.Context) bool {
+		n := calls.Add(1)
+		if n == 1 {
+			close(entered)
+			<-ctx.Done()
+			return false
+		}
+		return true
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- ensureEncoderDetected(ctx)
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("encoder probe did not start")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled probe returned success and would be cached as no GPU")
+		}
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected context.Canceled, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled probe did not return")
+	}
+
+	if err := ensureEncoderDetected(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("expected a second probe after cancellation, got %d", calls.Load())
+	}
+	if got := AutoDetectEncoder(); got != "h264_nvenc" {
+		t.Fatalf("later request encoder = %s, want h264_nvenc", got)
+	}
+	if !HasWorkingNVENC() {
+		t.Fatal("later request still reports no GPU")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("cached success was probed again, calls=%d", calls.Load())
+	}
+}
+
+func TestEncoderProbe_CleanMissIsCached(t *testing.T) {
+	// A real NVENC miss (context still live) stays cached. Only cancellation is retried.
+	ResetEncoderDetectionForTest()
+	defer func() {
+		SetNVENCProbeForTest(nil)
+		ResetEncoderDetectionForTest()
+	}()
+
+	var calls atomic.Int64
+	SetNVENCProbeForTest(func(context.Context) bool {
+		calls.Add(1)
+		return false
+	})
+	if err := ensureEncoderDetected(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureEncoderDetected(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("clean NVENC miss must be cached, probes=%d", calls.Load())
+	}
+	if got := AutoDetectEncoder(); got != "libx264" {
+		t.Fatalf("encoder = %s, want libx264", got)
 	}
 }
 

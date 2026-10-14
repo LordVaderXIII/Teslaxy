@@ -38,11 +38,12 @@ func parseThumbnailTime(raw string) (float64, string, error) {
 	return t, normalized, nil
 }
 
-// durationFlight coalesces concurrent ffprobe calls for the same path.
+// durationFlight shares an in-flight ffprobe for a path. The entry is removed
+// when the probe finishes, so a later call — including after the file is
+// replaced — measures the file again instead of reusing a stale duration.
 var durationFlight sync.Map // path -> *durationCall
 
 type durationCall struct {
-	once sync.Once
 	dur  float64
 	err  error
 	done chan struct{}
@@ -75,33 +76,21 @@ func ResetDurationFlightForTest() {
 }
 
 // probeVideoDurationSeconds returns media duration via ffprobe, under the ffmpeg
-// concurrency cap, coalescing concurrent probes for the same path.
+// concurrency cap. Concurrent callers for one path share a single in-flight
+// probe and each select on that result or their own ctx.Done(). The finished
+// duration is not retained.
 func probeVideoDurationSeconds(ctx context.Context, path string) (float64, error) {
-	actual, _ := durationFlight.LoadOrStore(path, &durationCall{done: make(chan struct{})})
-	call := actual.(*durationCall)
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 
-	call.once.Do(func() {
-		defer close(call.done)
-		if err := services.AcquireFFmpeg(ctx); err != nil {
-			call.err = err
-			// Allow a later request to retry after a cancelled/failed flight.
-			durationFlight.Delete(path)
-			return
-		}
-		defer services.ReleaseFFmpeg()
-
-		cmd := ffprobeDurationCmd(ctx, path)
-		out, err := cmd.Output()
-		if err != nil {
-			call.err = err
-			durationFlight.Delete(path)
-			return
-		}
-		call.dur, call.err = strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
-		if call.err != nil {
-			durationFlight.Delete(path)
-		}
-	})
+	call := &durationCall{done: make(chan struct{})}
+	actual, loaded := durationFlight.LoadOrStore(path, call)
+	if loaded {
+		call = actual.(*durationCall)
+	} else {
+		go runDurationProbe(call, path)
+	}
 
 	select {
 	case <-call.done:
@@ -109,6 +98,34 @@ func probeVideoDurationSeconds(ctx context.Context, path string) (float64, error
 	case <-ctx.Done():
 		return 0, ctx.Err()
 	}
+}
+
+// runDurationProbe is the single in-flight ffprobe for a path. It uses its own
+// timeout so one caller's cancellation does not abort the shared probe or get
+// stored as that caller's result. The map entry is dropped before waiters are
+// released, so the next call probes again.
+func runDurationProbe(call *durationCall, path string) {
+	defer func() {
+		durationFlight.CompareAndDelete(path, call)
+		close(call.done)
+	}()
+
+	probeCtx, cancel := context.WithTimeout(context.Background(), services.DefaultThumbnailTimeout)
+	defer cancel()
+
+	if err := services.AcquireFFmpeg(probeCtx); err != nil {
+		call.err = err
+		return
+	}
+	defer services.ReleaseFFmpeg()
+
+	cmd := ffprobeDurationCmd(probeCtx, path)
+	out, err := cmd.Output()
+	if err != nil {
+		call.err = err
+		return
+	}
+	call.dur, call.err = strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
 }
 
 func getThumbnail(c *gin.Context) {
@@ -198,7 +215,9 @@ func getThumbnail(c *gin.Context) {
 		log.Printf("Thumbnail duration probe failed for %s: %v (continuing)", fullPath, derr)
 	}
 
-	// Generate Thumbnail using FFmpeg (bounded concurrency + timeout)
+	// Generate Thumbnail using FFmpeg (bounded concurrency + timeout).
+	// Each request writes a private temp file and renames it into the cache so
+	// concurrent misses cannot publish a partial JPEG at the shared path.
 	if err := services.AcquireFFmpeg(ctx); err != nil {
 		log.Printf("Thumbnail ffmpeg slot: %v", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server busy generating thumbnails"})
@@ -206,10 +225,36 @@ func getThumbnail(c *gin.Context) {
 	}
 	defer services.ReleaseFFmpeg()
 
+	tmp, err := os.CreateTemp(thumbDir, hashStr+".*.jpg")
+	if err != nil {
+		log.Printf("Failed to create thumbnail temp file: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})
+		return
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		log.Printf("Failed to close thumbnail temp file: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})
+		return
+	}
+	defer os.Remove(tmpPath)
+
 	vf := fmt.Sprintf("scale=%d:-1", width)
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-ss", normalizedTime, "-i", fullPath, "-vframes", "1", "-vf", vf, "-q:v", "5", thumbPath)
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-ss", normalizedTime, "-i", fullPath, "-vframes", "1", "-vf", vf, "-q:v", "5", tmpPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("FFmpeg thumbnail error for %s time=%s: %v, Output: %s", fullPath, normalizedTime, err, string(out))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})
+		return
+	}
+	info, err := os.Stat(tmpPath)
+	if err != nil || info.Size() == 0 {
+		log.Printf("FFmpeg thumbnail empty for %s time=%s", fullPath, normalizedTime)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})
+		return
+	}
+	if err := os.Rename(tmpPath, thumbPath); err != nil {
+		log.Printf("Failed to publish thumbnail %s: %v", thumbPath, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})
 		return
 	}

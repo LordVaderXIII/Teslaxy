@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker runtime ships a pinned BtbN GPL ffmpeg build that includes `h264_nvenc` (Alpine `apk` ffmpeg does not), with `gcompat` for glibc symbols on musl.
 - Transcode and thumbnail ffmpeg work is capped (default 4 concurrent) and timed out; thumbnail cache keys normalize seek time so `0.1` / `0.10` / `0.100` share one file.
 - Thumbnail `time` rejects NaN/Inf/negatives and seeks past EOF with HTTP 400 and a log line.
+- Thumbnail duration lookups share only the in-flight ffprobe. A replaced file is measured again, so a stale duration no longer rejects a valid seek with HTTP 400. A caller whose context is cancelled returns without waiting out that shared probe.
+- A cancelled or timed-out NVENC probe is not stored as "no GPU". The next request runs the probe again.
+- Thumbnail ffmpeg writes a private temp file and renames it into the cache, so concurrent misses cannot publish a partial JPEG.
 
 ## [0.2.3] - 2026-10-05
 ### Fixed
