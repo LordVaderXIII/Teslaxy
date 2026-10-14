@@ -619,11 +619,15 @@ func (s *RetentionService) pruneClip(root *footageRoot, cand RetentionCandidate,
 	for i := range toDelete {
 		// Mark retention ownership before soft-delete so recovery never unlinks
 		// reconcile-only tombstones (or other non-retention soft-deletes).
-		if err := tx.Model(&toDelete[i]).Update("retention_pending", true).Error; err != nil {
+		// Use ID-scoped Updates (not Model(&struct)) so GORM v1 does not
+		// re-save preloaded associations and hit UNIQUE on video_files.id.
+		vfID := toDelete[i].ID
+		if err := tx.Model(&models.VideoFile{}).Where("id = ?", vfID).
+			Update("retention_pending", true).Error; err != nil {
 			tx.Rollback()
 			return 0, err
 		}
-		if err := tx.Delete(&toDelete[i]).Error; err != nil {
+		if err := tx.Where("id = ?", vfID).Delete(&models.VideoFile{}).Error; err != nil {
 			tx.Rollback()
 			return 0, err
 		}
@@ -638,16 +642,17 @@ func (s *RetentionService) pruneClip(root *footageRoot, cand RetentionCandidate,
 	clipSoftDeleted := false
 	if liveVF == 0 {
 		if clip.Telemetry.ID != 0 {
-			if err := tx.Delete(&clip.Telemetry).Error; err != nil {
+			if err := tx.Where("id = ?", clip.Telemetry.ID).Delete(&models.Telemetry{}).Error; err != nil {
 				tx.Rollback()
 				return 0, err
 			}
 		}
-		if err := tx.Model(&clip).Update("retention_pending", true).Error; err != nil {
+		if err := tx.Model(&models.Clip{}).Where("id = ?", clip.ID).
+			Update("retention_pending", true).Error; err != nil {
 			tx.Rollback()
 			return 0, err
 		}
-		if err := tx.Delete(&clip).Error; err != nil {
+		if err := tx.Where("id = ?", clip.ID).Delete(&models.Clip{}).Error; err != nil {
 			tx.Rollback()
 			return 0, err
 		}

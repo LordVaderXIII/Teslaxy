@@ -91,8 +91,8 @@ func TestRetentionTelemetryDeleteFailureRecoversOnRestart(t *testing.T) {
 		_ = db.Delete(&vfs[i])
 		_ = db.Unscoped().Delete(&models.VideoFile{}, vfs[i].ID)
 	}
-	_ = db.Model(&clip).Update("retention_pending", true)
-	_ = db.Delete(&clip)
+	_ = db.Model(&models.Clip{}).Where("id = ?", clip.ID).Update("retention_pending", true)
+	_ = db.Where("id = ?", clip.ID).Delete(&models.Clip{})
 	_ = os.Remove(path)
 	var tel models.Telemetry
 	if err := db.Unscoped().Where("clip_id = ?", clip.ID).First(&tel).Error; err != nil {
