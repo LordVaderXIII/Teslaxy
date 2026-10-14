@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-10-14
+### Fixed
+- Transcode no longer treats a compiled-in `h264_nvenc` as usable: a runtime probe must succeed before NVENC is selected, so GPU-less hosts fall back to `libx264` instead of returning empty HTTP 200 bodies.
+- Transcoded `?quality=` responses peek the first ffmpeg bytes before committing status; a failed encode returns 5xx instead of an empty 200.
+- Export GPU selection uses the same NVENC runtime probe (not `nvidia-smi` alone), so a GPU without an NVENC-capable ffmpeg no longer queues exports that fail with `Unknown encoder 'h264_nvenc'`.
+- Docker runtime ships a pinned BtbN GPL ffmpeg build that includes `h264_nvenc` (Alpine `apk` ffmpeg does not), with `gcompat` for glibc symbols on musl.
+- Transcode and thumbnail ffmpeg work is capped (default 4 concurrent) and timed out; thumbnail cache keys normalize seek time so `0.1` / `0.10` / `0.100` share one file.
+- Thumbnail `time` rejects NaN/Inf/negatives and seeks past EOF with HTTP 400 and a log line.
+- Thumbnail duration lookups share only the in-flight ffprobe. A replaced file is measured again, so a stale duration no longer rejects a valid seek with HTTP 400. A caller whose context is cancelled returns without waiting out that shared probe.
+- A cancelled or timed-out NVENC probe is not stored as "no GPU". The next request runs the probe again.
+- Thumbnail ffmpeg writes a private temp file and renames it into the cache, so concurrent misses cannot publish a partial JPEG.
+
 ## [0.2.3] - 2026-10-05
 ### Fixed
 - Swiping the nudge row no longer moves the camera. A tap still steps once, and a held press still repeats.

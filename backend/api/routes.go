@@ -184,22 +184,40 @@ func serveVideo(c *gin.Context) {
 
 	// If quality is requested and not original, transcode
 	if quality != "" && quality != "original" {
-		cmd, stdout, err := services.GetTranscodeStream(c.Request.Context(), fullPath, quality)
+		ctx, cancel := services.WithFFmpegTimeout(c.Request.Context(), services.DefaultTranscodeTimeout)
+		defer cancel()
+
+		_, stdout, cleanup, err := services.GetTranscodeStream(ctx, fullPath, quality)
 		if err != nil {
 			log.Printf("Transcode error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Transcoding failed"})
+			return
+		}
+		defer cleanup()
+
+		// Peek before committing status so a failed ffmpeg (e.g. NVENC without GPU)
+		// cannot produce an empty HTTP 200.
+		buf := make([]byte, 32*1024)
+		n, readErr := stdout.Read(buf)
+		if n == 0 {
+			if readErr != nil && readErr != io.EOF {
+				log.Printf("Transcode stream error before first byte: %v", readErr)
+			} else {
+				log.Printf("Transcode produced no output for %s quality=%s", fullPath, quality)
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Transcoding failed"})
 			return
 		}
 
 		c.Header("Content-Type", "video/mp4")
 		c.Status(http.StatusOK)
-
+		if _, err := c.Writer.Write(buf[:n]); err != nil {
+			log.Printf("Stream error: %v", err)
+			return
+		}
 		if _, err := io.Copy(c.Writer, stdout); err != nil {
 			log.Printf("Stream error: %v", err)
 		}
-
-		// Ensure process is cleaned up
-		cmd.Wait()
 		return
 	}
 

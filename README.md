@@ -69,6 +69,8 @@ The easiest way to run Teslaxy is using Docker.
 
    This command will build the frontend and backend, then start the container.
 
+   **Pinned Docker network:** Compose attaches Teslaxy to a user-defined network `teslaxy-net` with subnet `172.16.242.0/24`. That subnet is pinned to stay clear of common LAN ranges `192.168.3.0/24` and `192.168.86.0/24` (and reserved `.240`/`.241` addresses elsewhere on the host). If you install with unRAID `docker run` instead of Compose, create and attach the same pinned network (for example `docker network create --subnet=172.16.242.0/24 teslaxy-net` and `--network teslaxy-net` on `docker run`).
+
 4. **Access the interface:**
    Open your browser and navigate to `http://localhost:8080`.
 
