@@ -34,6 +34,7 @@ func SetupRoutes(r *gin.Engine) {
 	{
 		api.GET("/clips", getClips)
 		api.GET("/clips/:id", getClipDetails)
+		api.POST("/clips/:id/protect", setClipProtected)
 		api.GET("/library", getLibrary)
 		api.GET("/library/files", getLibraryFiles)
 		// Apply CORS only to video serving to support 3D textures (crossOrigin)
@@ -47,6 +48,11 @@ func SetupRoutes(r *gin.Engine) {
 		api.POST("/export", createExportJob)
 		api.GET("/export/:jobID", getExportStatus)
 		api.GET("/downloads/:filename", downloadExport)
+
+		// Footage retention
+		api.GET("/retention/settings", getRetentionSettings)
+		api.PUT("/retention/settings", putRetentionSettings)
+		api.POST("/retention/run", postRetentionRun)
 	}
 }
 
@@ -68,7 +74,7 @@ func SetupRoutes(r *gin.Engine) {
 //  3. Filename parsing as last resort
 func getClips(c *gin.Context) {
 	var clips []models.Clip
-	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, source_dir, telemetry_id").
+	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, source_dir, protected, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
 			return db.Select("clip_id, camera, file_path, timestamp").Order("timestamp asc")
 		}).Order("timestamp desc").Find(&clips).Error; err != nil {

@@ -52,6 +52,15 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Ensure `ffmpeg` with NVENC support is available or injected.
 - Expose port 80.
 
+### Footage retention
+- Implemented in `backend/services/retention.go` (+ `retention_config.go`, `retention_scheduler.go`).
+- Defaults: disabled, dry-run on, 90 days, 300 GB, 24h interval, 15m min file age.
+- Never prune `Event == "Saved"` or `Clip.Protected == true`.
+- Soft-delete DB rows in a transaction before unlinking files; hard-delete after a clean file pass.
+- Safety: `pathInsideRoot` + `Lstat` only (no symlink follow); skip recent mtimes.
+- Verify: `scripts/verify-retention.sh` and `.cursor/skills/verify-teslaxy/`. Fixture dry-run: `go run ./cmd/retention-dry-run` from `backend/`.
+- Do not target live NAS hosts in agents unless asked; use IPs only (Valhalla `192.168.86.41`), never `.local`.
+
 ### Cloud agent environment
 - `.cursor/environment.json` is the build setup: `.cursor/Dockerfile` (Node 22, Go 1.24, gcc, ffmpeg) plus `.cursor/install.sh` (`npm ci` in `frontend/`, `go mod download` in `backend/`). No snapshot id. Do not put secrets in that file.
 

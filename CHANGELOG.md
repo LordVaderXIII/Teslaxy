@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-14
+### Added
+- Footage retention: scheduled oldest-first pruning by age (default 90 days) and size cap (default ~300 GB).
+- Protection for Tesla SavedClips and user-flagged clips (`protected` on `Clip`; `POST /api/clips/:id/protect`).
+- Dry-run mode with structured JSON logging of candidates and bytes that would be freed.
+- Config via env (`RETENTION_*`), `$CONFIG_PATH/retention.json`, and `GET`/`PUT` `/api/retention/settings`; manual `POST /api/retention/run`.
+- Safety: refuse paths outside `FOOTAGE_PATH`, never follow symlinks, skip recent mtimes; soft-delete DB rows before unlinking files.
+- `go run ./cmd/retention-dry-run` fixture harness and `.cursor/skills/verify-teslaxy` verification skill.
+
 ## [0.2.4] - 2026-10-14
 ### Fixed
 - Transcode no longer treats a compiled-in `h264_nvenc` as usable: a runtime probe must succeed before NVENC is selected, so GPU-less hosts fall back to `libx264` instead of returning empty HTTP 200 bodies.

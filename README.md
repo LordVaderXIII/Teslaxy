@@ -15,6 +15,7 @@ THIS APP IS IN HEAVY DEVELOPMENT AND MOST FEATURES ARE IN SOME SORT OF BROKEN ST
 - **Playback Controls:** Skip and rewind 5 seconds during playback.
 - **Playback Speed:** Cycle through 0.5x, 1x, 1.5x, 2x, and 4x playback speeds.
 - **Dynamic Camera Grid:** Click any camera view to swap it with the main view, allowing focus on specific angles.
+- **Footage Retention:** Optional scheduled pruning by age and size cap (oldest first). Tesla SavedClips and user-protected clips are never deleted. Dry-run mode logs what would be freed.
 
 ## Upcoming Features
 
@@ -55,11 +56,13 @@ The easiest way to run Teslaxy is using Docker.
    ```yaml
    volumes:
      # Change this path to your actual TeslaCam drive/folder location
+     # Use :ro for read-only browsing. Use :rw (or omit the mode) if retention prune is enabled.
      - /path/to/your/TeslaCam:/footage:ro
      - ./config:/config
    ```
 
    *Note: The `/footage` volume should point to the directory containing folders like `SentryClips`, `SavedClips`, or `RecentClips`.*
+   *On this LAN, mount by IP (e.g. `192.168.86.41`), never a `.local` hostname.*
 
 3. **Run the application:**
 
@@ -84,6 +87,24 @@ You can configure the application via environment variables in `docker-compose.y
 | `CONFIG_PATH` | Internal path for DB and logs | `/config` |
 | `PORT` | Internal port | `80` |
 | `GIN_MODE` | Gin framework mode | `release` |
+| `RETENTION_ENABLED` | Run scheduled footage pruning | `false` |
+| `RETENTION_DRY_RUN` | Log candidates only; delete nothing | `true` |
+| `RETENTION_MAX_AGE_DAYS` | Delete unprotected clips older than N days | `90` |
+| `RETENTION_MAX_SIZE_GB` | Keep total indexed footage under this many GB | `300` |
+| `RETENTION_INTERVAL_HOURS` | Hours between scheduled passes | `24` |
+| `RETENTION_MIN_FILE_AGE_MINUTES` | Skip files with newer mtime (in-progress writes) | `15` |
+
+Settings also persist in `$CONFIG_PATH/retention.json` and via:
+
+- `GET` / `PUT` `/api/retention/settings`
+- `POST` `/api/retention/run` with optional `{"dry_run":true}`
+- `POST` `/api/clips/:id/protect` with `{"protected":true}`
+
+**Protection:** Tesla `SavedClips` (`event=Saved`) and any clip with `protected=true` are never pruned.
+
+**Safety:** Paths outside `FOOTAGE_PATH` are refused, symlinks are not followed, and recently written files are skipped. Soft-delete in `teslacam.db` happens before file removal so a partial IO failure cannot re-surface deleted clips in the library.
+
+**Defaults rationale:** 90 days keeps a useful Sentry/Recent history; ~300 GB leaves headroom on a share that is already near capacity (e.g. Valhalla at ~91% full). Start with `RETENTION_DRY_RUN=true` and inspect logs before enabling deletes. Destructive prune requires a writable `/footage` mount.
 
 ### GPU Support
 
