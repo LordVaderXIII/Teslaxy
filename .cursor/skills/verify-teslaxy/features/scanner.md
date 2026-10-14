@@ -8,7 +8,7 @@ Synthetic fixtures only (`/tmp`, `ffmpeg -f lavfi -i testsrc`). Never real foota
 cd backend
 go vet ./...
 go test -race ./services -count=1 \
-  -run 'TestScanAll_UnreadableSubdirContinues|TestRecentFallback_DoesNotAttachToSentry|TestReconcileMissing_SoftDeletesGoneFootage|TestHandleFileCreate_ScansPrepopulatedDir|TestScanDir_ConcurrentNoDuplicateClips|TestReconcileMissing_RefusesMissingOrEmptyRoot|TestScanner_TakesMediaLock|TestRecentRescan_DeletedFirstMinuteNotDuplicated|TestHandleFileCreate_ScansNestedEvents|TestScanAll_ConcurrentRecentIsIdempotent|TestReconcileMissing_ClipCleanupScopedToRoot'
+  -run 'TestScanAll_UnreadableSubdirContinues|TestRecentFallback_DoesNotAttachToSentry|TestReconcileMissing_SoftDeletesGoneFootage|TestHandleFileCreate_ScansPrepopulatedDir|TestScanDir_ConcurrentNoDuplicateClips|TestReconcileMissing_RefusesMissingOrEmptyRoot|TestScanner_TakesMediaLock|TestRecentRescan_DeletedFirstMinuteNotDuplicated|TestHandleFileCreate_ScansNestedEvents|TestScanAll_ConcurrentRecentIsIdempotent|TestReconcileMissing_ClipCleanupScopedToRoot|TestReconcileMissing_AbortsWhenRootVanishesMidDelete|TestReconcileMissing_AbortsWhenRootSwappedEmptyMidDelete|TestReconcileMissing_EmptiesLibraryAfterTwoStableEmptyScans|TestReconcileMissing_DeletesOnlyTopLevelVideoAfterConfirm|TestReconcileMissing_ForceEmptyPurgeSkipsConfirm'
 go test -race ./... -count=1
 ```
 
@@ -25,6 +25,17 @@ go test -race ./... -count=1
 | P2 nested walk | `TestHandleFileCreate_ScansNestedEvents` |
 | P3 recent race | `TestScanAll_ConcurrentRecentIsIdempotent` |
 | P3 root scope | `TestReconcileMissing_ClipCleanupScopedToRoot` |
+| Round-3 P1 mid-pass vanish | `TestReconcileMissing_AbortsWhenRootVanishesMidDelete` |
+| Round-3 P1 mid-pass empty swap | `TestReconcileMissing_AbortsWhenRootSwappedEmptyMidDelete` |
+| Round-3 P2 empty library | `TestReconcileMissing_EmptiesLibraryAfterTwoStableEmptyScans` |
+| Round-3 P2 top-level video | `TestReconcileMissing_DeletesOnlyTopLevelVideoAfterConfirm` |
+| Round-3 P2 force purge | `TestReconcileMissing_ForceEmptyPurgeSkipsConfirm` |
+
+## Reconcile root safety (round 3)
+
+`ReconcileMissing` captures the footage root's device+inode at start and re-checks that identity before every soft-delete batch (`ErrReconcileRootChanged` if it vanishes or is swapped).
+
+An empty-but-present root with live DB rows is refused on the first sighting (`ErrReconcileRefused`). A second consecutive scan with the **same** device/inode soft-deletes the dead rows (intentional empty library). An empty directory whose inode differs from the last non-empty sighting is refused (drive drop-out / placeholder). `ReconcileOpts.ForceEmptyPurge` skips the two-scan confirm while still requiring the root to exist.
 
 ## Manual fixture (run the code)
 
@@ -71,4 +82,4 @@ kill "$(cat "$FIX/server.pid")"; rm -rf "$FIX"
 
 ## Shared API for #238
 
-`services.ReconcileMissing(db, root, opts)` soft-deletes missing `VideoFile` rows and empty `Clip`s under `root`, holding `mediaOpMu` write lock (`media_coord.go`). Retention PR #238 should call this instead of a private post-delete cleanup.
+`services.ReconcileMissing(db, root, opts)` soft-deletes missing `VideoFile` rows and empty `Clip`s under `root`, holding `mediaOpMu` write lock (`media_coord.go`). Retention PR #238 should call this instead of a private post-delete cleanup. Optional `opts.ForceEmptyPurge` clears an intentionally emptied root in one pass; otherwise two consecutive empty scans with a stable root identity are required.
