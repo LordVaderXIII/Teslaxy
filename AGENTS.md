@@ -32,6 +32,7 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
   - SEI data extracted from Front camera videos (via `aggregateTelemetry`) is the source for speed/steering/autopilot telemetry.
 - The frontend `clipMerge.ts` is now only a fallback compatibility layer. New code must not duplicate grouping logic on the client.
 - When modifying the scanner, always update `SourceDir` and prefer directory + event.json over pure timestamp heuristics.
+- `ReconcileMissing` holds `mediaOpMu`'s write lock. Scan indexing (`ScanAll`, `scanDir`, `scanTree`) holds the read lock and releases it before reconcile. Refuse to reconcile when the footage root is missing or an empty directory while clips for that root remain (`ErrReconcileRefused`); scope clip cleanup to the requested root. A moved directory is walked recursively. Recent find-or-create is serialized and matches an existing Recent clip by file path so deleting the first minute cannot duplicate the rest.
 
 ### 3D camera alignment
 - `frontend/src/data/camera-alignment.json` (schema version 1) is the viewing layout the 3D player loads. The frontend imports it; it is not served from the Go API.

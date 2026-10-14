@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-10-14
+### Fixed
+- Reconcile refuses when the footage root is missing or empty while clips for that root are still in the database, instead of soft-deleting the library.
+- The scanner holds the media read lock while indexing, so reconcile cannot delete clips mid-scan.
+- Deleting the first Recent minute and scanning again no longer duplicates the remaining footage.
+- A moved directory tree is scanned recursively, so nested events are indexed.
+- Concurrent Recent scans are idempotent.
+- Clip cleanup during reconcile is limited to the requested footage root.
+
 ## [0.2.4] - 2026-10-14
 ### Fixed
 - Scanner walk no longer aborts the whole library when one subdirectory is unreadable (H1).

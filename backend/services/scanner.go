@@ -47,6 +47,11 @@ var (
 	// Standard: 2019-01-21_14-15-20-front.mp4
 	// With MS:  2019-01-21_14-15-20_123456-front.mp4 (or _front.mp4)
 	fileRegex = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})(?:[_-]\d+)?[_-]([a-zA-Z0-9_]+)\.mp4$`)
+
+	// recentIndexMu serializes Recent find-or-create. The media lock is a
+	// read lock, so concurrent ScanAll calls would otherwise all pass the
+	// "does this clip exist?" check and insert duplicate rows.
+	recentIndexMu sync.Mutex
 )
 
 func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
@@ -131,8 +136,9 @@ func (s *ScannerService) handleFileCreate(path string) {
 				return nil
 			})
 		}
-		// Pre-populated event dirs never emit per-file Create events; scan now.
-		go s.scanDir(path)
+		// Pre-populated trees never emit per-file Create events. Walk nested
+		// event directories; scanning only the outer folder drops them.
+		go s.scanTree(path)
 		return
 	}
 
@@ -193,6 +199,37 @@ func (s *ScannerService) processPending(dirPath string) {
 }
 
 func (s *ScannerService) scanDir(dirPath string) {
+	lockMediaRead()
+	defer unlockMediaRead()
+	s.scanDirLocked(dirPath)
+}
+
+// scanTree indexes root and every nested directory. A moved TeslaCam tree
+// contains event folders below the directory the watcher reports.
+func (s *ScannerService) scanTree(root string) {
+	lockMediaRead()
+	defer unlockMediaRead()
+	s.scanTreeLocked(root)
+}
+
+func (s *ScannerService) scanTreeLocked(root string) {
+	var dirs []string
+	_ = filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			log.Printf("Skipping unreadable path while scanning %s: %v", p, err)
+			return nil
+		}
+		if fi != nil && fi.IsDir() {
+			dirs = append(dirs, p)
+		}
+		return nil
+	})
+	for _, d := range dirs {
+		s.scanDirLocked(d)
+	}
+}
+
+func (s *ScannerService) scanDirLocked(dirPath string) {
 	unlock := s.lockDir(dirPath)
 	defer unlock()
 
@@ -226,7 +263,7 @@ func (s *ScannerService) scanDir(dirPath string) {
 		if isEvent {
 			s.processEventGroup(dirPath, filePaths)
 		} else {
-			s.processRecentGroup(filePaths)
+			s.processRecentGroupLocked(filePaths)
 		}
 	}
 }
@@ -294,27 +331,32 @@ func (s *ScannerService) ScanAll() {
 		return nil
 	})
 
-	// 2. Process Event Groups (Parallel). Route through scanDir so the per-dir
-	// lock (L3) covers both full scans and watcher-driven rescans.
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 5)
+	// 2-3. Index while holding the media read lock so ReconcileMissing (write
+	// lock) cannot delete rows this scan is inserting. Unlock before reconcile.
+	func() {
+		lockMediaRead()
+		defer unlockMediaRead()
 
-	for dir := range eventDirs {
-		wg.Add(1)
-		semaphore <- struct{}{}
-		go func(d string) {
-			defer wg.Done()
-			defer func() { <-semaphore }()
-			s.scanDir(d)
-		}(dir)
-	}
-	wg.Wait()
+		var wg sync.WaitGroup
+		semaphore := make(chan struct{}, 5)
 
-	// 3. Process Recent Files (Single Batch)
-	if len(recentFiles) > 0 {
-		fmt.Printf("Processing %d recent files...\n", len(recentFiles))
-		s.processRecentGroup(recentFiles)
-	}
+		for dir := range eventDirs {
+			wg.Add(1)
+			semaphore <- struct{}{}
+			go func(d string) {
+				defer wg.Done()
+				defer func() { <-semaphore }()
+				// scanDirLocked: ScanAll already holds the read lock.
+				s.scanDirLocked(d)
+			}(dir)
+		}
+		wg.Wait()
+
+		if len(recentFiles) > 0 {
+			fmt.Printf("Processing %d recent files...\n", len(recentFiles))
+			s.processRecentGroupLocked(recentFiles)
+		}
+	}()
 
 	// 4. Drop DB rows for footage that disappeared (M1). Shared with retention (#238).
 	if _, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{}); err != nil {
@@ -524,6 +566,36 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	s.aggregateTelemetry(&clip, files, estLat, estLon)
 }
 
+func pathsInClipGroup(clipGroup [][]fileInfo) []string {
+	var paths []string
+	for _, segment := range clipGroup {
+		for _, f := range segment {
+			paths = append(paths, f.path)
+		}
+	}
+	return paths
+}
+
+// findRecentClipByFilePaths returns the live Recent clip that already owns one
+// of paths. A Sentry/Saved clip with the same timestamp is not a match (H2).
+func (s *ScannerService) findRecentClipByFilePaths(paths []string) (models.Clip, bool) {
+	if len(paths) == 0 {
+		return models.Clip{}, false
+	}
+	var vf models.VideoFile
+	if err := s.DB.Where("file_path IN (?)", paths).First(&vf).Error; err != nil {
+		return models.Clip{}, false
+	}
+	var clip models.Clip
+	if err := s.DB.First(&clip, vf.ClipID).Error; err != nil {
+		return models.Clip{}, false
+	}
+	if clip.Event != "Recent" {
+		return models.Clip{}, false
+	}
+	return clip, true
+}
+
 // processRecentGroup groups flat RecentClips into logical multi-minute drives using time heuristics.
 //
 // This is the secondary (less reliable) grouping path. RecentClips often lack event.json,
@@ -533,6 +605,17 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 	if len(filePaths) == 0 {
 		return
 	}
+	lockMediaRead()
+	defer unlockMediaRead()
+	s.processRecentGroupLocked(filePaths)
+}
+
+func (s *ScannerService) processRecentGroupLocked(filePaths []string) {
+	if len(filePaths) == 0 {
+		return
+	}
+	recentIndexMu.Lock()
+	defer recentIndexMu.Unlock()
 
 	timezone := determineTimezone(0, 0)
 
@@ -582,7 +665,17 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 		minTime := clipGroup[0][0].timestamp
 
 		var clip models.Clip
-		var found bool = false
+		found := false
+
+		// Idempotency: a live Recent clip that already owns one of these files
+		// wins, even when its timestamp is an earlier minute that has since
+		// been deleted. Matching only `event = Recent AND timestamp = minTime`
+		// misses that clip and inserts a second copy of the remaining footage.
+		// H2: never reuse a non-Recent clip that happens to share a timestamp.
+		if existing, ok := s.findRecentClipByFilePaths(pathsInClipGroup(clipGroup)); ok {
+			clip = existing
+			found = true
+		}
 
 		// Merge Strategy:
 		// We look for any Recent clip that ends just before `minTime`.
@@ -590,18 +683,24 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 		startTime := minTime.Add(-65 * time.Second)
 
 		var lastVf models.VideoFile
-		if err := s.DB.Table("video_files").
-			Joins("JOIN clips ON video_files.clip_id = clips.id").
-			Where("clips.event = ? AND video_files.timestamp >= ? AND video_files.timestamp < ?", "Recent", startTime, minTime).
-			Order("video_files.timestamp desc").
-			First(&lastVf).Error; err == nil {
+		if !found {
+			if err := s.DB.Table("video_files").
+				Joins("JOIN clips ON video_files.clip_id = clips.id AND clips.deleted_at IS NULL").
+				Where("clips.event = ? AND video_files.deleted_at IS NULL AND video_files.timestamp >= ? AND video_files.timestamp < ?", "Recent", startTime, minTime).
+				Order("video_files.timestamp desc").
+				First(&lastVf).Error; err == nil {
 
-			s.DB.First(&clip, lastVf.ClipID)
-			found = true
-		} else if err := s.DB.Where("event = ? AND timestamp = ?", "Recent", minTime).First(&clip).Error; err == nil {
-			// Idempotency: only match a live Recent clip (H2). GORM soft-delete
-			// adds deleted_at IS NULL so soft-deleted rows are not reused.
-			found = true
+				if err := s.DB.First(&clip, lastVf.ClipID).Error; err == nil && clip.Event == "Recent" {
+					found = true
+				}
+			}
+		}
+		if !found {
+			if err := s.DB.Where("event = ? AND timestamp = ?", "Recent", minTime).First(&clip).Error; err == nil {
+				// Idempotency: only match a live Recent clip (H2). GORM soft-delete
+				// adds deleted_at IS NULL so soft-deleted rows are not reused.
+				found = true
+			}
 		}
 
 		if !found {
@@ -647,14 +746,24 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 		cameraName = normalizeCameraName(cameraName)
 
 		var vf models.VideoFile
-		if err := s.DB.Where("clip_id = ? AND camera = ? AND file_path = ?", clip.ID, cameraName, f.path).First(&vf).Error; gorm.IsRecordNotFoundError(err) {
-			vf = models.VideoFile{
-				ClipID:    clip.ID,
-				Camera:    cameraName,
-				FilePath:  f.path,
-				Timestamp: f.timestamp,
-			}
-			s.DB.Create(&vf)
+		// One live row per path. Keying only on clip_id lets a second clip
+		// insert the same file again after the first Recent minute is gone.
+		err := s.DB.Where("file_path = ?", f.path).First(&vf).Error
+		if err == nil {
+			continue
+		}
+		if !gorm.IsRecordNotFoundError(err) {
+			log.Printf("addFilesToClip: lookup %s: %v", f.path, err)
+			continue
+		}
+		vf = models.VideoFile{
+			ClipID:    clip.ID,
+			Camera:    cameraName,
+			FilePath:  f.path,
+			Timestamp: f.timestamp,
+		}
+		if err := s.DB.Create(&vf).Error; err != nil {
+			log.Printf("addFilesToClip: create %s: %v", f.path, err)
 		}
 	}
 }

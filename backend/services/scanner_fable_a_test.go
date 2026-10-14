@@ -20,6 +20,9 @@ func setupFableADB(t *testing.T) *gorm.DB {
 		t.Fatalf("connect db: %v", err)
 	}
 	db.AutoMigrate(&models.Clip{}, &models.VideoFile{}, &models.Telemetry{})
+	// :memory: is per-connection unless the pool stays at one connection.
+	// Parallel ScanAll workers would otherwise see an empty database.
+	db.DB().SetMaxOpenConns(1)
 	return db
 }
 
@@ -322,5 +325,255 @@ func TestIsUnderRoot(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("isUnderRoot(%q,%q)=%v want %v", root, tc.path, got, tc.want)
 		}
+	}
+}
+
+// assertIndexHoldsMediaLock fails when index inserts clips before taking the
+// media read lock, or when ReconcileMissing runs while that lock is held.
+func assertIndexHoldsMediaLock(t *testing.T, db *gorm.DB, root string, index func()) {
+	t.Helper()
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	mediaReadLockedHook = func() {
+		once.Do(func() { close(entered) })
+		<-release
+	}
+	released := false
+	defer func() {
+		mediaReadLockedHook = nil
+		if !released {
+			close(release)
+		}
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		index()
+		close(done)
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("indexer did not acquire the media read lock")
+	}
+
+	var n int
+	db.Model(&models.Clip{}).Count(&n)
+	if n != 0 {
+		t.Fatalf("indexed %d clips before holding the media read lock", n)
+	}
+
+	recDone := make(chan error, 1)
+	go func() {
+		_, err := ReconcileMissing(db, root, ReconcileOpts{})
+		recDone <- err
+	}()
+	select {
+	case err := <-recDone:
+		t.Fatalf("reconcile finished while the indexer held the media lock: %v", err)
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	close(release)
+	released = true
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("indexer did not finish after releasing the media lock")
+	}
+	select {
+	case err := <-recDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reconcile did not finish after the indexer released the lock")
+	}
+
+	db.Model(&models.Clip{}).Count(&n)
+	if n == 0 {
+		t.Fatal("expected clips once the indexer was allowed to finish")
+	}
+}
+
+// TestScanner_TakesMediaLock (P2): scanDir and ScanAll hold the media read
+// lock around indexing, so reconcile cannot delete clips mid-scan.
+func TestScanner_TakesMediaLock(t *testing.T) {
+	os.Setenv("DEFAULT_TIMEZONE", "UTC")
+	defer os.Unsetenv("DEFAULT_TIMEZONE")
+
+	for _, tc := range []struct {
+		name  string
+		index func(s *ScannerService, recentDir string)
+	}{
+		{"scanDir", func(s *ScannerService, recentDir string) { s.scanDir(recentDir) }},
+		{"ScanAll", func(s *ScannerService, _ string) { s.ScanAll() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupFableADB(t)
+			defer db.Close()
+			tmpDir, err := ioutil.TempDir("", "fable_media_lock")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(tmpDir)
+			recentDir := filepath.Join(tmpDir, "RecentClips")
+			writeDummyMP4(t, filepath.Join(recentDir, "2024-03-10_14-19-01-front.mp4"))
+			scanner := NewScannerService(tmpDir, db)
+			assertIndexHoldsMediaLock(t, db, tmpDir, func() { tc.index(scanner, recentDir) })
+		})
+	}
+}
+
+// TestRecentRescan_DeletedFirstMinuteNotDuplicated (P2 regression): deleting
+// the first Recent minute and scanning twice must leave the remaining 14:19
+// footage as one clip and one file row.
+func TestRecentRescan_DeletedFirstMinuteNotDuplicated(t *testing.T) {
+	os.Setenv("DEFAULT_TIMEZONE", "UTC")
+	defer os.Unsetenv("DEFAULT_TIMEZONE")
+
+	db := setupFableADB(t)
+	defer db.Close()
+
+	tmpDir, err := ioutil.TempDir("", "fable_recent_dup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	recentDir := filepath.Join(tmpDir, "RecentClips")
+	first := filepath.Join(recentDir, "2024-03-10_14-18-01-front.mp4")
+	second := filepath.Join(recentDir, "2024-03-10_14-19-01-front.mp4")
+	writeDummyMP4(t, first)
+	writeDummyMP4(t, second)
+
+	scanner := NewScannerService(tmpDir, db)
+	scanner.ScanAll()
+
+	if err := os.Remove(first); err != nil {
+		t.Fatal(err)
+	}
+	scanner.ScanAll()
+	scanner.ScanAll()
+
+	var clips int
+	db.Model(&models.Clip{}).Where("event = ?", "Recent").Count(&clips)
+	var files []models.VideoFile
+	db.Find(&files)
+	if clips != 1 || len(files) != 1 {
+		t.Fatalf("remaining 14:19 footage duplicated: %d clips, %d file rows; want 1 and 1", clips, len(files))
+	}
+	if filepath.Base(files[0].FilePath) != "2024-03-10_14-19-01-front.mp4" {
+		t.Fatalf("surviving file = %s, want 14:19", files[0].FilePath)
+	}
+}
+
+// TestHandleFileCreate_ScansNestedEvents (P2): a moved directory tree must
+// index nested event folders, not only the outer folder.
+func TestHandleFileCreate_ScansNestedEvents(t *testing.T) {
+	os.Setenv("DEFAULT_TIMEZONE", "UTC")
+	defer os.Unsetenv("DEFAULT_TIMEZONE")
+
+	db := setupFableADB(t)
+	defer db.Close()
+
+	tmpDir, err := ioutil.TempDir("", "fable_nested")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if err := os.MkdirAll(filepath.Join(tmpDir, "SentryClips"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	staged, err := ioutil.TempDir("", "fable_nested_staged")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(staged)
+
+	bundle := filepath.Join(staged, "bundle")
+	writeDummyMP4(t, filepath.Join(bundle, "2024-04-01_09-00-00-front.mp4"))
+	if err := ioutil.WriteFile(filepath.Join(bundle, "event.json"), []byte(`{"timestamp":"2024-04-01T09:00:10","reason":"outer"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(bundle, "nested")
+	writeDummyMP4(t, filepath.Join(nested, "2024-04-01_10-00-00-front.mp4"))
+	if err := ioutil.WriteFile(filepath.Join(nested, "event.json"), []byte(`{"timestamp":"2024-04-01T10:00:10","reason":"nested"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	dest := filepath.Join(tmpDir, "SentryClips", "bundle")
+	if err := os.Rename(bundle, dest); err != nil {
+		t.Fatal(err)
+	}
+	nestedDest := filepath.Join(dest, "nested")
+
+	scanner := NewScannerService(tmpDir, db)
+	scanner.handleFileCreate(dest)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var outer, inner int
+		db.Model(&models.Clip{}).Where("source_dir = ?", dest).Count(&outer)
+		db.Model(&models.Clip{}).Where("source_dir = ?", nestedDest).Count(&inner)
+		if outer == 1 && inner == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("moved tree indexed outer=%d nested=%d; want 1 and 1", outer, inner)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestScanAll_ConcurrentRecentIsIdempotent (P3): 32 overlapping Recent
+// ScanAll calls must not insert extra clips or file rows.
+func TestScanAll_ConcurrentRecentIsIdempotent(t *testing.T) {
+	os.Setenv("DEFAULT_TIMEZONE", "UTC")
+	defer os.Unsetenv("DEFAULT_TIMEZONE")
+
+	db := setupFableADB(t)
+	defer db.Close()
+
+	tmpDir, err := ioutil.TempDir("", "fable_recent_race")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	recentDir := filepath.Join(tmpDir, "RecentClips")
+	names := []string{
+		"2024-03-10_14-18-01-front.mp4",
+		"2024-03-10_14-18-01-back.mp4",
+		"2024-03-10_14-19-01-front.mp4",
+		"2024-03-10_14-19-01-back.mp4",
+		"2024-03-10_14-19-01-left_repeater.mp4",
+	}
+	for _, name := range names {
+		writeDummyMP4(t, filepath.Join(recentDir, name))
+	}
+
+	scanner := NewScannerService(tmpDir, db)
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			scanner.ScanAll()
+		}()
+	}
+	wg.Wait()
+
+	var clips, files int
+	db.Model(&models.Clip{}).Count(&clips)
+	db.Model(&models.VideoFile{}).Count(&files)
+	if clips != 1 || files != len(names) {
+		t.Fatalf("concurrent Recent ScanAll: %d clips, %d file rows; want 1 and %d", clips, files, len(names))
 	}
 }

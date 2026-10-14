@@ -8,7 +8,7 @@ Synthetic fixtures only (`/tmp`, `ffmpeg -f lavfi -i testsrc`). Never real foota
 cd backend
 go vet ./...
 go test -race ./services -count=1 \
-  -run 'TestScanAll_UnreadableSubdirContinues|TestRecentFallback_DoesNotAttachToSentry|TestReconcileMissing_SoftDeletesGoneFootage|TestHandleFileCreate_ScansPrepopulatedDir|TestScanDir_ConcurrentNoDuplicateClips'
+  -run 'TestScanAll_UnreadableSubdirContinues|TestRecentFallback_DoesNotAttachToSentry|TestReconcileMissing_SoftDeletesGoneFootage|TestHandleFileCreate_ScansPrepopulatedDir|TestScanDir_ConcurrentNoDuplicateClips|TestReconcileMissing_RefusesMissingOrEmptyRoot|TestScanner_TakesMediaLock|TestRecentRescan_DeletedFirstMinuteNotDuplicated|TestHandleFileCreate_ScansNestedEvents|TestScanAll_ConcurrentRecentIsIdempotent|TestReconcileMissing_ClipCleanupScopedToRoot'
 go test -race ./... -count=1
 ```
 
@@ -19,6 +19,12 @@ go test -race ./... -count=1
 | M1 | `TestReconcileMissing_SoftDeletesGoneFootage` |
 | M2 | `TestHandleFileCreate_ScansPrepopulatedDir` |
 | L3 | `TestScanDir_ConcurrentNoDuplicateClips` |
+| P1 | `TestReconcileMissing_RefusesMissingOrEmptyRoot` |
+| P2 lock | `TestScanner_TakesMediaLock` |
+| P2 recent dup | `TestRecentRescan_DeletedFirstMinuteNotDuplicated` |
+| P2 nested walk | `TestHandleFileCreate_ScansNestedEvents` |
+| P3 recent race | `TestScanAll_ConcurrentRecentIsIdempotent` |
+| P3 root scope | `TestReconcileMissing_ClipCleanupScopedToRoot` |
 
 ## Manual fixture (run the code)
 
