@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Verify the prod image: build, encoder check, health smoke.
+# Verify the prod image: build, encoder list, real nvenc encode, health smoke.
 # Usage (from repo root):
 #   ./scripts/verify-docker-ffmpeg.sh
 #   IMAGE_TAG=teslaxy:local ./scripts/verify-docker-ffmpeg.sh
 #   FIX=/path/to/existing/dir ./scripts/verify-docker-ffmpeg.sh   # caller-owned; not deleted
+#   REQUIRE_NVENC_ENCODE=1 ./scripts/verify-docker-ffmpeg.sh    # SKIP becomes FAIL (prod GPU hosts)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,6 +16,12 @@ CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-2}"
 CURL_MAX_TIME="${CURL_MAX_TIME:-5}"
 # Overall poll budget for /ping becoming ready (seconds).
 PING_DEADLINE_SEC="${PING_DEADLINE_SEC:-60}"
+# When 1/true: a no-GPU nvenc SKIP fails the script (use on prod GPU boxes).
+REQUIRE_NVENC_ENCODE="${REQUIRE_NVENC_ENCODE:-0}"
+# Extra docker run flags for GPU (e.g. --gpus all or --runtime=nvidia).
+NVENC_DOCKER_GPU_ARGS="${NVENC_DOCKER_GPU_ARGS:-}"
+NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-all}"
+NVIDIA_DRIVER_CAPABILITIES="${NVIDIA_DRIVER_CAPABILITIES:-compute,video,utility}"
 
 TMP_BASE="${TMPDIR:-/tmp}"
 TMP_BASE="${TMP_BASE%/}"
@@ -93,8 +100,41 @@ trap cleanup EXIT
 echo "==> docker build -f docker/Dockerfile -t ${IMAGE_TAG} ."
 docker build -f "$ROOT/docker/Dockerfile" -t "$IMAGE_TAG" "$ROOT"
 
-echo "==> encoder check inside image"
+echo "==> encoder list check inside image"
 docker run --rm --entrypoint /usr/local/share/teslaxy/check-ffmpeg-nvenc.sh "$IMAGE_TAG"
+
+echo "==> nvenc encode probe inside image"
+# Listing h264_nvenc is not enough — missing NVIDIA_* env / toolkit yields
+# "Cannot load libcuda.so.1" only when encoding. Exit 2 = SKIP (no GPU).
+set +e
+# shellcheck disable=SC2086
+encode_out="$(docker run --rm \
+	-e NVIDIA_VISIBLE_DEVICES="$NVIDIA_VISIBLE_DEVICES" \
+	-e NVIDIA_DRIVER_CAPABILITIES="$NVIDIA_DRIVER_CAPABILITIES" \
+	$NVENC_DOCKER_GPU_ARGS \
+	-v "$ROOT/scripts/check-ffmpeg-nvenc-encode.sh:/tmp/check-ffmpeg-nvenc-encode.sh:ro" \
+	--entrypoint /bin/sh \
+	"$IMAGE_TAG" \
+	/tmp/check-ffmpeg-nvenc-encode.sh 2>&1)"
+encode_ec=$?
+set -e
+printf '%s\n' "$encode_out"
+case "$encode_ec" in
+	0)
+		echo "OK: nvenc encode probe passed"
+		;;
+	2)
+		if [[ "$REQUIRE_NVENC_ENCODE" == "1" || "$REQUIRE_NVENC_ENCODE" == "true" ]]; then
+			echo "ERROR: REQUIRE_NVENC_ENCODE=${REQUIRE_NVENC_ENCODE} but encode was SKIP (no GPU/driver)" >&2
+			exit 1
+		fi
+		echo "SKIP: nvenc encode (no GPU/driver); set REQUIRE_NVENC_ENCODE=1 to fail on GPU hosts"
+		;;
+	*)
+		echo "ERROR: nvenc encode probe failed (exit ${encode_ec})" >&2
+		exit "$encode_ec"
+		;;
+esac
 
 echo "==> container smoke (/ping)"
 mkdir -p "$FIX/footage/RecentClips" "$FIX/config"
@@ -105,6 +145,8 @@ CID="$(docker run -d --rm \
 	-e GIN_MODE=release \
 	-e RETENTION_ENABLED=false \
 	-e RETENTION_DRY_RUN=true \
+	-e NVIDIA_VISIBLE_DEVICES="$NVIDIA_VISIBLE_DEVICES" \
+	-e NVIDIA_DRIVER_CAPABILITIES="$NVIDIA_DRIVER_CAPABILITIES" \
 	-v "$FIX/footage:/footage:ro" \
 	-v "$FIX/config:/config" \
 	"$IMAGE_TAG")"

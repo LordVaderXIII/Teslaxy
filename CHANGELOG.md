@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-10-14
+### Fixed
+- Docker Compose (and unRAID `docker run`) set `NVIDIA_VISIBLE_DEVICES=all` and `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility` so the NVIDIA toolkit injects `libcuda` / NVENC (without them, encode failed with `Cannot load libcuda.so.1` while `-encoders` still listed `h264_nvenc`).
+- `scripts/verify-docker-ffmpeg.sh` runs a one-second real `h264_nvenc` encode probe; no GPU → clear `SKIP` (set `REQUIRE_NVENC_ENCODE=1` on prod GPU hosts to fail a skip).
+
 ## [0.3.1] - 2026-10-14
 ### Fixed
 - Prod Docker runtime switches from Alpine+gcompat to `debian:bookworm-slim` (glibc) so the pinned BtbN linux64 ffmpeg binary actually executes; Alpine could pass the tarball sha256 and still fail `h264_nvenc` because the binary would not run.

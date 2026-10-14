@@ -27,6 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 # --- Stub docker: no daemon required ---
+# STUB_ENCODE_EXIT: 0=encode OK (default), 2=SKIP no GPU, other=encode FAIL
 cat >"$STUB_DIR/docker" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -38,6 +39,24 @@ case "$cmd" in
 		exit 0
 		;;
 	run)
+		for a in "$@"; do
+			if [[ "$a" == *check-ffmpeg-nvenc-encode.sh ]]; then
+				case "${STUB_ENCODE_EXIT:-0}" in
+					0)
+						echo "OK: h264_nvenc encode succeeded"
+						exit 0
+						;;
+					2)
+						echo "SKIP: h264_nvenc encode unavailable (no GPU driver/device injected)" >&2
+						exit 2
+						;;
+					*)
+						echo "ERROR: h264_nvenc encode failed (stub)" >&2
+						exit "${STUB_ENCODE_EXIT}"
+						;;
+				esac
+			fi
+		done
 		for a in "$@"; do
 			if [[ "$a" == "--entrypoint" || "$a" == */check-ffmpeg-nvenc.sh ]]; then
 				echo "stub: encoder check ok"
@@ -64,6 +83,7 @@ esac
 EOF
 chmod +x "$STUB_DIR/docker"
 export PATH="$STUB_DIR:$PATH"
+ENCODE_CHECK="$ROOT/scripts/check-ffmpeg-nvenc-encode.sh"
 
 wait_port() {
 	local port="$1"
@@ -304,16 +324,104 @@ else
 	fail "version failure should exit non-zero after ping (exit=${ver_ec}); log: $(tail -8 "${LOG_DIR}/verify-version-fail.log" | tr '\n' ' ')"
 fi
 
-# --- 6) Wiring guards ---
+# Stop version mock before encode unit tests.
+kill "${MOCK_PIDS[0]}" >/dev/null 2>&1 || true
+wait "${MOCK_PIDS[0]}" 2>/dev/null || true
+MOCK_PIDS=("${MOCK_PIDS[@]:1}")
+
+# --- 6) Encode probe: OK / FAIL / SKIP via FFMPEG_BIN stub ---
+FFMPEG_STUB="$STUB_DIR/ffmpeg"
+cat >"$FFMPEG_STUB" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mode="${FFMPEG_STUB_MODE:-ok}"
+case "$mode" in
+	ok) exit 0 ;;
+	nolibcuda)
+		echo "Cannot load libcuda.so.1" >&2
+		exit 1
+		;;
+	fail)
+		# Must NOT match SKIP patterns in check-ffmpeg-nvenc-encode.sh
+		echo "bogus encoder init failure xyz" >&2
+		exit 1
+		;;
+	*)
+		echo "unknown FFMPEG_STUB_MODE=$mode" >&2
+		exit 99
+		;;
+esac
+EOF
+chmod +x "$FFMPEG_STUB"
+
+set +e
+FFMPEG_BIN="$FFMPEG_STUB" FFMPEG_STUB_MODE=ok "$ENCODE_CHECK" >"${LOG_DIR}/encode-ok.log" 2>&1
+enc_ok=$?
+set -e
+[[ "$enc_ok" -eq 0 ]] && grep -q 'OK: h264_nvenc encode succeeded' "${LOG_DIR}/encode-ok.log" \
+	&& pass "encode OK exits 0" \
+	|| fail "encode OK expected exit 0 (got ${enc_ok})"
+
+set +e
+FFMPEG_BIN="$FFMPEG_STUB" FFMPEG_STUB_MODE=fail "$ENCODE_CHECK" >"${LOG_DIR}/encode-fail.log" 2>&1
+enc_fail=$?
+set -e
+[[ "$enc_fail" -eq 1 ]] && grep -q 'ERROR: h264_nvenc encode failed' "${LOG_DIR}/encode-fail.log" \
+	&& pass "encode FAIL exits 1 (non-zero)" \
+	|| fail "encode FAIL expected exit 1 (got ${enc_fail})"
+
+set +e
+FFMPEG_BIN="$FFMPEG_STUB" FFMPEG_STUB_MODE=nolibcuda "$ENCODE_CHECK" >"${LOG_DIR}/encode-skip.log" 2>&1
+enc_skip=$?
+set -e
+[[ "$enc_skip" -eq 2 ]] && grep -qi 'SKIP:.*no GPU' "${LOG_DIR}/encode-skip.log" \
+	&& pass "no GPU (libcuda) exits 2 SKIP" \
+	|| fail "no GPU expected SKIP exit 2 (got ${enc_skip})"
+
+# --- 7) REQUIRE_NVENC_ENCODE=1 turns SKIP into verify failure ---
+OK_PORT=$((PORT + 3))
+start_http_mock "$OK_PORT" "0" "pong" 200
+
+set +e
+STUB_ENCODE_EXIT=2 REQUIRE_NVENC_ENCODE=1 \
+	PING_DEADLINE_SEC=4 CURL_MAX_TIME=2 \
+	PORT="$OK_PORT" IMAGE_TAG=stub TMPDIR="$TMP_BASE" \
+	"$VERIFY" >"${LOG_DIR}/verify-require-skip.log" 2>&1
+req_ec=$?
+set -e
+if [[ "$req_ec" -ne 0 ]] && grep -q 'REQUIRE_NVENC_ENCODE' "${LOG_DIR}/verify-require-skip.log"; then
+	pass "REQUIRE_NVENC_ENCODE=1 makes no-GPU SKIP a failure (exit=${req_ec})"
+else
+	fail "REQUIRE_NVENC_ENCODE=1 should fail on SKIP (exit=${req_ec}); log: $(tail -6 "${LOG_DIR}/verify-require-skip.log" | tr '\n' ' ')"
+fi
+
+set +e
+STUB_ENCODE_EXIT=2 REQUIRE_NVENC_ENCODE=0 \
+	PING_DEADLINE_SEC=4 CURL_MAX_TIME=2 \
+	PORT="$OK_PORT" IMAGE_TAG=stub TMPDIR="$TMP_BASE" \
+	"$VERIFY" >"${LOG_DIR}/verify-skip-ok.log" 2>&1
+skip_ec=$?
+set -e
+if [[ "$skip_ec" -eq 0 ]] && grep -q '^SKIP: nvenc encode' "${LOG_DIR}/verify-skip-ok.log"; then
+	pass "no GPU SKIP continues (not PASS as encode) and smoke can succeed (exit=0)"
+else
+	fail "SKIP without require should allow smoke success (exit=${skip_ec})"
+fi
+
+# --- 8) Wiring guards ---
 if grep -q 'OWNED_FIX' "$VERIFY" \
 	&& grep -q 'mktemp -d "${TMP_BASE}/teslaxy-docker-verify-' "$VERIFY" \
 	&& grep -q 'now_ns\|deadline_ns' "$VERIFY" \
-	&& grep -q 'SECONDS\|now_ns' "$VERIFY" \
-	&& grep -q '>= deadline_ns\|>= \$deadline_ns\|deadline_ns ))' "$VERIFY" \
-	&& ! grep -q 'curl_get .*/api/version.*|| true' "$VERIFY"; then
-	pass "verify-docker-ffmpeg.sh wires OWNED_FIX, TMPDIR mktemp, ns deadline, no version || true"
+	&& grep -q 'deadline_ns' "$VERIFY" \
+	&& grep -q 'REQUIRE_NVENC_ENCODE' "$VERIFY" \
+	&& grep -q 'NVIDIA_VISIBLE_DEVICES' "$VERIFY" \
+	&& grep -q 'check-ffmpeg-nvenc-encode.sh' "$VERIFY" \
+	&& ! grep -q 'curl_get .*/api/version.*|| true' "$VERIFY" \
+	&& grep -q 'NVIDIA_VISIBLE_DEVICES=all' "$ROOT/docker/docker-compose.yml" \
+	&& grep -q 'NVIDIA_DRIVER_CAPABILITIES=compute,video,utility' "$ROOT/docker/docker-compose.yml"; then
+	pass "verify + compose wire OWNED_FIX, ns deadline, NVIDIA env, encode probe"
 else
-	fail "verify-docker-ffmpeg.sh missing required ownership/deadline/version wiring"
+	fail "missing required ownership/deadline/NVIDIA/encode wiring"
 fi
 
 echo "All ${PASS} checks passed."

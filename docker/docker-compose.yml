@@ -25,6 +25,10 @@ services:
       - RETENTION_MAX_SIZE_GB=300
       - RETENTION_INTERVAL_HOURS=24
       - RETENTION_MIN_FILE_AGE_MINUTES=15
+      # NVIDIA Container Toolkit: required so the nvidia runtime injects libcuda / NVENC.
+      # Without these, ffmpeg lists h264_nvenc but encode fails with "Cannot load libcuda.so.1".
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
     networks:
       - teslaxy-net
     # GPU Support for FFmpeg hardware acceleration

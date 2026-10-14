@@ -113,7 +113,21 @@ Settings also persist in `$CONFIG_PATH/retention.json` and via:
 To enable NVIDIA hardware acceleration for smoother playback processing and faster exports:
 
 1. Ensure the NVIDIA Container Toolkit is installed on your host.
-2. The `docker-compose.yml` file already includes the necessary `deploy` section for GPU resources. Ensure it is uncommented or active (it is active by default in the provided file).
+2. The `docker-compose.yml` file already includes `runtime: nvidia`, the `deploy` GPU reservation, and these environment variables (required for the toolkit to inject the driver):
+   - `NVIDIA_VISIBLE_DEVICES=all`
+   - `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility`
+3. Without those env vars, ffmpeg may still *list* `h264_nvenc` while encode fails with `Cannot load libcuda.so.1`.
+
+If you start the container with `docker run` instead of Compose, pass the same flags, for example:
+
+```bash
+docker run --runtime=nvidia \
+  -e NVIDIA_VISIBLE_DEVICES=all \
+  -e NVIDIA_DRIVER_CAPABILITIES=compute,video,utility \
+  ...
+```
+
+Smoke / prod gate: `scripts/verify-docker-ffmpeg.sh` runs a one-second `h264_nvenc` encode inside the image. No GPU → clear `SKIP` (set `REQUIRE_NVENC_ENCODE=1` on GPU hosts so a skip fails the check).
 
 ## Development
 

@@ -113,6 +113,8 @@ docker run -d \
   -e AUTH_ENABLED=false \
   -e GIN_MODE=release \
   -e JULES_SOURCE="$JULES_SOURCE" \
+  -e NVIDIA_VISIBLE_DEVICES=all \
+  -e NVIDIA_DRIVER_CAPABILITIES=compute,video,utility \
   $CPU_PINNING \
   --runtime=nvidia \
   "$IMAGE_TAG" > "$LOG_FILE" 2>&1 || { send_logs_to_jules "$(cat $LOG_FILE)"; echo "Error: Docker run failed. See $LOG_FILE"; exit 1; }
