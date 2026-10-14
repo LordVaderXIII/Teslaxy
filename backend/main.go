@@ -40,6 +40,11 @@ func main() {
 	scanner := services.NewScannerService(footagePath, database.DB)
 	scanner.Start()
 
+	// Footage retention (scheduled prune; disabled + dry-run by default)
+	retention := services.NewRetentionService(database.DB, footagePath, configPath)
+	api.SetRetentionService(retention)
+	retention.Start()
+
 	// Setup Server
 	r := gin.New()
 

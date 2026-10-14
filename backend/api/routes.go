@@ -47,6 +47,12 @@ func SetupRoutes(r *gin.Engine) {
 		api.POST("/export", createExportJob)
 		api.GET("/export/:jobID", getExportStatus)
 		api.GET("/downloads/:filename", downloadExport)
+
+		// Footage retention (reads follow AUTH_ENABLED; writes always require auth + CSRF)
+		api.GET("/retention/settings", getRetentionSettings)
+		api.PUT("/retention/settings", RequireAuthAlways(), MutationGuard(), putRetentionSettings)
+		api.POST("/retention/run", RequireAuthAlways(), MutationGuard(), postRetentionRun)
+		api.POST("/clips/:id/protect", RequireAuthAlways(), MutationGuard(), setClipProtected)
 	}
 }
 
@@ -68,7 +74,7 @@ func SetupRoutes(r *gin.Engine) {
 //  3. Filename parsing as last resort
 func getClips(c *gin.Context) {
 	var clips []models.Clip
-	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, source_dir, telemetry_id").
+	if err := database.DB.Select("id, timestamp, event_timestamp, event, city, reason, source_dir, protected, telemetry_id").
 		Preload("VideoFiles", func(db *gorm.DB) *gorm.DB {
 			return db.Select("clip_id, camera, file_path, timestamp").Order("timestamp asc")
 		}).Order("timestamp desc").Find(&clips).Error; err != nil {

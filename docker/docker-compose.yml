@@ -10,13 +10,21 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # Mount your TeslaCam drive (RecentClips, SavedClips, SentryClips) here
+      # Mount your TeslaCam drive (RecentClips, SavedClips, SentryClips) here.
+      # Use :ro for browse-only. Switch to :rw when RETENTION_ENABLED deletes footage.
       - /mnt/user/isos/TeslaCam:/footage:ro
-      # Config storage (DB, Exports, Logs)
+      # Config storage (DB, Exports, Logs, retention.json)
       - ./config:/config
     environment:
       - AUTH_ENABLED=false
       - GIN_MODE=release
+      # Footage retention (disabled + dry-run by default — inspect logs before enabling deletes)
+      - RETENTION_ENABLED=false
+      - RETENTION_DRY_RUN=true
+      - RETENTION_MAX_AGE_DAYS=90
+      - RETENTION_MAX_SIZE_GB=300
+      - RETENTION_INTERVAL_HOURS=24
+      - RETENTION_MIN_FILE_AGE_MINUTES=15
     networks:
       - teslaxy-net
     # GPU Support for FFmpeg hardware acceleration

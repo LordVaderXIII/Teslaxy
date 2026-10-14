@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-14
+### Added
+- Footage retention: scheduled oldest-first pruning by age (default 90 days) and size cap (default ~300 GB).
+- Protection for Tesla SavedClips and user-flagged clips (`protected` on `Clip`; `POST /api/clips/:id/protect`).
+- Dry-run mode with structured JSON logging of candidates and bytes that would be freed.
+- Config via env (`RETENTION_*`), `$CONFIG_PATH/retention.json`, and `GET`/`PUT` `/api/retention/settings`; manual `POST /api/retention/run`.
+- `go run ./cmd/retention-dry-run` fixture harness and `.cursor/skills/verify-teslaxy` verification skill.
+
+### Security
+- Retention pins a footage-root directory fd (`O_DIRECTORY|O_NOFOLLOW`) for each prune pass and deletes only selected clip files via `openat`/`unlinkat` (symlinked parents refused; root path swaps mid-pass cannot redirect unlinks). Never wipes event folders.
+- Write endpoints (`PUT /api/retention/settings`, `POST /api/retention/run`, `POST /api/clips/:id/protect`) always require a Bearer JWT plus CSRF (`X-Requested-With` or `X-Teslaxy-CSRF`) and same-origin checks, even when `AUTH_ENABLED=false`.
+- `dry_run` must be a JSON boolean (malformed → 400). Unknown `RETENTION_DRY_RUN` env values keep dry-run ON.
+- Protect vs prune is serialized; protection is re-checked inside the deletion transaction.
+- Soft-deleted video rows and orphan soft-deleted clip/telemetry rows are recovered on the next run. Telemetry hard-delete runs before the clip row; failures leave the clip soft-deleted and appear in `errors[]`, with an orphan-telemetry sweep for stranded rows (fixed-size delete batches so large backlogs past SQLite’s bind limit still drain and mid-sweep failures resume). Scanner indexing shares a media lock with prune and re-stats before insert.
+- Config numerics are clamped; size accounting includes fresh files, dedupes paths/hardlinks, estimates size-cap savings per inode only when all known links are selected, and counts freed bytes only when the last hard link is removed. Partial prune keeps DB rows for paths that remain.
+
 ## [0.2.4] - 2026-10-14
 ### Fixed
 - Transcode no longer treats a compiled-in `h264_nvenc` as usable: a runtime probe must succeed before NVENC is selected, so GPU-less hosts fall back to `libx264` instead of returning empty HTTP 200 bodies.
