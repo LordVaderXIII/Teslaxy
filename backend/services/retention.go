@@ -86,6 +86,9 @@ type RetentionService struct {
 	// beforeHardDeleteTelemetry, when set, runs before Unscoped telemetry delete.
 	// A non-nil error leaves the clip soft-deleted so recovery can retry.
 	beforeHardDeleteTelemetry func(clipID uint) error
+	// beforeOrphanTelemetryBatch, when set, runs before each orphan delete batch.
+	// A non-nil error stops the sweep; earlier batches remain deleted.
+	beforeOrphanTelemetryBatch func(ids []uint) error
 }
 
 func NewRetentionService(db *gorm.DB, footagePath, configPath string) *RetentionService {
@@ -819,13 +822,20 @@ func (s *RetentionService) recoverOrphanClip(clipID uint, report *RetentionRepor
 	}
 }
 
+// orphanTelemetryDeleteBatchSize caps each DELETE ... IN (?) bind list.
+// SQLite rejects statements with too many SQL variables (~32,767); a fixed
+// batch stays well under that so a large orphan backlog still progresses.
+const orphanTelemetryDeleteBatchSize = 500
+
 // recoverOrphanTelemetry hard-deletes telemetry rows whose clip is already gone
 // (stranded when an older build deleted the clip before telemetry succeeded).
 //
 // One set-based query reads primary keys only (not full_data_json) for rows
 // whose clip id is absent. Clip existence is not checked one row at a time.
-// That scan does not hold the media or clip locks. The delete takes them only
-// long enough to remove those ids, and only if the clip is still gone.
+// That scan does not hold the media or clip locks. Deletes run in fixed-size
+// batches under the locks, each re-checking that the clip is still gone.
+// A failed batch leaves earlier batches committed and remaining ids for the
+// next run (resumable across large backlogs).
 func (s *RetentionService) recoverOrphanTelemetry(report *RetentionReport) {
 	var ids []uint
 	err := s.DB.Unscoped().
@@ -840,15 +850,37 @@ func (s *RetentionService) recoverOrphanTelemetry(report *RetentionReport) {
 		return
 	}
 
+	for start := 0; start < len(ids); start += orphanTelemetryDeleteBatchSize {
+		end := start + orphanTelemetryDeleteBatchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := s.deleteOrphanTelemetryBatch(ids[start:end]); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("orphan telemetry: %v", err))
+			// Prior batches already committed; remaining ids stay for the next pass.
+			return
+		}
+	}
+}
+
+// deleteOrphanTelemetryBatch hard-deletes one orphan id batch. The NOT EXISTS
+// guard is the final check that each row's clip is still gone.
+func (s *RetentionService) deleteOrphanTelemetryBatch(ids []uint) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if s.beforeOrphanTelemetryBatch != nil {
+		if err := s.beforeOrphanTelemetryBatch(ids); err != nil {
+			return err
+		}
+	}
 	lockMediaWrite()
 	defer unlockMediaWrite()
 	s.clipMu.Lock()
 	defer s.clipMu.Unlock()
-	if err := s.DB.Unscoped().
+	return s.DB.Unscoped().
 		Where("id IN (?) AND NOT EXISTS (SELECT 1 FROM clips WHERE clips.id = telemetries.clip_id)", ids).
-		Delete(&models.Telemetry{}).Error; err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("orphan telemetry: %v", err))
-	}
+		Delete(&models.Telemetry{}).Error
 }
 
 func logRetentionReport(report *RetentionReport) {
