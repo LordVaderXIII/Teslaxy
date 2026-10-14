@@ -296,13 +296,19 @@ func TestRetentionRecoversSoftDeleted(t *testing.T) {
 	writeFixtureFile(t, path, 2048, now.Add(-time.Hour))
 	clip := seedClip(t, db, "Recent", old, false, filepath.Join(root, "RecentClips"), map[string]string{"Front": path})
 
-	// Simulate interrupted prune: soft-delete without unlink.
+	// Simulate interrupted prune: retention-marked soft-delete without unlink.
+	if err := db.Model(&clip).Update("retention_pending", true).Error; err != nil {
+		t.Fatalf("mark clip: %v", err)
+	}
 	if err := db.Delete(&clip).Error; err != nil {
 		t.Fatalf("soft clip: %v", err)
 	}
 	var vfs []models.VideoFile
 	db.Where("clip_id = ?", clip.ID).Find(&vfs)
 	for i := range vfs {
+		if err := db.Model(&vfs[i]).Update("retention_pending", true).Error; err != nil {
+			t.Fatalf("mark vf: %v", err)
+		}
 		if err := db.Delete(&vfs[i]).Error; err != nil {
 			t.Fatalf("soft vf: %v", err)
 		}
@@ -335,10 +341,12 @@ func TestScannerSkipsPendingDelete(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "event.json"), []byte(`{"timestamp":"2024-01-01T00:00:00","city":"X","reason":"test","est_lat":0,"est_lon":0}`), 0644)
 
 	clip := seedClip(t, db, "Sentry", now.AddDate(0, 0, -200), false, dir, map[string]string{"Front": path})
+	_ = db.Model(&clip).Update("retention_pending", true)
 	_ = db.Delete(&clip)
 	var vfs []models.VideoFile
 	db.Where("clip_id = ?", clip.ID).Find(&vfs)
 	for i := range vfs {
+		_ = db.Model(&vfs[i]).Update("retention_pending", true)
 		_ = db.Delete(&vfs[i])
 	}
 

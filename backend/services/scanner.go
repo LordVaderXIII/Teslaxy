@@ -266,7 +266,9 @@ func (s *ScannerService) scanDirLocked(dirPath string) {
 
 	if len(filePaths) > 0 {
 		if isEvent {
-			s.processEventGroup(dirPath, filePaths)
+			// Caller already holds the media read lock; do not re-RLock
+			// (queued writers + nested RLock deadlocks under Go's RWMutex).
+			s.processEventGroupLocked(dirPath, filePaths)
 		} else {
 			s.processRecentGroupLocked(filePaths)
 		}
@@ -465,6 +467,15 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	}
 	lockMediaRead()
 	defer unlockMediaRead()
+	s.processEventGroupLocked(dirPath, filePaths)
+}
+
+// processEventGroupLocked indexes one event directory. Caller must already hold
+// the media read lock (ScanAll / scanDirLocked) or call processEventGroup.
+func (s *ScannerService) processEventGroupLocked(dirPath string, filePaths []string) {
+	if len(filePaths) == 0 {
+		return
+	}
 
 	// Parse Metadata
 	var city string
@@ -578,19 +589,24 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	var clip models.Clip
 	if err := s.DB.Where("source_dir = ?", dirPath).First(&clip).Error; err != nil {
 		if gorm.IsRecordNotFoundError(err) {
-			// Do not recreate a soft-deleted (pending prune) event directory.
+			// Do not recreate a retention-pending prune tombstone.
 			if s.isPendingDeleteSourceDir(dirPath) {
 				return
 			}
-			clip = models.Clip{
-				Timestamp:      minTime,
-				Event:          eventType,
-				City:           city,
-				Reason:         eventReason,
-				EventTimestamp: eventJsonTimestamp,
-				SourceDir:      dirPath, // <-- Critical: stable identity from Tesla's folder structure
+			// Clear a reconcile-only soft-delete so restored footage is visible again.
+			if restored, ok := s.clearReconcileClipTombstone(dirPath); ok {
+				clip = restored
+			} else {
+				clip = models.Clip{
+					Timestamp:      minTime,
+					Event:          eventType,
+					City:           city,
+					Reason:         eventReason,
+					EventTimestamp: eventJsonTimestamp,
+					SourceDir:      dirPath, // <-- Critical: stable identity from Tesla's folder structure
+				}
+				s.DB.Create(&clip)
 			}
-			s.DB.Create(&clip)
 		}
 	} else {
 		// Update existing using event.json as the source of truth
@@ -837,7 +853,11 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 			log.Printf("addFilesToClip: lookup %s: %v", f.path, err)
 			continue
 		}
-		// Re-check tombstone + existence under the same conditions after the lookup.
+		// Reconcile tombstone for a path that exists again: clear and reuse.
+		if s.clearReconcileVideoTombstone(f.path, clip.ID, cameraName, f.timestamp) {
+			continue
+		}
+		// Re-check retention tombstone + existence under the same conditions after the lookup.
 		if s.isPendingDeletePath(f.path) {
 			continue
 		}
@@ -858,21 +878,69 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 
 // isPendingDeletePath is true when retention soft-deleted a VideoFile for this path.
 // The scanner must not recreate rows for files still awaiting unlink / hard-delete.
+// Reconcile-only tombstones (retention_pending=false) are not pending deletes.
 func (s *ScannerService) isPendingDeletePath(path string) bool {
 	var n int
 	s.DB.Unscoped().Model(&models.VideoFile{}).
-		Where("file_path = ? AND deleted_at IS NOT NULL", path).
+		Where("file_path = ? AND deleted_at IS NOT NULL AND retention_pending = ?", path, true).
 		Count(&n)
 	return n > 0
 }
 
-// isPendingDeleteSourceDir is true when a soft-deleted Clip still owns this event directory.
+// isPendingDeleteSourceDir is true when retention still owns a soft-deleted clip
+// for this event directory (awaiting unlink / hard-delete).
 func (s *ScannerService) isPendingDeleteSourceDir(dir string) bool {
 	var n int
 	s.DB.Unscoped().Model(&models.Clip{}).
-		Where("source_dir = ? AND deleted_at IS NOT NULL", dir).
+		Where("source_dir = ? AND deleted_at IS NOT NULL AND retention_pending = ?", dir, true).
 		Count(&n)
 	return n > 0
+}
+
+// clearReconcileClipTombstone undeletes a non-retention soft-deleted clip for
+// sourceDir so a rescan can restore visibility after footage returns.
+func (s *ScannerService) clearReconcileClipTombstone(sourceDir string) (models.Clip, bool) {
+	var clip models.Clip
+	err := s.DB.Unscoped().
+		Where("source_dir = ? AND deleted_at IS NOT NULL AND retention_pending = ?", sourceDir, false).
+		First(&clip).Error
+	if err != nil {
+		return models.Clip{}, false
+	}
+	if err := s.DB.Unscoped().Model(&clip).
+		Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error; err != nil {
+		log.Printf("clearReconcileClipTombstone: clip %d: %v", clip.ID, err)
+		return models.Clip{}, false
+	}
+	_ = s.DB.Unscoped().Model(&models.Telemetry{}).Where("clip_id = ?", clip.ID).
+		Update("deleted_at", nil).Error
+	clip.DeletedAt = nil
+	clip.RetentionPending = false
+	return clip, true
+}
+
+// clearReconcileVideoTombstone undeletes a non-retention soft-deleted VideoFile
+// when the path exists again on disk. Returns true when a tombstone was cleared.
+func (s *ScannerService) clearReconcileVideoTombstone(path string, clipID uint, camera string, ts time.Time) bool {
+	var vf models.VideoFile
+	err := s.DB.Unscoped().
+		Where("file_path = ? AND deleted_at IS NOT NULL AND retention_pending = ?", path, false).
+		First(&vf).Error
+	if err != nil {
+		return false
+	}
+	updates := map[string]interface{}{
+		"deleted_at":        nil,
+		"retention_pending": false,
+		"clip_id":           clipID,
+		"camera":            camera,
+		"timestamp":         ts,
+	}
+	if err := s.DB.Unscoped().Model(&vf).Updates(updates).Error; err != nil {
+		log.Printf("clearReconcileVideoTombstone: vf %d: %v", vf.ID, err)
+		return false
+	}
+	return true
 }
 
 // aggregateTelemetry iterates through all 'Front' files in the clip, extracts SEI, and updates the Telemetry record.

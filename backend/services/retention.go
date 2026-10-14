@@ -617,6 +617,12 @@ func (s *RetentionService) pruneClip(root *footageRoot, cand RetentionCandidate,
 	}
 
 	for i := range toDelete {
+		// Mark retention ownership before soft-delete so recovery never unlinks
+		// reconcile-only tombstones (or other non-retention soft-deletes).
+		if err := tx.Model(&toDelete[i]).Update("retention_pending", true).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
 		if err := tx.Delete(&toDelete[i]).Error; err != nil {
 			tx.Rollback()
 			return 0, err
@@ -637,6 +643,10 @@ func (s *RetentionService) pruneClip(root *footageRoot, cand RetentionCandidate,
 				return 0, err
 			}
 		}
+		if err := tx.Model(&clip).Update("retention_pending", true).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
 		if err := tx.Delete(&clip).Error; err != nil {
 			tx.Rollback()
 			return 0, err
@@ -653,12 +663,14 @@ func (s *RetentionService) pruneClip(root *footageRoot, cand RetentionCandidate,
 		n, removed, err := s.unlinkSelected(root, vf, minAge, now)
 		if err != nil {
 			fileErrs = append(fileErrs, fmt.Sprintf("%s: %v", vf.FilePath, err))
-			_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("id = ?", vf.ID).Update("deleted_at", nil).Error
+			_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("id = ?", vf.ID).
+				Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error
 			continue
 		}
 		if !removed {
 			// Path still present (e.g. unlink refused); keep the DB row.
-			_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("id = ?", vf.ID).Update("deleted_at", nil).Error
+			_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("id = ?", vf.ID).
+				Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error
 			fileErrs = append(fileErrs, fmt.Sprintf("%s: not_removed", vf.FilePath))
 			continue
 		}
@@ -674,7 +686,8 @@ func (s *RetentionService) pruneClip(root *footageRoot, cand RetentionCandidate,
 		var stillPending int
 		_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("clip_id = ? AND deleted_at IS NOT NULL", clip.ID).Count(&stillPending)
 		if stillLive > 0 {
-			_ = s.DB.Unscoped().Model(&models.Clip{}).Where("id = ?", clip.ID).Update("deleted_at", nil).Error
+			_ = s.DB.Unscoped().Model(&models.Clip{}).Where("id = ?", clip.ID).
+				Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error
 			_ = s.DB.Unscoped().Model(&models.Telemetry{}).Where("clip_id = ?", clip.ID).Update("deleted_at", nil).Error
 		} else if stillPending == 0 {
 			if err := s.hardDeleteClipOrphans(clip.ID); err != nil {
@@ -748,8 +761,10 @@ func (s *RetentionService) completePendingFileDeletes(root *footageRoot, cfg Ret
 	s.clipMu.Lock()
 	defer s.clipMu.Unlock()
 
+	// Only retention-marked soft-deletes may be unlinked. Reconcile tombstones
+	// (deleted_at set, retention_pending false) must survive restored footage.
 	var pending []models.VideoFile
-	if err := s.DB.Unscoped().Where("deleted_at IS NOT NULL").Find(&pending).Error; err != nil {
+	if err := s.DB.Unscoped().Where("deleted_at IS NOT NULL AND retention_pending = ?", true).Find(&pending).Error; err != nil {
 		return err
 	}
 	minAge := cfg.MinFileAge()
@@ -760,11 +775,13 @@ func (s *RetentionService) completePendingFileDeletes(root *footageRoot, cfg Ret
 		clipIDs[vf.ClipID] = true
 		var clip models.Clip
 		if err := s.DB.Unscoped().First(&clip, vf.ClipID).Error; err == nil && IsClipProtected(clip) {
-			_ = s.DB.Unscoped().Model(&vf).Update("deleted_at", nil).Error
-			_ = s.DB.Unscoped().Model(&models.Clip{}).Where("id = ?", clip.ID).Update("deleted_at", nil).Error
+			_ = s.DB.Unscoped().Model(&vf).Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error
+			_ = s.DB.Unscoped().Model(&models.Clip{}).Where("id = ?", clip.ID).
+				Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error
 			_ = s.DB.Unscoped().Model(&models.Telemetry{}).Where("clip_id = ?", clip.ID).Update("deleted_at", nil).Error
 			continue
 		}
+		// Re-stat via classifyPath before unlink; a restored path must not die.
 		abs, _, reason, ok := s.classifyPath(root, vf.FilePath, minAge, now)
 		if !ok {
 			if reason == "missing" {
@@ -786,7 +803,8 @@ func (s *RetentionService) completePendingFileDeletes(root *footageRoot, cfg Ret
 			continue
 		}
 		if !removed {
-			_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("id = ?", vf.ID).Update("deleted_at", nil).Error
+			_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("id = ?", vf.ID).
+				Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error
 			continue
 		}
 		report.BytesFreed += freed
@@ -798,9 +816,9 @@ func (s *RetentionService) completePendingFileDeletes(root *footageRoot, cfg Ret
 	for id := range clipIDs {
 		s.recoverOrphanClip(id, report)
 	}
-	// Soft-deleted clips with no remaining video rows (crash after last VF hard-delete).
+	// Soft-deleted retention clips with no remaining video rows (crash after last VF hard-delete).
 	var orphanClips []models.Clip
-	if err := s.DB.Unscoped().Where("deleted_at IS NOT NULL").Find(&orphanClips).Error; err != nil {
+	if err := s.DB.Unscoped().Where("deleted_at IS NOT NULL AND retention_pending = ?", true).Find(&orphanClips).Error; err != nil {
 		return err
 	}
 	for _, c := range orphanClips {

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-10-14
+### Fixed
+- Retention recovery only unlinks soft-deletes it marked (`retention_pending`); reconcile tombstones for restored 1h-old Sentry/Recent footage are left alone.
+- Scanner event indexing no longer re-acquires the media read lock under `ScanAll` (avoids RWMutex deadlock when reconcile is queued).
+- Reconcile confirmation after restart requires a fresh in-process monotonic observation window; backdated JSON/`mtime` and wall-clock jumps no longer authorize deletes.
+- Failed confirmation clears persist a cancel marker and bind observations to the pending file inode so replayed confirmations cannot authorize after restart.
+- Soft-delete applies only on confirmed ENOENT (EACCES/ELOOP/late restore spare the row); a rescan clears non-retention tombstones when files return.
+- `forgetPendingObservation` / pending maps are always mutated under `reconcilePendingMu` (clean under `-race`).
+
+### Added
+- `retention_pending` on `Clip` / `VideoFile` (AutoMigrate) to distinguish retention prune markers from reconcile tombstones.
+
 ## [0.3.2] - 2026-10-14
 ### Fixed
 - Soft-delete of missing footage requires a persisted, time-separated confirmation (or explicit operator purge); a missing mount still refuses forever, and same-inode empty / SavedClips outages no longer wipe the library on first sighting.

@@ -39,6 +39,10 @@ var ErrReconcileRootChanged = errors.New("refuse to reconcile: footage root vani
 // symlink-substituted, or cannot be invalidated after a healthy pass.
 var ErrReconcilePendingInvalid = errors.New("refuse to reconcile: pending confirmation state is invalid")
 
+// ErrReconcilePendingCanceled is returned when a prior confirmation clear failed
+// and a persisted cancel marker (or in-memory block) still forbids reuse.
+var ErrReconcilePendingCanceled = errors.New("refuse to reconcile: prior confirmation was canceled")
+
 // ReconcileOpts controls ReconcileMissing behaviour.
 type ReconcileOpts struct {
 	// DryRun, when true, counts candidates without writing deleted_at or pending state.
@@ -94,15 +98,25 @@ var (
 	reconcilePendingMu sync.Mutex
 
 	// pendingObservedAt tracks process-local (monotonic) first observation per
-	// absRoot+fingerprint. Wall-clock JSON alone must not authorize deletion.
-	pendingObservedAt = map[string]time.Time{}
+	// absRoot+fingerprint, bound to the pending file inode. Wall-clock JSON,
+	// file mtime, and replayed confirmation inodes must not authorize deletion.
+	pendingObservedAt = map[string]pendingObservation{}
 
 	// pendingClearBlocked marks absRoots where a healthy pass could not
 	// invalidate canceled confirmation; confirm must not reuse that state.
+	// Durably mirrored by pendingCancelFileName when the state dir is writable.
 	pendingClearBlocked = map[string]bool{}
 )
 
+// pendingObservation is a process-local confirm clock. at comes from time.Now()
+// so Sub uses the monotonic reading; inode rejects swapped/replayed files.
+type pendingObservation struct {
+	at    time.Time
+	inode uint64
+}
+
 const pendingPurgeFileName = ".teslaxy-reconcile-pending.json"
+const pendingCancelFileName = ".teslaxy-reconcile-cancel"
 
 // ReconcileMissing finds VideoFiles whose paths are gone from disk and Clips
 // that would then have zero live VideoFiles. It holds mediaOpMu's write lock so
@@ -208,6 +222,10 @@ func ReconcileMissing(db *gorm.DB, root string, opts ReconcileOpts) (ReconcileRe
 	}
 
 	now := time.Now()
+	if pendingClearBlocked[absRoot] || cancelMarkerPresent(stateDir, absRoot) {
+		// Failed clear / persisted cancel: never start or reuse confirmation.
+		return result, fmt.Errorf("%w (%s; prior confirmation clear failed)", ErrReconcilePendingCanceled, absRoot)
+	}
 	if pending == nil || pending.Fingerprint != fp || !pendingIDsMatch(pending, missingFiles, emptyClips) {
 		forgetPendingObservation(absRoot, "")
 		if err := savePendingPurge(stateDir, &pendingPurgeState{
@@ -222,10 +240,6 @@ func ReconcileMissing(db *gorm.DB, root string, opts ReconcileOpts) (ReconcileRe
 		result.PendingConfirm = true
 		return result, fmt.Errorf("%w (%s; %d file(s), %d clip(s); wait %s)",
 			ErrReconcilePendingConfirm, absRoot, len(missingFiles), len(emptyClips), reconcileConfirmMinInterval)
-	}
-
-	if pendingClearBlocked[absRoot] {
-		return result, fmt.Errorf("%w (%s; prior confirmation clear failed)", ErrReconcilePendingInvalid, absRoot)
 	}
 
 	elapsed, err := confirmElapsed(pending, observedAt, now)
@@ -453,22 +467,54 @@ func deleteVideoFilesInBatches(db *gorm.DB, absRoot string, id rootIdentity, fil
 		}
 		for j := i; j < end; j++ {
 			vf := files[j]
-			absPath, err := filepath.Abs(vf.FilePath)
-			if err == nil {
-				absPath = filepath.Clean(absPath)
-				if _, statErr := os.Stat(absPath); statErr == nil {
-					// Restored between batches — leave the live row alone.
-					continue
-				}
-			}
-			if err := db.Delete(&vf).Error; err != nil {
-				log.Printf("ReconcileMissing: soft-delete VideoFile %d: %v", vf.ID, err)
+			// Stat + soft-delete under the same media write lock (held by
+			// ReconcileMissing). Only confirmed ENOENT may tombstone a row;
+			// EACCES/ELOOP/restore leave the live row for a later rescan.
+			if !softDeleteVideoFileIfGone(db, vf) {
 				continue
 			}
 			result.SoftDeletedFiles++
 		}
 	}
 	return nil
+}
+
+// softDeleteVideoFileIfGone soft-deletes vf only when its path is confirmed
+// missing (ENOENT). Any other stat result (including success / EACCES / ELOOP)
+// preserves the live row. Stat and delete run in one DB transaction so a late
+// restore cannot be hidden by a tombstone.
+func softDeleteVideoFileIfGone(db *gorm.DB, vf models.VideoFile) bool {
+	absPath, err := filepath.Abs(vf.FilePath)
+	if err != nil {
+		return false
+	}
+	absPath = filepath.Clean(absPath)
+
+	tx := db.Begin()
+	if tx.Error != nil {
+		log.Printf("ReconcileMissing: begin soft-delete VideoFile %d: %v", vf.ID, tx.Error)
+		return false
+	}
+	_, statErr := os.Stat(absPath)
+	if statErr == nil {
+		tx.Rollback()
+		return false // restored — leave live
+	}
+	if !os.IsNotExist(statErr) {
+		tx.Rollback()
+		log.Printf("ReconcileMissing: skip delete %s: %v", absPath, statErr)
+		return false
+	}
+	if err := tx.Delete(&vf).Error; err != nil {
+		tx.Rollback()
+		log.Printf("ReconcileMissing: soft-delete VideoFile %d: %v", vf.ID, err)
+		return false
+	}
+	if err := tx.Commit().Error; err != nil {
+		log.Printf("ReconcileMissing: commit soft-delete VideoFile %d: %v", vf.ID, err)
+		return false
+	}
+	return true
 }
 
 func deleteClipsInBatches(db *gorm.DB, absRoot string, id rootIdentity, clips []models.Clip, result *ReconcileResult) error {
@@ -572,11 +618,27 @@ func pendingObservationKey(absRoot, fingerprint string) string {
 	return absRoot + "\x00" + fingerprint
 }
 
-func rememberPendingObservation(absRoot, fingerprint string, at time.Time) {
-	pendingObservedAt[pendingObservationKey(absRoot, fingerprint)] = at
+func pendingCancelPath(stateDir string) string {
+	return filepath.Join(stateDir, pendingCancelFileName)
+}
+
+func rememberPendingObservation(absRoot, fingerprint string, at time.Time, inode uint64) {
+	reconcilePendingMu.Lock()
+	defer reconcilePendingMu.Unlock()
+	rememberPendingObservationLocked(absRoot, fingerprint, at, inode)
+}
+
+func rememberPendingObservationLocked(absRoot, fingerprint string, at time.Time, inode uint64) {
+	pendingObservedAt[pendingObservationKey(absRoot, fingerprint)] = pendingObservation{at: at, inode: inode}
 }
 
 func forgetPendingObservation(absRoot, fingerprint string) {
+	reconcilePendingMu.Lock()
+	defer reconcilePendingMu.Unlock()
+	forgetPendingObservationLocked(absRoot, fingerprint)
+}
+
+func forgetPendingObservationLocked(absRoot, fingerprint string) {
 	if fingerprint != "" {
 		delete(pendingObservedAt, pendingObservationKey(absRoot, fingerprint))
 		return
@@ -593,8 +655,14 @@ func loadPendingPurge(stateDir, absRoot string) (*pendingPurgeState, time.Time, 
 	reconcilePendingMu.Lock()
 	defer reconcilePendingMu.Unlock()
 
+	if cancelBlockedLocked(stateDir, absRoot) {
+		pendingClearBlocked[absRoot] = true
+		// Ignore any mature confirmation file; caller must not authorize.
+		return nil, time.Time{}, nil
+	}
+
 	path := pendingPurgePath(stateDir)
-	data, modTime, err := readPendingPurgeBytes(stateDir, path)
+	data, meta, err := readPendingPurgeBytes(stateDir, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, time.Time{}, nil
@@ -614,12 +682,27 @@ func loadPendingPurge(stateDir, absRoot string) (*pendingPurgeState, time.Time, 
 	if err := validatePendingPurge(&st, time.Now()); err != nil {
 		return nil, time.Time{}, fmt.Errorf("%w: %v", ErrReconcilePendingInvalid, err)
 	}
-	observed := pendingObservedAt[pendingObservationKey(absRoot, st.Fingerprint)]
-	if observed.IsZero() {
-		// Restart path: trust the pending file's own mtime (Lstat), not JSON alone.
-		observed = modTime
+	obs, ok := pendingObservedAt[pendingObservationKey(absRoot, st.Fingerprint)]
+	if !ok || obs.at.IsZero() {
+		// Restart / first sighting in this process: never trust mtime or JSON.
+		// Begin a fresh in-process monotonic window bound to this inode.
+		now := time.Now()
+		rememberPendingObservationLocked(absRoot, st.Fingerprint, now, meta.inode)
+		return &st, now, nil
 	}
-	return &st, observed, nil
+	if obs.inode != 0 && meta.inode != 0 && obs.inode != meta.inode {
+		// Replayed or replaced confirmation file — reset the observation window.
+		forgetPendingObservationLocked(absRoot, st.Fingerprint)
+		now := time.Now()
+		rememberPendingObservationLocked(absRoot, st.Fingerprint, now, meta.inode)
+		return &st, now, nil
+	}
+	return &st, obs.at, nil
+}
+
+type pendingFileMeta struct {
+	modTime time.Time
+	inode   uint64
 }
 
 func validatePendingPurge(st *pendingPurgeState, now time.Time) error {
@@ -689,9 +772,9 @@ func pendingIDsMatch(st *pendingPurgeState, files []models.VideoFile, clips []mo
 	return true
 }
 
-// confirmElapsed returns how long the pending confirmation has been observed.
-// Prefer process-local monotonic observation; on restart fall back to pending
-// file mtime. JSON FirstSeen alone never authorizes (tamper / clock step).
+// confirmElapsed returns how long the pending confirmation has been observed
+// via a process-local monotonic clock. Persisted JSON FirstSeen and file mtime
+// never authorize (tamper / clock step / restart).
 func confirmElapsed(st *pendingPurgeState, observedAt time.Time, now time.Time) (time.Duration, error) {
 	if st == nil {
 		return 0, fmt.Errorf("nil pending")
@@ -734,9 +817,10 @@ func savePendingPurge(stateDir string, st *pendingPurgeState) error {
 		return err
 	}
 	if !st.Canceled && st.Fingerprint != "" {
-		rememberPendingObservation(st.AbsRoot, st.Fingerprint, time.Now())
+		inode := pendingFileInode(stateDir, path)
+		rememberPendingObservationLocked(st.AbsRoot, st.Fingerprint, time.Now(), inode)
 	}
-	delete(pendingClearBlocked, st.AbsRoot)
+	// Do not clear a cancel marker here — only a successful clearPendingPurge may.
 	return nil
 }
 
@@ -744,16 +828,18 @@ func clearPendingPurge(stateDir, absRoot string) error {
 	reconcilePendingMu.Lock()
 	defer reconcilePendingMu.Unlock()
 
-	forgetPendingObservation(absRoot, "")
+	forgetPendingObservationLocked(absRoot, "")
 	path := pendingPurgePath(stateDir)
 
 	data, _, err := readPendingPurgeBytes(stateDir, path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			clearCancelMarkerLocked(stateDir, absRoot)
 			delete(pendingClearBlocked, absRoot)
 			return nil
 		}
 		// Symlink / unreadable: still try to invalidate via direct unlink of the name.
+		_ = persistCancelMarkerLocked(stateDir, absRoot)
 		if invErr := invalidatePendingPurgeLocked(stateDir, absRoot); invErr != nil {
 			pendingClearBlocked[absRoot] = true
 			return fmt.Errorf("%w (clear read: %v; invalidate: %v)", ErrReconcilePendingInvalid, err, invErr)
@@ -762,6 +848,7 @@ func clearPendingPurge(stateDir, absRoot string) error {
 			pendingClearBlocked[absRoot] = true
 			return fmt.Errorf("%w (remove after invalidate: %v)", ErrReconcilePendingInvalid, rmErr)
 		}
+		clearCancelMarkerLocked(stateDir, absRoot)
 		delete(pendingClearBlocked, absRoot)
 		return nil
 	}
@@ -769,15 +856,21 @@ func clearPendingPurge(stateDir, absRoot string) error {
 	var st pendingPurgeState
 	if json.Unmarshal(data, &st) != nil {
 		if err := removePendingPurgeNoFollow(stateDir, path); err != nil && !os.IsNotExist(err) {
+			_ = persistCancelMarkerLocked(stateDir, absRoot)
 			pendingClearBlocked[absRoot] = true
 			return fmt.Errorf("%w (remove corrupt: %v)", ErrReconcilePendingInvalid, err)
 		}
+		clearCancelMarkerLocked(stateDir, absRoot)
 		delete(pendingClearBlocked, absRoot)
 		return nil
 	}
 	if st.AbsRoot != absRoot && st.AbsRoot != "" {
 		return nil
 	}
+
+	// Persist cancellation before rewriting so a crash/restart cannot replay
+	// the mature confirmation inode.
+	_ = persistCancelMarkerLocked(stateDir, absRoot)
 
 	if err := invalidatePendingPurgeLocked(stateDir, absRoot); err != nil {
 		pendingClearBlocked[absRoot] = true
@@ -788,8 +881,51 @@ func clearPendingPurge(stateDir, absRoot string) error {
 		pendingClearBlocked[absRoot] = true
 		return fmt.Errorf("%w (remove canceled confirm: %v)", ErrReconcilePendingInvalid, err)
 	}
+	clearCancelMarkerLocked(stateDir, absRoot)
 	delete(pendingClearBlocked, absRoot)
 	return nil
+}
+
+func cancelBlockedLocked(stateDir, absRoot string) bool {
+	if pendingClearBlocked[absRoot] {
+		return true
+	}
+	return cancelMarkerPresent(stateDir, absRoot)
+}
+
+func cancelMarkerPresent(stateDir, absRoot string) bool {
+	data, err := os.ReadFile(pendingCancelPath(stateDir))
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(data)) == absRoot
+}
+
+func persistCancelMarkerLocked(stateDir, absRoot string) error {
+	pendingClearBlocked[absRoot] = true
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(pendingCancelPath(stateDir), []byte(absRoot+"\n"), 0644)
+}
+
+func clearCancelMarkerLocked(stateDir, absRoot string) {
+	path := pendingCancelPath(stateDir)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(string(data)) == absRoot || strings.TrimSpace(string(data)) == "" {
+		_ = os.Remove(path)
+	}
+}
+
+func pendingFileInode(stateDir, path string) uint64 {
+	_, meta, err := readPendingPurgeBytes(stateDir, path)
+	if err != nil {
+		return 0
+	}
+	return meta.inode
 }
 
 func invalidatePendingPurge(stateDir, absRoot string) error {
@@ -817,43 +953,46 @@ func invalidatePendingPurgeLocked(stateDir, absRoot string) error {
 
 // readPendingPurgeBytes opens the pending file with O_NOFOLLOW so a symlink
 // cannot redirect reads to an attacker-controlled payload.
-func readPendingPurgeBytes(stateDir, path string) ([]byte, time.Time, error) {
+func readPendingPurgeBytes(stateDir, path string) ([]byte, pendingFileMeta, error) {
 	dirFD, err := openStateDirNoFollow(stateDir)
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, pendingFileMeta{}, err
 	}
 	defer unix.Close(dirFD)
 
 	fi, err := os.Lstat(path)
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, pendingFileMeta{}, err
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
-		return nil, time.Time{}, fmt.Errorf("%w (pending file is a symlink)", ErrReconcilePendingInvalid)
+		return nil, pendingFileMeta{}, fmt.Errorf("%w (pending file is a symlink)", ErrReconcilePendingInvalid)
 	}
 
 	fd, err := unix.Openat(dirFD, pendingPurgeFileName, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		if err == unix.ELOOP || err == syscall.ELOOP {
-			return nil, time.Time{}, fmt.Errorf("%w (pending file symlink)", ErrReconcilePendingInvalid)
+			return nil, pendingFileMeta{}, fmt.Errorf("%w (pending file symlink)", ErrReconcilePendingInvalid)
 		}
-		return nil, time.Time{}, err
+		return nil, pendingFileMeta{}, err
 	}
 
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
 		_ = unix.Close(fd)
-		return nil, time.Time{}, err
+		return nil, pendingFileMeta{}, err
 	}
 	// O_NOFOLLOW already refused a symlink at open; fstat the opened inode.
 	f := os.NewFile(uintptr(fd), path)
 	data, err := io.ReadAll(f)
 	_ = f.Close()
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, pendingFileMeta{}, err
 	}
-	modTime := time.Unix(st.Mtim.Sec, st.Mtim.Nsec)
-	return data, modTime, nil
+	meta := pendingFileMeta{
+		modTime: time.Unix(st.Mtim.Sec, st.Mtim.Nsec),
+		inode:   st.Ino,
+	}
+	return data, meta, nil
 }
 
 // writePendingPurgeBytes creates a private temp file with O_NOFOLLOW|O_EXCL
@@ -959,9 +1098,9 @@ func openStateDirNoFollow(stateDir string) (int, error) {
 	return fd, nil
 }
 
-// agePendingPurgeForTest backdates observation so confirmation can proceed.
-// Tests only. Updates file mtime and in-memory observation; JSON FirstSeen is
-// not used for authorization.
+// agePendingPurgeForTest backdates process-local observation so confirmation
+// can proceed within the same process. Tests only. JSON FirstSeen and file
+// mtime are updated for fixture realism but are not used for authorization.
 func agePendingPurgeForTest(stateDir, root string, ago time.Duration) error {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
@@ -974,7 +1113,7 @@ func agePendingPurgeForTest(stateDir, root string, ago time.Duration) error {
 	defer reconcilePendingMu.Unlock()
 
 	path := pendingPurgePath(stateDir)
-	data, _, err := readPendingPurgeBytes(stateDir, path)
+	data, meta, err := readPendingPurgeBytes(stateDir, path)
 	if err != nil {
 		return err
 	}
@@ -997,9 +1136,24 @@ func agePendingPurgeForTest(stateDir, root string, ago time.Duration) error {
 	if err := os.Chtimes(path, when, when); err != nil {
 		return err
 	}
-	rememberPendingObservation(absRoot, st.Fingerprint, when)
+	// Re-read inode after rewrite (rename may change it).
+	_, meta, err = readPendingPurgeBytes(stateDir, path)
+	if err != nil {
+		return err
+	}
+	rememberPendingObservationLocked(absRoot, st.Fingerprint, when, meta.inode)
+	clearCancelMarkerLocked(stateDir, absRoot)
 	delete(pendingClearBlocked, absRoot)
 	return nil
+}
+
+// resetPendingObservationsForTest clears in-process observation and cancel
+// maps so tests can simulate a process restart. Tests only.
+func resetPendingObservationsForTest() {
+	reconcilePendingMu.Lock()
+	defer reconcilePendingMu.Unlock()
+	pendingObservedAt = map[string]pendingObservation{}
+	pendingClearBlocked = map[string]bool{}
 }
 
 func candidateFingerprint(files []models.VideoFile, clips []models.Clip) string {
