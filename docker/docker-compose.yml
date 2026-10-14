@@ -17,6 +17,8 @@ services:
     environment:
       - AUTH_ENABLED=false
       - GIN_MODE=release
+    networks:
+      - teslaxy-net
     # GPU Support for FFmpeg hardware acceleration
     deploy:
       resources:
@@ -26,3 +28,13 @@ services:
               count: 1
               capabilities: [gpu, video, compute, utility]
     runtime: nvidia
+
+# Pinned subnet: stay clear of 192.168.3.0/24 and 192.168.86.0/24 (and .240/.241).
+# unRAID docker-run installs must use the same pinned network.
+networks:
+  teslaxy-net:
+    name: teslaxy-net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.16.242.0/24
