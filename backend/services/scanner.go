@@ -306,6 +306,8 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	if len(filePaths) == 0 {
 		return
 	}
+	lockMediaRead()
+	defer unlockMediaRead()
 
 	// Parse Metadata
 	var city string
@@ -368,6 +370,9 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	var files []fileInfo
 	for _, path := range filePaths {
 		if s.isPendingDeletePath(path) {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
 			continue
 		}
 		matches := fileRegex.FindStringSubmatch(filepath.Base(path))
@@ -480,12 +485,17 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 	if len(filePaths) == 0 {
 		return
 	}
+	lockMediaRead()
+	defer unlockMediaRead()
 
 	timezone := determineTimezone(0, 0)
 
 	var files []fileInfo
 	for _, path := range filePaths {
 		if s.isPendingDeletePath(path) {
+			continue
+		}
+		if _, err := os.Stat(path); err != nil {
 			continue
 		}
 		matches := fileRegex.FindStringSubmatch(filepath.Base(path))
@@ -591,6 +601,11 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 		if s.isPendingDeletePath(f.path) {
 			continue
 		}
+		// Re-stat before insert so a prune that already removed the file cannot
+		// leave a live DB row pointing at nothing.
+		if _, err := os.Stat(f.path); err != nil {
+			continue
+		}
 		matches := fileRegex.FindStringSubmatch(filepath.Base(f.path))
 		cameraName := "Unknown"
 		if len(matches) == 3 {
@@ -600,6 +615,13 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 
 		var vf models.VideoFile
 		if err := s.DB.Where("clip_id = ? AND camera = ? AND file_path = ?", clip.ID, cameraName, f.path).First(&vf).Error; gorm.IsRecordNotFoundError(err) {
+			// Re-check tombstone + existence under the same conditions after the lookup.
+			if s.isPendingDeletePath(f.path) {
+				continue
+			}
+			if _, err := os.Stat(f.path); err != nil {
+				continue
+			}
 			vf = models.VideoFile{
 				ClipID:    clip.ID,
 				Camera:    cameraName,

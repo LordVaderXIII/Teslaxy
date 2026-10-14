@@ -102,7 +102,7 @@ Settings also persist in `$CONFIG_PATH/retention.json` and via:
 
 **Protection:** Tesla `SavedClips` (`event=Saved`) and any clip with `protected=true` are never pruned.
 
-**Safety:** Deletes walk every path component with `openat(O_NOFOLLOW)` / `unlinkat` and refuse symlinked parents. Only selected clip files are removed (not whole event folders). Recently written files are skipped. Soft-delete happens before unlink; pending tombstones are finished on the next run and the scanner will not recreate them. Partial failures keep DB rows for files that remain on disk.
+**Safety:** Each prune pass opens `FOOTAGE_PATH` once with `O_DIRECTORY|O_NOFOLLOW` and keeps that directory fd; all resolves/unlinks use `openat`/`unlinkat` relative to it (so renaming the root to a symlink mid-pass cannot redirect deletes). Symlinked parents under the root are refused. Only selected clip file paths are unlinked (not whole event folders). Recently written files are skipped at selection and again at unlink. Soft-delete happens before unlink; pending soft-deleted video rows and orphan soft-deleted clip/telemetry rows are finished on the next run. The scanner takes a shared media lock and re-stats before insert so it does not recreate rows for files removed during an in-flight prune. Partial failures keep DB rows for paths that remain on disk. Hardlink space is counted as freed only when the last link is removed.
 
 **Auth:** Retention/protect write APIs always require a Bearer token (even if `AUTH_ENABLED=false`), `Content-Type: application/json`, a CSRF header (`X-Requested-With` or `X-Teslaxy-CSRF`), and a same-origin `Origin`/`Referer` when those headers are present.
 

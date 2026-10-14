@@ -14,12 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `go run ./cmd/retention-dry-run` fixture harness and `.cursor/skills/verify-teslaxy` verification skill.
 
 ### Security
-- Retention deletes only selected clip files via `openat`/`unlinkat` with `O_NOFOLLOW` / `AT_SYMLINK_NOFOLLOW` (symlinked parents refused); never wipes event folders.
+- Retention pins a footage-root directory fd (`O_DIRECTORY|O_NOFOLLOW`) for each prune pass and deletes only selected clip files via `openat`/`unlinkat` (symlinked parents refused; root path swaps mid-pass cannot redirect unlinks). Never wipes event folders.
 - Write endpoints (`PUT /api/retention/settings`, `POST /api/retention/run`, `POST /api/clips/:id/protect`) always require a Bearer JWT plus CSRF (`X-Requested-With` or `X-Teslaxy-CSRF`) and same-origin checks, even when `AUTH_ENABLED=false`.
 - `dry_run` must be a JSON boolean (malformed → 400). Unknown `RETENTION_DRY_RUN` env values keep dry-run ON.
 - Protect vs prune is serialized; protection is re-checked inside the deletion transaction.
-- Soft-deleted pending rows are recovered on the next run; the scanner will not recreate them.
-- Config numerics are clamped; size accounting includes fresh files and dedupes paths/hardlinks. Partial prune keeps DB rows for files that remain.
+- Soft-deleted video rows and orphan soft-deleted clip/telemetry rows are recovered on the next run. Scanner indexing shares a media lock with prune and re-stats before insert.
+- Config numerics are clamped; size accounting includes fresh files, dedupes paths/hardlinks, and counts freed bytes only when the last hard link is removed. Partial prune keeps DB rows for paths that remain.
 
 ## [0.2.4] - 2026-10-14
 ### Fixed

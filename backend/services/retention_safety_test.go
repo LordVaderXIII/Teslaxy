@@ -366,6 +366,11 @@ func TestRetentionRechecksProtectInTransaction(t *testing.T) {
 		Enabled: true, DryRun: false, MaxAgeDays: 90, MaxSizeGB: 0, MinFileAgeMinutes: 0,
 	})
 	cfg := svc.Config()
+	fr, err := openFootageRoot(root)
+	if err != nil {
+		t.Fatalf("open root: %v", err)
+	}
+	defer fr.Close()
 
 	// Simulate race: candidate selected while unprotected, then protect wins the lock before pruneClip.
 	cand := RetentionCandidate{
@@ -377,7 +382,7 @@ func TestRetentionRechecksProtectInTransaction(t *testing.T) {
 			t.Fatalf("protect: %v", err)
 		}
 	})
-	if _, err := svc.pruneClip(root, cand, cfg); err == nil {
+	if _, err := svc.pruneClip(fr, cand, cfg); err == nil {
 		t.Fatalf("pruneClip must refuse after concurrent protect")
 	}
 	if _, err := os.Stat(path); err != nil {
@@ -400,12 +405,10 @@ func TestRetentionHardDeleteErrorSurfaced(t *testing.T) {
 	svc := newTestRetention(t, db, root, cfgPath, RetentionConfig{
 		Enabled: true, DryRun: false, MaxAgeDays: 90, MaxSizeGB: 0, MinFileAgeMinutes: 0,
 	})
-	orig := svc.unlinkFn
-	svc.unlinkFn = func(root, p string) (int64, error) {
-		return 0, fmt.Errorf("injected unlink failure")
+	svc.unlinkFn = func(root *footageRoot, p string) (int64, bool, error) {
+		return 0, false, fmt.Errorf("injected unlink failure")
 	}
 	report, err := svc.Run()
-	_ = orig
 	if err != nil {
 		t.Fatalf("run err: %v", err)
 	}

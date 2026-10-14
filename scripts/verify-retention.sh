@@ -3,7 +3,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ART="${ARTIFACTS_DIR:-/opt/cursor/artifacts}"
+if [[ -n "${ARTIFACTS_DIR:-}" ]]; then
+  ART="$ARTIFACTS_DIR"
+else
+  ART="$(mktemp -d "${TMPDIR:-/tmp}/teslaxy-verify-artifacts.XXXXXX")"
+  echo "verify-retention: ARTIFACTS_DIR unset; using temp dir $ART"
+fi
 mkdir -p "$ART"
 HTTP=0
 if [[ "${1:-}" == "--http" ]]; then
