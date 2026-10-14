@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-10-14
+### Fixed
+- Scanner walk no longer aborts the whole library when one subdirectory is unreadable (H1).
+- Recent clip fallback no longer attaches to a Sentry/Saved clip that shares the same timestamp (H2).
+- Deleted footage is soft-removed from the DB via shared `ReconcileMissing` on scan and after filesystem removes (M1).
+- Moving a pre-populated event directory into SentryClips/SavedClips is scanned immediately, not only watched (M2).
+- Concurrent `scanDir` on the same event directory no longer creates duplicate clips (L3).
+
+### Added
+- Exported `services.ReconcileMissing` plus `media_coord.go` lock helpers for retention (#238) to reuse.
+- `.cursor/skills/verify-teslaxy/` skill with `features/scanner.md` proofs.
+
 ## [0.2.3] - 2026-10-05
 ### Fixed
 - Swiping the nudge row no longer moves the camera. A tap still steps once, and a held press still repeats.

@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,6 +34,12 @@ type ScannerService struct {
 	mu           sync.Mutex
 	pendingFiles map[string][]string    // Key is Directory Path
 	timers       map[string]*time.Timer // Key is Directory Path
+
+	// Per-directory scan locks prevent duplicate Clip rows when debounce and
+	// event.json both trigger scanDir on the same path (L3).
+	dirLocks sync.Map // map[string]*sync.Mutex
+
+	reconcileTimer *time.Timer
 }
 
 var (
@@ -74,6 +81,9 @@ func (s *ScannerService) Start() {
 				if event.Op&fsnotify.Create == fsnotify.Create {
 					s.handleFileCreate(event.Name)
 				}
+				if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+					s.scheduleReconcile()
+				}
 			case err, ok := <-s.Watcher.Errors:
 				if !ok {
 					return
@@ -88,8 +98,12 @@ func (s *ScannerService) Start() {
 		fmt.Println("Error adding watcher path:", err)
 	}
 
-	// Also watch subdirectories
+	// Also watch subdirectories (skip unreadable paths; do not abort the walk)
 	filepath.Walk(s.FootagePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Printf("Skipping unreadable path while watching %s: %v", path, err)
+			return nil
+		}
 		if info != nil && info.IsDir() {
 			s.Watcher.Add(path)
 		}
@@ -100,10 +114,25 @@ func (s *ScannerService) Start() {
 func (s *ScannerService) handleFileCreate(path string) {
 	filename := filepath.Base(path)
 
-	// Check if it's a new directory (need to watch it)
+	// Check if it's a new directory (need to watch it and scan existing files — M2)
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		fmt.Println("New directory detected, watching:", path)
-		s.Watcher.Add(path)
+		if s.Watcher != nil {
+			_ = s.Watcher.Add(path)
+			// Nested dirs inside a moved/copied tree must be watched too.
+			filepath.Walk(path, func(p string, fi os.FileInfo, e error) error {
+				if e != nil {
+					log.Printf("Skipping unreadable path while watching %s: %v", p, e)
+					return nil
+				}
+				if fi != nil && fi.IsDir() {
+					_ = s.Watcher.Add(p)
+				}
+				return nil
+			})
+		}
+		// Pre-populated event dirs never emit per-file Create events; scan now.
+		go s.scanDir(path)
 		return
 	}
 
@@ -164,6 +193,9 @@ func (s *ScannerService) processPending(dirPath string) {
 }
 
 func (s *ScannerService) scanDir(dirPath string) {
+	unlock := s.lockDir(dirPath)
+	defer unlock()
+
 	// Check for event.json to determine type
 	isEvent := false
 	eventJsonPath := filepath.Join(dirPath, "event.json")
@@ -199,17 +231,44 @@ func (s *ScannerService) scanDir(dirPath string) {
 	}
 }
 
+// lockDir serializes scanDir/processEventGroup work for one directory (L3).
+func (s *ScannerService) lockDir(dirPath string) func() {
+	v, _ := s.dirLocks.LoadOrStore(dirPath, &sync.Mutex{})
+	m := v.(*sync.Mutex)
+	m.Lock()
+	return m.Unlock
+}
+
+// scheduleReconcile debounces filesystem removals into ReconcileMissing (M1).
+func (s *ScannerService) scheduleReconcile() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reconcileTimer != nil {
+		s.reconcileTimer.Stop()
+	}
+	s.reconcileTimer = time.AfterFunc(2*time.Second, func() {
+		if _, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{}); err != nil {
+			log.Printf("ReconcileMissing after remove: %v", err)
+		}
+	})
+}
+
 func (s *ScannerService) ScanAll() {
 	fmt.Println("Starting full scan of", s.FootagePath)
 	start := time.Now()
 
 	// 1. Map files
-	eventDirs := make(map[string][]string)
+	eventDirs := make(map[string]struct{})
 	var recentFiles []string
 
-	err := filepath.Walk(s.FootagePath, func(path string, info os.FileInfo, err error) error {
+	// H1: never abort the whole library scan because one subdirectory is unreadable.
+	_ = filepath.Walk(s.FootagePath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			log.Printf("Skipping unreadable path %s: %v", path, err)
+			return nil
+		}
+		if info == nil {
+			return nil
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".mp4") {
 			if fileRegex.MatchString(info.Name()) {
@@ -226,7 +285,7 @@ func (s *ScannerService) ScanAll() {
 				}
 
 				if isEvent {
-					eventDirs[dir] = append(eventDirs[dir], path)
+					eventDirs[dir] = struct{}{}
 				} else {
 					recentFiles = append(recentFiles, path)
 				}
@@ -235,23 +294,19 @@ func (s *ScannerService) ScanAll() {
 		return nil
 	})
 
-	if err != nil {
-		fmt.Println("Error walking path:", err)
-		return
-	}
-
-	// 2. Process Event Groups (Parallel)
+	// 2. Process Event Groups (Parallel). Route through scanDir so the per-dir
+	// lock (L3) covers both full scans and watcher-driven rescans.
 	var wg sync.WaitGroup
 	semaphore := make(chan struct{}, 5)
 
-	for dir, files := range eventDirs {
+	for dir := range eventDirs {
 		wg.Add(1)
 		semaphore <- struct{}{}
-		go func(d string, f []string) {
+		go func(d string) {
 			defer wg.Done()
 			defer func() { <-semaphore }()
-			s.processEventGroup(d, f)
-		}(dir, files)
+			s.scanDir(d)
+		}(dir)
 	}
 	wg.Wait()
 
@@ -259,6 +314,11 @@ func (s *ScannerService) ScanAll() {
 	if len(recentFiles) > 0 {
 		fmt.Printf("Processing %d recent files...\n", len(recentFiles))
 		s.processRecentGroup(recentFiles)
+	}
+
+	// 4. Drop DB rows for footage that disappeared (M1). Shared with retention (#238).
+	if _, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{}); err != nil {
+		log.Printf("ReconcileMissing after scan: %v", err)
 	}
 
 	fmt.Printf("Scan complete in %v.\n", time.Since(start))
@@ -538,8 +598,9 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 
 			s.DB.First(&clip, lastVf.ClipID)
 			found = true
-		} else if err := s.DB.Where("timestamp = ?", minTime).First(&clip).Error; err == nil {
-			// Idempotency: found the clip itself (maybe we are reprocessing)
+		} else if err := s.DB.Where("event = ? AND timestamp = ?", "Recent", minTime).First(&clip).Error; err == nil {
+			// Idempotency: only match a live Recent clip (H2). GORM soft-delete
+			// adds deleted_at IS NULL so soft-deleted rows are not reused.
 			found = true
 		}
 
