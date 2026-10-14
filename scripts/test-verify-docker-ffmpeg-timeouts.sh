@@ -329,32 +329,9 @@ kill "${MOCK_PIDS[0]}" >/dev/null 2>&1 || true
 wait "${MOCK_PIDS[0]}" 2>/dev/null || true
 MOCK_PIDS=("${MOCK_PIDS[@]:1}")
 
-# --- 6) Encode probe: OK / FAIL / SKIP via FFMPEG_BIN stub ---
+# --- 6) Encode probe: GPU presence decides SKIP; encode errors are FAIL ---
 FFMPEG_STUB="$STUB_DIR/ffmpeg"
-cat >"$FFMPEG_STUB" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-mode="${FFMPEG_STUB_MODE:-ok}"
-case "$mode" in
-	ok) exit 0 ;;
-	nolibcuda)
-		echo "Cannot load libcuda.so.1" >&2
-		exit 1
-		;;
-	fail)
-		# Must NOT match SKIP patterns in check-ffmpeg-nvenc-encode.sh
-		echo "bogus encoder init failure xyz" >&2
-		exit 1
-		;;
-	*)
-		echo "unknown FFMPEG_STUB_MODE=$mode" >&2
-		exit 99
-		;;
-esac
-EOF
-chmod +x "$FFMPEG_STUB"
 
-# Helper: write stub that prints a fixed stderr line then exits 1.
 write_ffmpeg_msg_stub() {
 	local msg="$1"
 	cat >"$FFMPEG_STUB" <<EOF
@@ -365,30 +342,53 @@ EOF
 	chmod +x "$FFMPEG_STUB"
 }
 
-set +e
-# OK path: stub exits 0 with no stderr
-cat >"$FFMPEG_STUB" <<'EOF'
+write_ffmpeg_ok_stub() {
+	cat >"$FFMPEG_STUB" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-chmod +x "$FFMPEG_STUB"
-FFMPEG_BIN="$FFMPEG_STUB" "$ENCODE_CHECK" >"${LOG_DIR}/encode-ok.log" 2>&1
+	chmod +x "$FFMPEG_STUB"
+}
+
+write_ffmpeg_empty_fail_stub() {
+	cat >"$FFMPEG_STUB" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+	chmod +x "$FFMPEG_STUB"
+}
+
+assert_encode_fail() {
+	local label="$1"
+	set +e
+	TESLAXY_NVENC_FORCE_GPU=1 FFMPEG_BIN="$FFMPEG_STUB" \
+		"$ENCODE_CHECK" >"${LOG_DIR}/encode-must-fail.log" 2>&1
+	ec=$?
+	set -e
+	if [[ "$ec" -eq 1 ]] && grep -q 'ERROR: h264_nvenc encode failed' "${LOG_DIR}/encode-must-fail.log" \
+		&& ! grep -q '^SKIP:' "${LOG_DIR}/encode-must-fail.log"; then
+		pass "encode FAIL (not SKIP): ${label}"
+	else
+		fail "expected FAIL exit 1 for '${label}' (got ${ec}); log: $(tr '\n' ' ' <"${LOG_DIR}/encode-must-fail.log")"
+	fi
+}
+
+# OK with GPU present
+write_ffmpeg_ok_stub
+set +e
+TESLAXY_NVENC_FORCE_GPU=1 FFMPEG_BIN="$FFMPEG_STUB" \
+	"$ENCODE_CHECK" >"${LOG_DIR}/encode-ok.log" 2>&1
 enc_ok=$?
 set -e
 [[ "$enc_ok" -eq 0 ]] && grep -q 'OK: h264_nvenc encode succeeded' "${LOG_DIR}/encode-ok.log" \
 	&& pass "encode OK exits 0" \
 	|| fail "encode OK expected exit 0 (got ${enc_ok})"
 
-set +e
+# Generic fail with GPU present
 write_ffmpeg_msg_stub "bogus encoder init failure xyz"
-FFMPEG_BIN="$FFMPEG_STUB" "$ENCODE_CHECK" >"${LOG_DIR}/encode-fail.log" 2>&1
-enc_fail=$?
-set -e
-[[ "$enc_fail" -eq 1 ]] && grep -q 'ERROR: h264_nvenc encode failed' "${LOG_DIR}/encode-fail.log" \
-	&& pass "encode FAIL exits 1 (non-zero)" \
-	|| fail "encode FAIL expected exit 1 (got ${enc_fail})"
+assert_encode_fail "bogus encoder init"
 
-# Present-GPU / driver-loaded errors must FAIL (not SKIP).
+# Classic present-GPU NVENC errors → FAIL
 fail_msgs=(
 	"Provided device does not support required NVENC features"
 	"GPU device 0: encoder initialization failed: out of memory"
@@ -397,38 +397,52 @@ fail_msgs=(
 )
 for msg in "${fail_msgs[@]}"; do
 	write_ffmpeg_msg_stub "$msg"
-	set +e
-	FFMPEG_BIN="$FFMPEG_STUB" "$ENCODE_CHECK" >"${LOG_DIR}/encode-must-fail.log" 2>&1
-	ec=$?
-	set -e
-	if [[ "$ec" -eq 1 ]] && grep -q 'ERROR: h264_nvenc encode failed' "${LOG_DIR}/encode-must-fail.log" \
-		&& ! grep -q '^SKIP:' "${LOG_DIR}/encode-must-fail.log"; then
-		pass "encode FAIL (not SKIP) for: ${msg}"
-	else
-		fail "expected FAIL exit 1 for '${msg}' (got ${ec}); log: $(tr '\n' ' ' <"${LOG_DIR}/encode-must-fail.log")"
-	fi
+	assert_encode_fail "$msg"
 done
 
-# Missing driver / no device only — must SKIP (exit 2).
-skip_msgs=(
-	"Cannot load libcuda.so.1"
-	"CUDA_ERROR_NO_DEVICE"
-	"no CUDA-capable device"
-)
-for msg in "${skip_msgs[@]}"; do
+# Mixed errors (OOM + libcuda, either order) → FAIL when GPU present
+write_ffmpeg_msg_stub $'encoder initialization failed: out of memory\nCannot load libcuda.so.1'
+assert_encode_fail "OOM then libcuda (mixed)"
+
+write_ffmpeg_msg_stub $'Cannot load libcuda.so.1\nencoder initialization failed: out of memory'
+assert_encode_fail "libcuda then OOM (mixed)"
+
+# Quoted / option-like strings that look like no-GPU → still FAIL when GPU present
+write_ffmpeg_msg_stub 'filter error: option "Cannot load libcuda.so.1" is invalid'
+assert_encode_fail "quoted libcuda in filter error"
+
+write_ffmpeg_msg_stub "Unknown option --hint=no CUDA-capable device"
+assert_encode_fail "quoted no-CUDA in option error"
+
+# Near misses must not SKIP when GPU present
+write_ffmpeg_msg_stub "Cannot load libcuda.so.10"
+assert_encode_fail "near-miss libcuda.so.10"
+
+write_ffmpeg_msg_stub "CUDA_ERROR_NO_DEVICE_FAKE"
+assert_encode_fail "near-miss CUDA_ERROR_NO_DEVICE_FAKE"
+
+# Empty stderr + non-zero → FAIL when GPU present
+write_ffmpeg_empty_fail_stub
+assert_encode_fail "empty output non-zero exit"
+
+# No GPU → SKIP before encode (ffmpeg stub unused / would fail if called)
+write_ffmpeg_msg_stub "should not matter"
+set +e
+TESLAXY_NVENC_FORCE_GPU=0 FFMPEG_BIN="$FFMPEG_STUB" \
+	"$ENCODE_CHECK" >"${LOG_DIR}/encode-skip-nogpu.log" 2>&1
+enc_skip=$?
+set -e
+[[ "$enc_skip" -eq 2 ]] && grep -qi 'SKIP:.*no GPU' "${LOG_DIR}/encode-skip-nogpu.log" \
+	&& pass "no GPU device → SKIP exit 2 (pre-encode)" \
+	|| fail "no GPU expected SKIP exit 2 (got ${enc_skip})"
+
+# Former no-driver ffmpeg strings with GPU forced → FAIL (text no longer drives SKIP)
+for msg in "Cannot load libcuda.so.1" "CUDA_ERROR_NO_DEVICE" "no CUDA-capable device"; do
 	write_ffmpeg_msg_stub "$msg"
-	set +e
-	FFMPEG_BIN="$FFMPEG_STUB" "$ENCODE_CHECK" >"${LOG_DIR}/encode-must-skip.log" 2>&1
-	ec=$?
-	set -e
-	if [[ "$ec" -eq 2 ]] && grep -qi 'SKIP:.*no GPU' "${LOG_DIR}/encode-must-skip.log"; then
-		pass "no GPU SKIP for: ${msg}"
-	else
-		fail "expected SKIP exit 2 for '${msg}' (got ${ec}); log: $(tr '\n' ' ' <"${LOG_DIR}/encode-must-skip.log")"
-	fi
+	assert_encode_fail "GPU present + ffmpeg says: ${msg}"
 done
 
-# --- 7) REQUIRE_NVENC_ENCODE=1 turns SKIP into verify failure ---
+# --- 7) Whole verify-docker-ffmpeg.sh exit codes for encode outcomes ---
 OK_PORT=$((PORT + 3))
 start_http_mock "$OK_PORT" "0" "pong" 200
 
@@ -440,7 +454,7 @@ STUB_ENCODE_EXIT=2 REQUIRE_NVENC_ENCODE=1 \
 req_ec=$?
 set -e
 if [[ "$req_ec" -ne 0 ]] && grep -q 'REQUIRE_NVENC_ENCODE' "${LOG_DIR}/verify-require-skip.log"; then
-	pass "REQUIRE_NVENC_ENCODE=1 makes no-GPU SKIP a failure (exit=${req_ec})"
+	pass "verify exit non-zero: REQUIRE_NVENC_ENCODE=1 + SKIP (exit=${req_ec})"
 else
 	fail "REQUIRE_NVENC_ENCODE=1 should fail on SKIP (exit=${req_ec}); log: $(tail -6 "${LOG_DIR}/verify-require-skip.log" | tr '\n' ' ')"
 fi
@@ -453,9 +467,35 @@ STUB_ENCODE_EXIT=2 REQUIRE_NVENC_ENCODE=0 \
 skip_ec=$?
 set -e
 if [[ "$skip_ec" -eq 0 ]] && grep -q '^SKIP: nvenc encode' "${LOG_DIR}/verify-skip-ok.log"; then
-	pass "no GPU SKIP continues (not PASS as encode) and smoke can succeed (exit=0)"
+	pass "verify exit 0: SKIP without require + smoke ok"
 else
 	fail "SKIP without require should allow smoke success (exit=${skip_ec})"
+fi
+
+set +e
+STUB_ENCODE_EXIT=1 REQUIRE_NVENC_ENCODE=0 \
+	PING_DEADLINE_SEC=4 CURL_MAX_TIME=2 \
+	PORT="$OK_PORT" IMAGE_TAG=stub TMPDIR="$TMP_BASE" \
+	"$VERIFY" >"${LOG_DIR}/verify-encode-fail.log" 2>&1
+vfail_ec=$?
+set -e
+if [[ "$vfail_ec" -ne 0 ]] && grep -q 'nvenc encode probe failed\|ERROR: nvenc encode' "${LOG_DIR}/verify-encode-fail.log"; then
+	pass "verify exit non-zero: encode FAIL (STUB_ENCODE_EXIT=1, exit=${vfail_ec})"
+else
+	fail "encode FAIL should make verify exit non-zero (exit=${vfail_ec}); log: $(tail -8 "${LOG_DIR}/verify-encode-fail.log" | tr '\n' ' ')"
+fi
+
+set +e
+STUB_ENCODE_EXIT=0 REQUIRE_NVENC_ENCODE=1 \
+	PING_DEADLINE_SEC=4 CURL_MAX_TIME=2 \
+	PORT="$OK_PORT" IMAGE_TAG=stub TMPDIR="$TMP_BASE" \
+	"$VERIFY" >"${LOG_DIR}/verify-encode-ok.log" 2>&1
+vok_ec=$?
+set -e
+if [[ "$vok_ec" -eq 0 ]] && grep -q 'OK: nvenc encode probe passed\|OK: h264_nvenc encode succeeded' "${LOG_DIR}/verify-encode-ok.log"; then
+	pass "verify exit 0: encode OK + smoke"
+else
+	fail "encode OK should let verify succeed (exit=${vok_ec})"
 fi
 
 # --- 8) Wiring guards ---
@@ -468,8 +508,10 @@ if grep -q 'OWNED_FIX' "$VERIFY" \
 	&& grep -q 'check-ffmpeg-nvenc-encode.sh' "$VERIFY" \
 	&& ! grep -q 'curl_get .*/api/version.*|| true' "$VERIFY" \
 	&& grep -q 'NVIDIA_VISIBLE_DEVICES=all' "$ROOT/docker/docker-compose.yml" \
-	&& grep -q 'NVIDIA_DRIVER_CAPABILITIES=compute,video,utility' "$ROOT/docker/docker-compose.yml"; then
-	pass "verify + compose wire OWNED_FIX, ns deadline, NVIDIA env, encode probe"
+	&& grep -q 'NVIDIA_DRIVER_CAPABILITIES=compute,video,utility' "$ROOT/docker/docker-compose.yml" \
+	&& grep -q 'REQUIRE_NVENC_ENCODE=1' "$ROOT/docker/docker-compose.yml" \
+	&& grep -q 'gpu_present\|TESLAXY_NVENC_FORCE_GPU\|/dev/nvidia' "$ENCODE_CHECK"; then
+	pass "verify + compose wire OWNED_FIX, ns deadline, NVIDIA env, pre-encode GPU check"
 else
 	fail "missing required ownership/deadline/NVIDIA/encode wiring"
 fi

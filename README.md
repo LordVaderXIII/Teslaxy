@@ -127,7 +127,7 @@ docker run --runtime=nvidia \
   ...
 ```
 
-Smoke / prod gate: `scripts/verify-docker-ffmpeg.sh` runs a one-second `h264_nvenc` encode inside the image. No GPU → clear `SKIP` (set `REQUIRE_NVENC_ENCODE=1` on GPU hosts so a skip fails the check).
+Smoke / prod gate: `scripts/verify-docker-ffmpeg.sh` runs a one-second `h264_nvenc` encode inside the image. SKIP is decided from GPU presence (`/dev/nvidia*` or `nvidia-smi -L`) before encoding — not from ffmpeg error text. Compose and unRAID deploy default `REQUIRE_NVENC_ENCODE=1` so a SKIP fails on prod GPU hosts; unset or `0` for GPU-less CI.
 
 ## Development
 

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.2] - 2026-10-14
 ### Fixed
 - Docker Compose (and unRAID `docker run`) set `NVIDIA_VISIBLE_DEVICES=all` and `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility` so the NVIDIA toolkit injects `libcuda` / NVENC (without them, encode failed with `Cannot load libcuda.so.1` while `-encoders` still listed `h264_nvenc`).
-- `scripts/verify-docker-ffmpeg.sh` runs a one-second real `h264_nvenc` encode probe; no GPU → clear `SKIP` (set `REQUIRE_NVENC_ENCODE=1` on prod GPU hosts to fail a skip).
+- `scripts/verify-docker-ffmpeg.sh` runs a one-second real `h264_nvenc` encode probe; SKIP is based on GPU presence (`/dev/nvidia*` / `nvidia-smi -L`) before encode, not ffmpeg error text. Compose and unRAID deploy default `REQUIRE_NVENC_ENCODE=1` so a SKIP fails on prod GPU hosts.
 
 ## [0.3.1] - 2026-10-14
 ### Fixed
