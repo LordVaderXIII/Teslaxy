@@ -109,6 +109,118 @@ func TestCheckForNvidiaGPU_TrueWhenProbeSucceeds(t *testing.T) {
 	}
 }
 
+func TestCheckForNvidiaGPU_ProbeTimeoutNotCached(t *testing.T) {
+	// Codex round-3: a probe that hits its deadline must not stick the exporter on CPU.
+	ResetEncoderDetectionForTest()
+	ResetGPUCheckForTest()
+	SetEncoderProbeTimeoutForTest(40 * time.Millisecond)
+	defer func() {
+		SetNVENCProbeForTest(nil)
+		SetEncoderProbeTimeoutForTest(0)
+		ResetEncoderDetectionForTest()
+		ResetGPUCheckForTest()
+	}()
+
+	var calls atomic.Int64
+	SetNVENCProbeForTest(func(ctx context.Context) bool {
+		n := calls.Add(1)
+		if n == 1 {
+			<-ctx.Done()
+			return false
+		}
+		return true
+	})
+
+	if CheckForNvidiaGPU() {
+		t.Fatal("timed-out probe must not report NVENC")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected one timed-out probe, got %d", calls.Load())
+	}
+
+	if !CheckForNvidiaGPU() {
+		t.Fatal("later CheckForNvidiaGPU must find NVENC after an uncached timeout")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("expected a second probe after timeout, got %d", calls.Load())
+	}
+	if !CheckForNvidiaGPU() {
+		t.Fatal("successful probe must stay cached")
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("cached success was probed again, calls=%d", calls.Load())
+	}
+}
+
+func TestCheckForNvidiaGPU_SlotStarvationNotCached(t *testing.T) {
+	// Codex round-3: when all ffmpeg slots stay busy through the probe deadline,
+	// the exporter must not cache "no GPU".
+	ResetEncoderDetectionForTest()
+	ResetGPUCheckForTest()
+	SetMaxConcurrentFFmpegForTest(1)
+	SetEncoderProbeTimeoutForTest(40 * time.Millisecond)
+	defer func() {
+		SetNVENCProbeForTest(nil)
+		SetEncoderProbeTimeoutForTest(0)
+		SetMaxConcurrentFFmpegForTest(DefaultMaxConcurrentFFmpeg)
+		ResetEncoderDetectionForTest()
+		ResetGPUCheckForTest()
+	}()
+
+	var calls atomic.Int64
+	SetNVENCProbeForTest(func(context.Context) bool {
+		calls.Add(1)
+		return true
+	})
+
+	if err := AcquireFFmpeg(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	if CheckForNvidiaGPU() {
+		t.Fatal("slot-starved probe must not report NVENC")
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("probe must not run while the only slot is held, calls=%d", calls.Load())
+	}
+
+	ReleaseFFmpeg()
+
+	if !CheckForNvidiaGPU() {
+		t.Fatal("later CheckForNvidiaGPU must find NVENC after slot starvation")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected one probe after slots free, got %d", calls.Load())
+	}
+}
+
+func TestCheckForNvidiaGPU_CleanMissIsCached(t *testing.T) {
+	// A completed "no NVENC" answer must stay cached for exports.
+	ResetEncoderDetectionForTest()
+	ResetGPUCheckForTest()
+	defer func() {
+		SetNVENCProbeForTest(nil)
+		ResetEncoderDetectionForTest()
+		ResetGPUCheckForTest()
+	}()
+
+	var calls atomic.Int64
+	SetNVENCProbeForTest(func(context.Context) bool {
+		calls.Add(1)
+		return false
+	})
+
+	if CheckForNvidiaGPU() {
+		t.Fatal("expected false on clean NVENC miss")
+	}
+	if CheckForNvidiaGPU() {
+		t.Fatal("clean miss must stay false")
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("clean NVENC miss must be cached, probes=%d", calls.Load())
+	}
+}
+
 func TestColdStartEncoderProbeCountsAgainstCap(t *testing.T) {
 	// Codex finding #2: encoder probe must take a ffmpeg slot and respect ctx.
 	// At 34fc9e4 AutoDetectEncoder ran ffmpeg outside the cap while holding the

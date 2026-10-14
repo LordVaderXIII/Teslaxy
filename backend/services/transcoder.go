@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 var (
@@ -22,6 +23,9 @@ var (
 
 	// probeNVENCFn is swappable in tests. Must respect ctx cancellation.
 	probeNVENCFn = probeNVENCRuntime
+
+	// encoderProbeTimeout caps AutoDetectEncoder / runEncoderProbe (tests may shorten).
+	encoderProbeTimeout = DefaultEncoderProbeTimeout
 )
 
 func init() {
@@ -48,6 +52,7 @@ func ResetEncoderDetectionForTest() {
 	encoder = ""
 	hasNvenc = false
 	encoderProbeErr = nil
+	encoderProbeTimeout = DefaultEncoderProbeTimeout
 	// Recreate ready channel so waiters from a prior test cannot spuriously unblock.
 	select {
 	case <-encoderReady:
@@ -75,6 +80,18 @@ func SetNVENCProbeForTest(fn func(context.Context) bool) {
 		encoderReady = make(chan struct{})
 	default:
 		encoderReady = make(chan struct{})
+	}
+}
+
+// SetEncoderProbeTimeoutForTest overrides the encoder probe deadline (tests only).
+// Pass 0 or negative to restore DefaultEncoderProbeTimeout.
+func SetEncoderProbeTimeoutForTest(d time.Duration) {
+	encoderMu.Lock()
+	defer encoderMu.Unlock()
+	if d <= 0 {
+		encoderProbeTimeout = DefaultEncoderProbeTimeout
+	} else {
+		encoderProbeTimeout = d
 	}
 }
 
@@ -168,7 +185,11 @@ func ensureEncoderDetected(ctx context.Context) error {
 }
 
 func runEncoderProbe(ctx context.Context) error {
-	probeCtx, cancel := context.WithTimeout(ctx, DefaultEncoderProbeTimeout)
+	encoderMu.Lock()
+	timeout := encoderProbeTimeout
+	encoderMu.Unlock()
+
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	if err := AcquireFFmpeg(probeCtx); err != nil {
@@ -199,7 +220,11 @@ func runEncoderProbe(ctx context.Context) error {
 // AutoDetectEncoder determines the best available encoder (working NVENC vs CPU).
 // Prefer EnsureEncoderDetected / GetTranscodeStream with a request context when possible.
 func AutoDetectEncoder() string {
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultEncoderProbeTimeout)
+	encoderMu.Lock()
+	timeout := encoderProbeTimeout
+	encoderMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := ensureEncoderDetected(ctx); err != nil {
 		log.Printf("Transcoder: encoder probe aborted (%v); defaulting to libx264", err)
