@@ -56,8 +56,8 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Implemented in `backend/services/retention.go` (+ `retention_config.go`, `retention_path.go`, `retention_scheduler.go`).
 - Defaults: disabled, dry-run on, 90 days, 300 GB, 24h interval, 15m min file age.
 - Never prune `Event == "Saved"` or `Clip.Protected == true`. Re-check protect inside the prune transaction under `clipMu`.
-- Soft-delete only selected `VideoFile` rows before `unlinkat`; recover pending VF tombstones and orphan soft-deleted clip/telemetry on the next run. Scanner skips pending-delete paths/source dirs, holds `mediaOpMu` RLock while indexing, and re-stats before insert.
-- Safety: pin `footageRoot` fd (`openFootageRoot`) for the whole pass; resolve/unlink via that fd only; never delete whole event folders; skip recent mtimes at delete time; hardlink bytes freed only on last link.
+- Soft-delete only selected `VideoFile` rows before `unlinkat`; recover pending VF tombstones and orphan soft-deleted clip/telemetry on the next run. Hard-delete telemetry before the clip; on telemetry failure keep the clip soft-deleted and record `errors[]`; sweep stranded telemetry with no clip. Scanner skips pending-delete paths/source dirs, holds `mediaOpMu` RLock while indexing, and re-stats before insert.
+- Safety: pin `footageRoot` fd (`openFootageRoot`) for the whole pass; resolve/unlink via that fd only; never delete whole event folders; skip recent mtimes at delete time; size-cap estimates count a hardlinked inode only when all known links are selected; unlink freed bytes only on last link.
 - Write APIs always need auth + CSRF headers; malformed `dry_run` → 400; unknown `RETENTION_DRY_RUN` keeps dry-run ON.
 - Verify: `scripts/verify-retention.sh` and `.cursor/skills/verify-teslaxy/`. Fixture dry-run: `go run ./cmd/retention-dry-run` from `backend/`.
 - Do not target live NAS hosts in agents unless asked; use IPs only (Valhalla `192.168.86.41`), never `.local`.

@@ -18,8 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Write endpoints (`PUT /api/retention/settings`, `POST /api/retention/run`, `POST /api/clips/:id/protect`) always require a Bearer JWT plus CSRF (`X-Requested-With` or `X-Teslaxy-CSRF`) and same-origin checks, even when `AUTH_ENABLED=false`.
 - `dry_run` must be a JSON boolean (malformed → 400). Unknown `RETENTION_DRY_RUN` env values keep dry-run ON.
 - Protect vs prune is serialized; protection is re-checked inside the deletion transaction.
-- Soft-deleted video rows and orphan soft-deleted clip/telemetry rows are recovered on the next run. Scanner indexing shares a media lock with prune and re-stats before insert.
-- Config numerics are clamped; size accounting includes fresh files, dedupes paths/hardlinks, and counts freed bytes only when the last hard link is removed. Partial prune keeps DB rows for paths that remain.
+- Soft-deleted video rows and orphan soft-deleted clip/telemetry rows are recovered on the next run. Telemetry hard-delete runs before the clip row; failures leave the clip soft-deleted and appear in `errors[]`, with an orphan-telemetry sweep for stranded rows. Scanner indexing shares a media lock with prune and re-stats before insert.
+- Config numerics are clamped; size accounting includes fresh files, dedupes paths/hardlinks, estimates size-cap savings per inode only when all known links are selected, and counts freed bytes only when the last hard link is removed. Partial prune keeps DB rows for paths that remain.
 
 ## [0.2.4] - 2026-10-14
 ### Fixed

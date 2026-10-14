@@ -83,6 +83,9 @@ type RetentionService struct {
 	// Optional test hooks; nil uses footageRoot methods.
 	resolveFn func(root *footageRoot, path string) (string, os.FileInfo, error)
 	unlinkFn  func(root *footageRoot, path string) (freed int64, removed bool, err error)
+	// beforeHardDeleteTelemetry, when set, runs before Unscoped telemetry delete.
+	// A non-nil error leaves the clip soft-deleted so recovery can retry.
+	beforeHardDeleteTelemetry func(clipID uint) error
 }
 
 func NewRetentionService(db *gorm.DB, footagePath, configPath string) *RetentionService {
@@ -334,6 +337,59 @@ func uniqueInodeBytes(files []fileRef) int64 {
 	return sum
 }
 
+func inodeKey(f fileRef) string {
+	if f.identity {
+		return fmt.Sprintf("%d:%d", f.dev, f.ino)
+	}
+	return "path:" + f.path
+}
+
+// inodeLinkIndex counts every known DB path per inode (including protected/fresh).
+// Space is only estimated as freed when every known link is selected for deletion.
+type inodeLinkIndex struct {
+	size      int64
+	total     int
+	byClip    map[uint]int // deletable links belonging to clip
+}
+
+func buildInodeLinkIndex(evals []clipEval) map[string]*inodeLinkIndex {
+	out := map[string]*inodeLinkIndex{}
+	for _, ev := range evals {
+		for _, f := range ev.files {
+			key := inodeKey(f)
+			meta, ok := out[key]
+			if !ok {
+				meta = &inodeLinkIndex{size: f.size, byClip: map[uint]int{}}
+				out[key] = meta
+			}
+			meta.total++
+			if !f.fresh && !ev.protected {
+				meta.byClip[ev.clip.ID]++
+			}
+		}
+	}
+	return out
+}
+
+// estimateFreedBytes returns unique-inode bytes that would actually be freed if
+// every deletable path on selectedClipIDs is unlinked (0 for inodes that still
+// have a non-selected or non-deletable link).
+func estimateFreedBytes(index map[string]*inodeLinkIndex, selectedClipIDs map[uint]bool) int64 {
+	var freed int64
+	for _, meta := range index {
+		removed := 0
+		for clipID, n := range meta.byClip {
+			if selectedClipIDs[clipID] {
+				removed += n
+			}
+		}
+		if removed >= meta.total && meta.total > 0 {
+			freed += meta.size
+		}
+	}
+	return freed
+}
+
 func (s *RetentionService) classifyPath(root *footageRoot, filePath string, minAge time.Duration, now time.Time) (abs string, info os.FileInfo, reason string, ok bool) {
 	var err error
 	if s.resolveFn != nil {
@@ -379,11 +435,11 @@ func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.T
 		return ti.Before(tj)
 	})
 
+	inodeIndex := buildInodeLinkIndex(evals)
 	ageIDs := map[uint]bool{}
 	sizeIDs := map[uint]bool{}
 	selectedOrder := make([]clipEval, 0)
 	selectedSet := map[uint]bool{}
-	projected := totalBytes
 
 	for _, ev := range evals {
 		if ev.protected || len(ev.deletable) == 0 {
@@ -393,32 +449,56 @@ func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.T
 			ageIDs[ev.clip.ID] = true
 			selectedOrder = append(selectedOrder, ev)
 			selectedSet[ev.clip.ID] = true
-			projected -= ev.bytes
 		}
 	}
 
-	if maxBytes > 0 && projected > maxBytes {
-		for _, ev := range evals {
-			if projected <= maxBytes {
+	// Size cap uses hardlink-aware freed estimates: an inode only counts once
+	// all known DB links are in the selected set. Keep selecting until the
+	// projected freed bytes actually bring the unique total under the cap.
+	if maxBytes > 0 {
+		for {
+			freed := estimateFreedBytes(inodeIndex, selectedSet)
+			if totalBytes-freed <= maxBytes {
 				break
 			}
-			if ev.protected || len(ev.deletable) == 0 || selectedSet[ev.clip.ID] {
-				continue
+			added := false
+			for _, ev := range evals {
+				if ev.protected || len(ev.deletable) == 0 || selectedSet[ev.clip.ID] {
+					continue
+				}
+				sizeIDs[ev.clip.ID] = true
+				selectedOrder = append(selectedOrder, ev)
+				selectedSet[ev.clip.ID] = true
+				added = true
+				break
 			}
-			sizeIDs[ev.clip.ID] = true
-			selectedOrder = append(selectedOrder, ev)
-			selectedSet[ev.clip.ID] = true
-			projected -= ev.bytes
+			if !added {
+				break
+			}
 		}
+		// Age-selected clips that were needed to relieve size pressure get age+size.
+		ageOnly := map[uint]bool{}
 		for id := range ageIDs {
-			if selectedSet[id] {
+			ageOnly[id] = true
+		}
+		ageFreed := estimateFreedBytes(inodeIndex, ageOnly)
+		if totalBytes > maxBytes && totalBytes-ageFreed > maxBytes {
+			for id := range ageIDs {
 				sizeIDs[id] = true
 			}
 		}
 	}
 
+	// Per-candidate Bytes = incremental hardlink-aware freed when this clip was added.
 	out := make([]RetentionCandidate, 0, len(selectedOrder))
+	running := map[uint]bool{}
+	var prevFreed int64
 	for _, ev := range selectedOrder {
+		running[ev.clip.ID] = true
+		freed := estimateFreedBytes(inodeIndex, running)
+		incr := freed - prevFreed
+		prevFreed = freed
+
 		reason := "age"
 		hasAge := ageIDs[ev.clip.ID]
 		hasSize := sizeIDs[ev.clip.ID]
@@ -440,7 +520,7 @@ func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.T
 			SourceDir: ev.clip.SourceDir,
 			Timestamp: ev.clip.Timestamp,
 			Reason:    reason,
-			Bytes:     ev.bytes,
+			Bytes:     incr,
 			FilePaths: paths,
 		})
 	}
@@ -588,15 +668,18 @@ func (s *RetentionService) unlinkSelected(root *footageRoot, vf models.VideoFile
 }
 
 func (s *RetentionService) hardDeleteClipOrphans(clipID uint) error {
-	var errs []string
+	// Telemetry must succeed before the clip row is removed; otherwise recovery
+	// loses the soft-delete marker it needs to finish the orphan.
+	if s.beforeHardDeleteTelemetry != nil {
+		if err := s.beforeHardDeleteTelemetry(clipID); err != nil {
+			return fmt.Errorf("hard-delete telemetry: %w", err)
+		}
+	}
 	if err := s.DB.Unscoped().Where("clip_id = ?", clipID).Delete(&models.Telemetry{}).Error; err != nil {
-		errs = append(errs, fmt.Sprintf("hard-delete telemetry: %v", err))
+		return fmt.Errorf("hard-delete telemetry: %w", err)
 	}
 	if err := s.DB.Unscoped().Delete(&models.Clip{}, clipID).Error; err != nil {
-		errs = append(errs, fmt.Sprintf("hard-delete clip: %v", err))
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("%s", strings.Join(errs, "; "))
+		return fmt.Errorf("hard-delete clip: %w", err)
 	}
 	return nil
 }
@@ -667,6 +750,7 @@ func (s *RetentionService) completePendingDeletes(root *footageRoot, cfg Retenti
 	for _, c := range orphanClips {
 		s.recoverOrphanClip(c.ID, report)
 	}
+	s.recoverOrphanTelemetry(report)
 	return nil
 }
 
@@ -680,6 +764,29 @@ func (s *RetentionService) recoverOrphanClip(clipID uint, report *RetentionRepor
 	}
 	if err := s.hardDeleteClipOrphans(clipID); err != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("clip %d: %v", clipID, err))
+	}
+}
+
+// recoverOrphanTelemetry hard-deletes telemetry rows whose clip is already gone
+// (stranded when an older build deleted the clip before telemetry succeeded).
+func (s *RetentionService) recoverOrphanTelemetry(report *RetentionReport) {
+	var rows []models.Telemetry
+	if err := s.DB.Unscoped().Find(&rows).Error; err != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("orphan telemetry scan: %v", err))
+		return
+	}
+	for _, tel := range rows {
+		var n int
+		if err := s.DB.Unscoped().Model(&models.Clip{}).Where("id = ?", tel.ClipID).Count(&n).Error; err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("orphan telemetry clip lookup %d: %v", tel.ID, err))
+			continue
+		}
+		if n > 0 {
+			continue
+		}
+		if err := s.DB.Unscoped().Delete(&models.Telemetry{}, tel.ID).Error; err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("orphan telemetry %d: %v", tel.ID, err))
+		}
 	}
 }
 
