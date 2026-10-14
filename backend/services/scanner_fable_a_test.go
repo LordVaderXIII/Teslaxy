@@ -1,6 +1,7 @@
 package services
 
 import (
+	"errors"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -145,13 +146,21 @@ func TestRecentFallback_DoesNotAttachToSentry(t *testing.T) {
 }
 
 // TestReconcileMissing_SoftDeletesGoneFootage (M1): removing an event directory
-// then reconciling must soft-delete the clip so the library omits it.
+// then reconciling soft-deletes only after the persisted confirm interval.
 func TestReconcileMissing_SoftDeletesGoneFootage(t *testing.T) {
 	os.Setenv("DEFAULT_TIMEZONE", "UTC")
 	defer os.Unsetenv("DEFAULT_TIMEZONE")
 
 	db := setupFableADB(t)
 	defer db.Close()
+
+	stateDir, err := ioutil.TempDir("", "fable_m1_state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(stateDir)
+	os.Setenv("CONFIG_PATH", stateDir)
+	defer os.Unsetenv("CONFIG_PATH")
 
 	tmpDir, err := ioutil.TempDir("", "fable_m1")
 	if err != nil {
@@ -182,7 +191,20 @@ func TestReconcileMissing_SoftDeletesGoneFootage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := ReconcileMissing(db, tmpDir, ReconcileOpts{})
+	opts := ReconcileOpts{StateDir: stateDir}
+	if _, err := ReconcileMissing(db, tmpDir, opts); !errors.Is(err, ErrReconcilePendingConfirm) {
+		t.Fatalf("first reconcile must pending-confirm, got %v", err)
+	}
+	var liveClips int
+	db.Model(&models.Clip{}).Count(&liveClips)
+	if liveClips == 0 {
+		t.Fatal("first reconcile must not soft-delete clips")
+	}
+
+	if err := agePendingPurgeForTest(stateDir, tmpDir, reconcileConfirmMinInterval+time.Second); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ReconcileMissing(db, tmpDir, opts)
 	if err != nil {
 		t.Fatalf("ReconcileMissing: %v", err)
 	}
@@ -193,14 +215,13 @@ func TestReconcileMissing_SoftDeletesGoneFootage(t *testing.T) {
 		t.Fatalf("expected soft-deleted clips, got %+v", res)
 	}
 
-	var liveClips int
 	db.Model(&models.Clip{}).Count(&liveClips)
 	if liveClips != 0 {
-		t.Fatalf("expected 0 live clips after reconcile, got %d", liveClips)
+		t.Fatalf("expected 0 live clips after confirm, got %d", liveClips)
 	}
 
 	// Idempotent second pass.
-	res2, err := ReconcileMissing(db, tmpDir, ReconcileOpts{})
+	res2, err := ReconcileMissing(db, tmpDir, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,14 +451,22 @@ func TestScanner_TakesMediaLock(t *testing.T) {
 }
 
 // TestRecentRescan_DeletedFirstMinuteNotDuplicated (P2 regression): deleting
-// the first Recent minute and scanning twice must leave the remaining 14:19
-// footage as one clip and one file row.
+// the first Recent minute and scanning twice must keep a single Recent clip.
+// The missing minute stays until the persisted confirm interval elapses.
 func TestRecentRescan_DeletedFirstMinuteNotDuplicated(t *testing.T) {
 	os.Setenv("DEFAULT_TIMEZONE", "UTC")
 	defer os.Unsetenv("DEFAULT_TIMEZONE")
 
 	db := setupFableADB(t)
 	defer db.Close()
+
+	stateDir, err := ioutil.TempDir("", "fable_recent_dup_state")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(stateDir)
+	os.Setenv("CONFIG_PATH", stateDir)
+	defer os.Unsetenv("CONFIG_PATH")
 
 	tmpDir, err := ioutil.TempDir("", "fable_recent_dup")
 	if err != nil {
@@ -462,10 +491,26 @@ func TestRecentRescan_DeletedFirstMinuteNotDuplicated(t *testing.T) {
 
 	var clips int
 	db.Model(&models.Clip{}).Where("event = ?", "Recent").Count(&clips)
+	if clips != 1 {
+		t.Fatalf("Recent clip duplicated after rescan: %d clips, want 1", clips)
+	}
+	var liveFiles int
+	db.Model(&models.VideoFile{}).Count(&liveFiles)
+	if liveFiles != 2 {
+		t.Fatalf("missing minute must stay until confirm: live files=%d, want 2", liveFiles)
+	}
+
+	if err := agePendingPurgeForTest(stateDir, tmpDir, reconcileConfirmMinInterval+time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReconcileMissing(db, tmpDir, ReconcileOpts{StateDir: stateDir}); err != nil {
+		t.Fatal(err)
+	}
+
 	var files []models.VideoFile
 	db.Find(&files)
-	if clips != 1 || len(files) != 1 {
-		t.Fatalf("remaining 14:19 footage duplicated: %d clips, %d file rows; want 1 and 1", clips, len(files))
+	if len(files) != 1 {
+		t.Fatalf("after confirm want 1 live file, got %d", len(files))
 	}
 	if filepath.Base(files[0].FilePath) != "2024-03-10_14-19-01-front.mp4" {
 		t.Fatalf("surviving file = %s, want 14:19", files[0].FilePath)

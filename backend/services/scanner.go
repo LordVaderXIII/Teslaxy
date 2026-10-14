@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -52,6 +53,10 @@ var (
 	// read lock, so concurrent ScanAll calls would otherwise all pass the
 	// "does this clip exist?" check and insert duplicate rows.
 	recentIndexMu sync.Mutex
+
+	// reconcileDebounce is the fsnotify Remove/Rename debounce before the
+	// first ReconcileMissing pass. Tests may lower it.
+	reconcileDebounce = 2 * time.Second
 )
 
 func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
@@ -276,18 +281,58 @@ func (s *ScannerService) lockDir(dirPath string) func() {
 	return m.Unlock
 }
 
+// reconcileStateDir is where pending delete-all confirmation is persisted.
+func (s *ScannerService) reconcileStateDir() string {
+	if p := os.Getenv("CONFIG_PATH"); p != "" {
+		return p
+	}
+	return "."
+}
+
 // scheduleReconcile debounces filesystem removals into ReconcileMissing (M1).
 func (s *ScannerService) scheduleReconcile() {
+	s.scheduleReconcileAfter(reconcileDebounce)
+}
+
+// scheduleReconcileAfter runs ReconcileMissing once after d. Used for the
+// initial debounce and for pending-confirm retries after the min interval.
+func (s *ScannerService) scheduleReconcileAfter(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.reconcileTimer != nil {
 		s.reconcileTimer.Stop()
 	}
-	s.reconcileTimer = time.AfterFunc(2*time.Second, func() {
-		if _, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{}); err != nil {
-			log.Printf("ReconcileMissing after remove: %v", err)
-		}
+	s.reconcileTimer = time.AfterFunc(d, s.runReconcile)
+}
+
+// runReconcile is the watcher/ScanAll shared entry for ReconcileMissing.
+// When confirmation is pending it schedules another attempt after the remaining wait.
+func (s *ScannerService) runReconcile() {
+	_, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{
+		StateDir: s.reconcileStateDir(),
 	})
+	if errors.Is(err, ErrReconcilePendingConfirm) {
+		remain := PendingConfirmRemaining(s.reconcileStateDir(), s.FootagePath)
+		if remain <= 0 {
+			remain = time.Second
+		}
+		log.Printf("ReconcileMissing pending confirm; retry in %s", remain.Round(time.Millisecond))
+		s.scheduleReconcileAfter(remain)
+		return
+	}
+	if err != nil {
+		log.Printf("ReconcileMissing after remove: %v", err)
+	}
+}
+
+// PurgeMissing is the explicit operator purge path: soft-delete missing
+// VideoFiles and empty Clips under the footage root in one pass. The root
+// must still exist (a missing mount is refused).
+func (s *ScannerService) PurgeMissing() (ReconcileResult, error) {
+	return PurgeMissingFootage(s.DB, s.FootagePath, s.reconcileStateDir())
 }
 
 func (s *ScannerService) ScanAll() {
@@ -358,8 +403,18 @@ func (s *ScannerService) ScanAll() {
 		}
 	}()
 
-	// 4. Drop DB rows for footage that disappeared (M1). Shared with retention (#238).
-	if _, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{}); err != nil {
+	// 4. Reconcile missing footage (M1). Soft-delete only after a persisted,
+	// time-separated confirmation (or explicit PurgeMissing). Shared with retention (#238).
+	if _, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{
+		StateDir: s.reconcileStateDir(),
+	}); errors.Is(err, ErrReconcilePendingConfirm) {
+		remain := PendingConfirmRemaining(s.reconcileStateDir(), s.FootagePath)
+		if remain <= 0 {
+			remain = time.Second
+		}
+		log.Printf("ReconcileMissing after scan pending confirm; retry in %s", remain.Round(time.Millisecond))
+		s.scheduleReconcileAfter(remain)
+	} else if err != nil {
 		log.Printf("ReconcileMissing after scan: %v", err)
 	}
 
