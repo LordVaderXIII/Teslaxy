@@ -12,14 +12,21 @@ import (
 )
 
 var (
-	encoderMu       sync.Mutex
-	encoderDetected bool
-	encoder         string
-	hasNvenc        bool
+	encoderMu        sync.Mutex
+	encoderDetected  bool
+	encoderInFlight  bool
+	encoder          string
+	hasNvenc         bool
+	encoderReady     chan struct{} // closed when a probe attempt finishes
+	encoderProbeErr  error         // set if the leader failed before caching a result
 
-	// probeNVENCFn is swappable in tests.
+	// probeNVENCFn is swappable in tests. Must respect ctx cancellation.
 	probeNVENCFn = probeNVENCRuntime
 )
+
+func init() {
+	encoderReady = make(chan struct{})
+}
 
 type TranscodeQuality struct {
 	Height  int
@@ -37,12 +44,22 @@ func ResetEncoderDetectionForTest() {
 	encoderMu.Lock()
 	defer encoderMu.Unlock()
 	encoderDetected = false
+	encoderInFlight = false
 	encoder = ""
 	hasNvenc = false
+	encoderProbeErr = nil
+	// Recreate ready channel so waiters from a prior test cannot spuriously unblock.
+	select {
+	case <-encoderReady:
+		encoderReady = make(chan struct{})
+	default:
+		// still open from init or prior incomplete probe — leave it; tests reset between runs
+		encoderReady = make(chan struct{})
+	}
 }
 
 // SetNVENCProbeForTest overrides the runtime NVENC probe (tests only).
-func SetNVENCProbeForTest(fn func() bool) {
+func SetNVENCProbeForTest(fn func(context.Context) bool) {
 	encoderMu.Lock()
 	defer encoderMu.Unlock()
 	if fn == nil {
@@ -51,11 +68,19 @@ func SetNVENCProbeForTest(fn func() bool) {
 		probeNVENCFn = fn
 	}
 	encoderDetected = false
+	encoderInFlight = false
+	encoderProbeErr = nil
+	select {
+	case <-encoderReady:
+		encoderReady = make(chan struct{})
+	default:
+		encoderReady = make(chan struct{})
+	}
 }
 
 // ffmpegHasNVENCEncoder reports whether ffmpeg lists h264_nvenc (compiled-in).
-func ffmpegHasNVENCEncoder() bool {
-	cmd := exec.Command("ffmpeg", "-hide_banner", "-encoders")
+func ffmpegHasNVENCEncoder(ctx context.Context) bool {
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-encoders")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Warning: Failed to check ffmpeg encoders: %v", err)
@@ -66,12 +91,13 @@ func ffmpegHasNVENCEncoder() bool {
 
 // probeNVENCRuntime verifies NVENC can actually encode a frame.
 // Compiled-in encoders still fail on GPU-less hosts ("Cannot load libcuda.so.1").
-func probeNVENCRuntime() bool {
-	if !ffmpegHasNVENCEncoder() {
+func probeNVENCRuntime(ctx context.Context) bool {
+	if !ffmpegHasNVENCEncoder(ctx) {
 		return false
 	}
 	// Tiny lavfi encode: succeeds only when CUDA/NVENC runtime works.
-	cmd := exec.Command(
+	cmd := exec.CommandContext(
+		ctx,
 		"ffmpeg",
 		"-hide_banner",
 		"-loglevel", "error",
@@ -89,26 +115,94 @@ func probeNVENCRuntime() bool {
 	return true
 }
 
-// AutoDetectEncoder determines the best available encoder (working NVENC vs CPU).
-func AutoDetectEncoder() string {
-	encoderMu.Lock()
-	defer encoderMu.Unlock()
-	if encoderDetected {
-		return encoder
+// ensureEncoderDetected runs the NVENC probe at most once, under the ffmpeg
+// concurrency cap and ctx deadline. Waiters cancel via ctx instead of blocking
+// forever on the encoder mutex while ffmpeg runs.
+func ensureEncoderDetected(ctx context.Context) error {
+	for {
+		encoderMu.Lock()
+		if encoderDetected {
+			encoderMu.Unlock()
+			return nil
+		}
+		if encoderInFlight {
+			ready := encoderReady
+			encoderMu.Unlock()
+			select {
+			case <-ready:
+				// Loop: leader may have failed without caching; retry or observe result.
+				continue
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		// Become the probe leader.
+		encoderInFlight = true
+		ready := encoderReady
+		encoderMu.Unlock()
+
+		err := runEncoderProbe(ctx)
+
+		encoderMu.Lock()
+		encoderInFlight = false
+		if err != nil {
+			encoderProbeErr = err
+			// Do not cache on hard failure (slot/timeout) so a later request can retry.
+			close(ready)
+			encoderReady = make(chan struct{})
+			encoderMu.Unlock()
+			return err
+		}
+		encoderDetected = true
+		encoderProbeErr = nil
+		close(ready)
+		encoderReady = make(chan struct{})
+		encoderMu.Unlock()
+		return nil
 	}
+}
 
-	encoder = "libx264"
-	hasNvenc = false
+func runEncoderProbe(ctx context.Context) error {
+	probeCtx, cancel := context.WithTimeout(ctx, DefaultEncoderProbeTimeout)
+	defer cancel()
 
-	if probeNVENCFn() {
+	if err := AcquireFFmpeg(probeCtx); err != nil {
+		return fmt.Errorf("encoder probe slot: %w", err)
+	}
+	defer ReleaseFFmpeg()
+
+	ok := probeNVENCFn(probeCtx)
+
+	encoderMu.Lock()
+	hasNvenc = ok
+	if ok {
 		encoder = "h264_nvenc"
-		hasNvenc = true
 		log.Println("Transcoder: NVIDIA NVENC runtime probe succeeded; NVENC enabled.")
 	} else {
+		encoder = "libx264"
 		log.Println("Transcoder: NVIDIA NVENC not usable. Using CPU (libx264).")
 	}
+	encoderMu.Unlock()
+	return nil
+}
 
-	encoderDetected = true
+// AutoDetectEncoder determines the best available encoder (working NVENC vs CPU).
+// Prefer EnsureEncoderDetected / GetTranscodeStream with a request context when possible.
+func AutoDetectEncoder() string {
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultEncoderProbeTimeout)
+	defer cancel()
+	if err := ensureEncoderDetected(ctx); err != nil {
+		log.Printf("Transcoder: encoder probe aborted (%v); defaulting to libx264", err)
+		encoderMu.Lock()
+		defer encoderMu.Unlock()
+		if encoder == "" {
+			encoder = "libx264"
+		}
+		return encoder
+	}
+	encoderMu.Lock()
+	defer encoderMu.Unlock()
 	return encoder
 }
 
@@ -136,7 +230,9 @@ func GetTranscoderStatus() map[string]interface{} {
 // On success, the caller must invoke the returned cleanup func exactly once
 // (it waits for the process and releases the ffmpeg concurrency slot).
 func GetTranscodeStream(ctx context.Context, inputPath string, quality string) (*exec.Cmd, io.ReadCloser, func(), error) {
-	AutoDetectEncoder()
+	if err := ensureEncoderDetected(ctx); err != nil {
+		return nil, nil, nil, fmt.Errorf("encoder detection: %w", err)
+	}
 
 	if err := AcquireFFmpeg(ctx); err != nil {
 		return nil, nil, nil, fmt.Errorf("ffmpeg concurrency limit: %w", err)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -79,7 +80,7 @@ func TestServeVideo_TranscodeUsesLibx264WithoutGPU(t *testing.T) {
 func TestServeVideo_ForcedFFmpegFailureReturns5xxNotEmpty200(t *testing.T) {
 	// H3: when ffmpeg produces no bytes, response must be 5xx (not 200 with size 0).
 	services.ResetEncoderDetectionForTest()
-	services.SetNVENCProbeForTest(func() bool { return false })
+	services.SetNVENCProbeForTest(func(context.Context) bool { return false })
 	defer func() {
 		services.SetNVENCProbeForTest(nil)
 		services.ResetEncoderDetectionForTest()
@@ -116,7 +117,7 @@ func TestServeVideo_TranscodeRespectsConcurrencyCap(t *testing.T) {
 		t.Skip("ffmpeg not installed")
 	}
 	services.ResetEncoderDetectionForTest()
-	services.SetNVENCProbeForTest(func() bool { return false })
+	services.SetNVENCProbeForTest(func(context.Context) bool { return false })
 	services.SetMaxConcurrentFFmpegForTest(2)
 	defer func() {
 		services.SetMaxConcurrentFFmpegForTest(services.DefaultMaxConcurrentFFmpeg)

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"teslaxy/services"
@@ -37,19 +38,77 @@ func parseThumbnailTime(raw string) (float64, string, error) {
 	return t, normalized, nil
 }
 
-// probeVideoDurationSeconds returns media duration via ffprobe, or an error.
-func probeVideoDurationSeconds(ctx context.Context, path string) (float64, error) {
-	cmd := exec.CommandContext(ctx, "ffprobe",
+// durationFlight coalesces concurrent ffprobe calls for the same path.
+var durationFlight sync.Map // path -> *durationCall
+
+type durationCall struct {
+	once sync.Once
+	dur  float64
+	err  error
+	done chan struct{}
+}
+
+// ffprobeDurationCmd is swappable in tests (counting fakes).
+var ffprobeDurationCmd = defaultFFProbeDurationCmd
+
+func defaultFFProbeDurationCmd(ctx context.Context, path string) *exec.Cmd {
+	return exec.CommandContext(ctx, "ffprobe",
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
 		path,
 	)
-	out, err := cmd.Output()
-	if err != nil {
-		return 0, err
+}
+
+// SetFFProbeDurationCmdForTest overrides the ffprobe runner (tests only).
+func SetFFProbeDurationCmdForTest(fn func(context.Context, string) *exec.Cmd) {
+	if fn == nil {
+		ffprobeDurationCmd = defaultFFProbeDurationCmd
+	} else {
+		ffprobeDurationCmd = fn
 	}
-	return strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+}
+
+// ResetDurationFlightForTest clears coalesced duration probes (tests only).
+func ResetDurationFlightForTest() {
+	durationFlight = sync.Map{}
+}
+
+// probeVideoDurationSeconds returns media duration via ffprobe, under the ffmpeg
+// concurrency cap, coalescing concurrent probes for the same path.
+func probeVideoDurationSeconds(ctx context.Context, path string) (float64, error) {
+	actual, _ := durationFlight.LoadOrStore(path, &durationCall{done: make(chan struct{})})
+	call := actual.(*durationCall)
+
+	call.once.Do(func() {
+		defer close(call.done)
+		if err := services.AcquireFFmpeg(ctx); err != nil {
+			call.err = err
+			// Allow a later request to retry after a cancelled/failed flight.
+			durationFlight.Delete(path)
+			return
+		}
+		defer services.ReleaseFFmpeg()
+
+		cmd := ffprobeDurationCmd(ctx, path)
+		out, err := cmd.Output()
+		if err != nil {
+			call.err = err
+			durationFlight.Delete(path)
+			return
+		}
+		call.dur, call.err = strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+		if call.err != nil {
+			durationFlight.Delete(path)
+		}
+	})
+
+	select {
+	case <-call.done:
+		return call.dur, call.err
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
 }
 
 func getThumbnail(c *gin.Context) {
@@ -100,6 +159,31 @@ func getThumbnail(c *gin.Context) {
 		return
 	}
 
+	// Cache setup + lookup BEFORE ffprobe so cached hits never spawn probes.
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "/config"
+	}
+	thumbDir := filepath.Join(configPath, "thumbnails")
+	if err := os.MkdirAll(thumbDir, 0755); err != nil {
+		log.Printf("Failed to create thumbnail dir: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal error"})
+		return
+	}
+
+	cacheKey := fmt.Sprintf("%s|%s|%d", fullPath, normalizedTime, width)
+	hash := md5.Sum([]byte(cacheKey))
+	hashStr := hex.EncodeToString(hash[:])
+	thumbPath := filepath.Join(thumbDir, hashStr+".jpg")
+
+	if info, err := os.Stat(thumbPath); err == nil {
+		if info.Size() > 0 {
+			c.File(thumbPath)
+			return
+		}
+		os.Remove(thumbPath)
+	}
+
 	ctx, cancel := services.WithFFmpegTimeout(c.Request.Context(), services.DefaultThumbnailTimeout)
 	defer cancel()
 
@@ -114,35 +198,7 @@ func getThumbnail(c *gin.Context) {
 		log.Printf("Thumbnail duration probe failed for %s: %v (continuing)", fullPath, derr)
 	}
 
-	// 2. Cache Setup
-	configPath := os.Getenv("CONFIG_PATH")
-	if configPath == "" {
-		configPath = "/config"
-	}
-	thumbDir := filepath.Join(configPath, "thumbnails")
-	if err := os.MkdirAll(thumbDir, 0755); err != nil {
-		log.Printf("Failed to create thumbnail dir: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal error"})
-		return
-	}
-
-	// 3. Generate Cache Filename — normalized time so 0.1 / 0.10 / 0.100 share one key
-	cacheKey := fmt.Sprintf("%s|%s|%d", fullPath, normalizedTime, width)
-	hash := md5.Sum([]byte(cacheKey))
-	hashStr := hex.EncodeToString(hash[:])
-	thumbPath := filepath.Join(thumbDir, hashStr+".jpg")
-
-	// 4. Check Cache
-	if info, err := os.Stat(thumbPath); err == nil {
-		if info.Size() > 0 {
-			c.File(thumbPath)
-			return
-		}
-		// If 0 bytes (corrupted), delete it so we regenerate
-		os.Remove(thumbPath)
-	}
-
-	// 5. Generate Thumbnail using FFmpeg (bounded concurrency + timeout)
+	// Generate Thumbnail using FFmpeg (bounded concurrency + timeout)
 	if err := services.AcquireFFmpeg(ctx); err != nil {
 		log.Printf("Thumbnail ffmpeg slot: %v", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server busy generating thumbnails"})
@@ -158,6 +214,5 @@ func getThumbnail(c *gin.Context) {
 		return
 	}
 
-	// 6. Serve
 	c.File(thumbPath)
 }

@@ -7,11 +7,12 @@ import (
 	"time"
 )
 
-// Default concurrency and timeouts for ffmpeg fan-out (transcode + thumbnails).
+// Default concurrency and timeouts for ffmpeg fan-out (transcode + thumbnails + probes).
 const (
 	DefaultMaxConcurrentFFmpeg = 4
 	DefaultTranscodeTimeout    = 2 * time.Minute
 	DefaultThumbnailTimeout    = 30 * time.Second
+	DefaultEncoderProbeTimeout = 15 * time.Second
 )
 
 var (
@@ -44,6 +45,11 @@ func SetMaxConcurrentFFmpegForTest(n int) {
 // FFmpegPeakConcurrentForTest returns the high-water mark of in-flight ffmpeg slots.
 func FFmpegPeakConcurrentForTest() int64 {
 	return atomic.LoadInt64(&ffmpegPeak)
+}
+
+// FFmpegActiveForTest returns the current in-flight slot count.
+func FFmpegActiveForTest() int64 {
+	return atomic.LoadInt64(&ffmpegActive)
 }
 
 // AcquireFFmpeg blocks until a slot is available or ctx is done.
