@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,18 +15,51 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"teslaxy/services"
 )
+
+// parseThumbnailTime validates and normalizes the seek time query value.
+// Rejects NaN/Inf/negatives. Returns the normalized cache-key string (3 decimal places).
+func parseThumbnailTime(raw string) (float64, string, error) {
+	t, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid time parameter")
+	}
+	if math.IsNaN(t) || math.IsInf(t, 0) || t < 0 {
+		return 0, "", fmt.Errorf("invalid time parameter")
+	}
+	// Cap absurd magnitudes before they reach ffmpeg (e.g. 1e308).
+	const maxSeekSeconds = 24 * 60 * 60 // 24h
+	if t > maxSeekSeconds {
+		return 0, "", fmt.Errorf("time exceeds maximum")
+	}
+	normalized := strconv.FormatFloat(t, 'f', 3, 64)
+	return t, normalized, nil
+}
+
+// probeVideoDurationSeconds returns media duration via ffprobe, or an error.
+func probeVideoDurationSeconds(ctx context.Context, path string) (float64, error) {
+	cmd := exec.CommandContext(ctx, "ffprobe",
+		"-v", "error",
+		"-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1",
+		path,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	return strconv.ParseFloat(strings.TrimSpace(string(out)), 64)
+}
 
 func getThumbnail(c *gin.Context) {
 	videoPath := c.Param("path")
-	seekTime := c.DefaultQuery("time", "0.1")
+	seekTimeRaw := c.DefaultQuery("time", "0.1")
 	widthStr := c.DefaultQuery("w", "480")
 
-	// Validate seekTime
-	if _, err := strconv.ParseFloat(seekTime, 64); err != nil {
-		// Attempt to parse as duration if it's not a float?
-		// For now, strict check on float to avoid injection
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid time parameter"})
+	seekTime, normalizedTime, err := parseThumbnailTime(seekTimeRaw)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -65,6 +100,20 @@ func getThumbnail(c *gin.Context) {
 		return
 	}
 
+	ctx, cancel := services.WithFFmpegTimeout(c.Request.Context(), services.DefaultThumbnailTimeout)
+	defer cancel()
+
+	// Reject seeks past EOF with a clean 4xx (and log) instead of a bare ffmpeg 404/500.
+	if dur, derr := probeVideoDurationSeconds(ctx, fullPath); derr == nil {
+		if seekTime >= dur {
+			log.Printf("Thumbnail seek %.3fs past duration %.3fs for %s", seekTime, dur, fullPath)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "time exceeds video duration"})
+			return
+		}
+	} else {
+		log.Printf("Thumbnail duration probe failed for %s: %v (continuing)", fullPath, derr)
+	}
+
 	// 2. Cache Setup
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -77,9 +126,8 @@ func getThumbnail(c *gin.Context) {
 		return
 	}
 
-	// 3. Generate Cache Filename
-	// Hash the full path, seekTime AND width to ensure uniqueness
-	cacheKey := fmt.Sprintf("%s|%s|%d", fullPath, seekTime, width)
+	// 3. Generate Cache Filename — normalized time so 0.1 / 0.10 / 0.100 share one key
+	cacheKey := fmt.Sprintf("%s|%s|%d", fullPath, normalizedTime, width)
 	hash := md5.Sum([]byte(cacheKey))
 	hashStr := hex.EncodeToString(hash[:])
 	thumbPath := filepath.Join(thumbDir, hashStr+".jpg")
@@ -94,16 +142,18 @@ func getThumbnail(c *gin.Context) {
 		os.Remove(thumbPath)
 	}
 
-	// 5. Generate Thumbnail using FFmpeg
-	// -ss seekTime: seek to specific time
-	// -i input: input file
-	// -vframes 1: output 1 frame
-	// -vf scale=width:-1: resize to requested width (keep aspect ratio)
-	// -q:v 5: quality (1-31, lower is better)
+	// 5. Generate Thumbnail using FFmpeg (bounded concurrency + timeout)
+	if err := services.AcquireFFmpeg(ctx); err != nil {
+		log.Printf("Thumbnail ffmpeg slot: %v", err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Server busy generating thumbnails"})
+		return
+	}
+	defer services.ReleaseFFmpeg()
+
 	vf := fmt.Sprintf("scale=%d:-1", width)
-	cmd := exec.Command("ffmpeg", "-y", "-ss", seekTime, "-i", fullPath, "-vframes", "1", "-vf", vf, "-q:v", "5", thumbPath)
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-ss", normalizedTime, "-i", fullPath, "-vframes", "1", "-vf", vf, "-q:v", "5", thumbPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("FFmpeg error: %v, Output: %s", err, string(out))
+		log.Printf("FFmpeg thumbnail error for %s time=%s: %v, Output: %s", fullPath, normalizedTime, err, string(out))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate thumbnail"})
 		return
 	}

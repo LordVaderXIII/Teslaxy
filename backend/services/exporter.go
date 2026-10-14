@@ -95,7 +95,10 @@ func init() {
 	go cleanupExportHistory()
 }
 
-// CheckForNvidiaGPU checks if an NVIDIA GPU is available via nvidia-smi
+// CheckForNvidiaGPU reports whether NVENC is safe to use for exports.
+// It uses the shared runtime probe (encoder compiled-in AND works), not nvidia-smi alone:
+// Alpine/apk ffmpeg can lack h264_nvenc even when a GPU is present, and compiled-in
+// nvenc still fails on GPU-less hosts.
 func CheckForNvidiaGPU() bool {
 	gpuCheckLock.Lock()
 	defer gpuCheckLock.Unlock()
@@ -104,18 +107,23 @@ func CheckForNvidiaGPU() bool {
 		return hasNvidiaGPU
 	}
 
-	cmd := exec.Command("nvidia-smi", "-L")
-	err := cmd.Run()
-	if err == nil {
-		hasNvidiaGPU = true
-		log.Println("NVIDIA GPU detected. NVENC will be used.")
+	hasNvidiaGPU = HasWorkingNVENC()
+	if hasNvidiaGPU {
+		log.Println("NVIDIA NVENC runtime probe succeeded. NVENC will be used for exports.")
 	} else {
-		hasNvidiaGPU = false
-		log.Println("No NVIDIA GPU detected. Using CPU encoding.")
+		log.Println("NVIDIA NVENC not usable for exports. Using CPU encoding.")
 	}
 
 	gpuChecked = true
 	return hasNvidiaGPU
+}
+
+// ResetGPUCheckForTest clears the exporter GPU cache (tests only).
+func ResetGPUCheckForTest() {
+	gpuCheckLock.Lock()
+	defer gpuCheckLock.Unlock()
+	gpuChecked = false
+	hasNvidiaGPU = false
 }
 
 // QueueExport adds an export job to the queue

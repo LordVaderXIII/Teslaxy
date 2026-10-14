@@ -30,9 +30,21 @@ FROM alpine:3.21
 WORKDIR /app
 
 # Install Runtime Dependencies
-# ffmpeg for export
-# nvidia-driver libs are mounted by the runtime usually, but we need ffmpeg.
-RUN apk add --no-cache ffmpeg tzdata ca-certificates libva
+# Alpine's apk ffmpeg is built without NVENC. Under `runtime: nvidia` that made every
+# export fail with "Unknown encoder 'h264_nvenc'" once nvidia-smi succeeded (H5).
+# Ship a pinned BtbN GPL static build that includes h264_nvenc; CUDA libs still come
+# from the NVIDIA Container Toolkit at runtime. gcompat covers glibc symbols on musl.
+# Pin: BtbN autobuild-2026-10-13-13-05 / ffmpeg-n8.1.3 linux64-gpl-8.1
+ARG FFMPEG_BTBN_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-13-13-05/ffmpeg-n8.1.3-18-g46d899d7a0-linux64-gpl-8.1.tar.xz"
+RUN apk add --no-cache ca-certificates tzdata libva gcompat curl xz \
+	&& curl -fsSL -o /tmp/ffmpeg.tar.xz "${FFMPEG_BTBN_URL}" \
+	&& mkdir -p /tmp/ffmpeg \
+	&& tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1 \
+	&& install -m755 /tmp/ffmpeg/bin/ffmpeg /usr/local/bin/ffmpeg \
+	&& install -m755 /tmp/ffmpeg/bin/ffprobe /usr/local/bin/ffprobe \
+	&& rm -rf /tmp/ffmpeg /tmp/ffmpeg.tar.xz \
+	&& apk del curl xz \
+	&& /usr/local/bin/ffmpeg -hide_banner -encoders 2>/dev/null | grep -q h264_nvenc
 
 # Copy Binary
 COPY --from=backend-builder /app/backend/teslaxy /usr/local/bin/teslaxy
