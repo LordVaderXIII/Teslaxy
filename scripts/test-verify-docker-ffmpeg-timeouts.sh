@@ -354,8 +354,25 @@ esac
 EOF
 chmod +x "$FFMPEG_STUB"
 
+# Helper: write stub that prints a fixed stderr line then exits 1.
+write_ffmpeg_msg_stub() {
+	local msg="$1"
+	cat >"$FFMPEG_STUB" <<EOF
+#!/usr/bin/env bash
+echo $(printf '%q' "$msg") >&2
+exit 1
+EOF
+	chmod +x "$FFMPEG_STUB"
+}
+
 set +e
-FFMPEG_BIN="$FFMPEG_STUB" FFMPEG_STUB_MODE=ok "$ENCODE_CHECK" >"${LOG_DIR}/encode-ok.log" 2>&1
+# OK path: stub exits 0 with no stderr
+cat >"$FFMPEG_STUB" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$FFMPEG_STUB"
+FFMPEG_BIN="$FFMPEG_STUB" "$ENCODE_CHECK" >"${LOG_DIR}/encode-ok.log" 2>&1
 enc_ok=$?
 set -e
 [[ "$enc_ok" -eq 0 ]] && grep -q 'OK: h264_nvenc encode succeeded' "${LOG_DIR}/encode-ok.log" \
@@ -363,20 +380,53 @@ set -e
 	|| fail "encode OK expected exit 0 (got ${enc_ok})"
 
 set +e
-FFMPEG_BIN="$FFMPEG_STUB" FFMPEG_STUB_MODE=fail "$ENCODE_CHECK" >"${LOG_DIR}/encode-fail.log" 2>&1
+write_ffmpeg_msg_stub "bogus encoder init failure xyz"
+FFMPEG_BIN="$FFMPEG_STUB" "$ENCODE_CHECK" >"${LOG_DIR}/encode-fail.log" 2>&1
 enc_fail=$?
 set -e
 [[ "$enc_fail" -eq 1 ]] && grep -q 'ERROR: h264_nvenc encode failed' "${LOG_DIR}/encode-fail.log" \
 	&& pass "encode FAIL exits 1 (non-zero)" \
 	|| fail "encode FAIL expected exit 1 (got ${enc_fail})"
 
-set +e
-FFMPEG_BIN="$FFMPEG_STUB" FFMPEG_STUB_MODE=nolibcuda "$ENCODE_CHECK" >"${LOG_DIR}/encode-skip.log" 2>&1
-enc_skip=$?
-set -e
-[[ "$enc_skip" -eq 2 ]] && grep -qi 'SKIP:.*no GPU' "${LOG_DIR}/encode-skip.log" \
-	&& pass "no GPU (libcuda) exits 2 SKIP" \
-	|| fail "no GPU expected SKIP exit 2 (got ${enc_skip})"
+# Present-GPU / driver-loaded errors must FAIL (not SKIP).
+fail_msgs=(
+	"Provided device does not support required NVENC features"
+	"GPU device 0: encoder initialization failed: out of memory"
+	"Driver does not support the required nvenc API version"
+	"OpenEncodeSessionEx failed: out of memory"
+)
+for msg in "${fail_msgs[@]}"; do
+	write_ffmpeg_msg_stub "$msg"
+	set +e
+	FFMPEG_BIN="$FFMPEG_STUB" "$ENCODE_CHECK" >"${LOG_DIR}/encode-must-fail.log" 2>&1
+	ec=$?
+	set -e
+	if [[ "$ec" -eq 1 ]] && grep -q 'ERROR: h264_nvenc encode failed' "${LOG_DIR}/encode-must-fail.log" \
+		&& ! grep -q '^SKIP:' "${LOG_DIR}/encode-must-fail.log"; then
+		pass "encode FAIL (not SKIP) for: ${msg}"
+	else
+		fail "expected FAIL exit 1 for '${msg}' (got ${ec}); log: $(tr '\n' ' ' <"${LOG_DIR}/encode-must-fail.log")"
+	fi
+done
+
+# Missing driver / no device only — must SKIP (exit 2).
+skip_msgs=(
+	"Cannot load libcuda.so.1"
+	"CUDA_ERROR_NO_DEVICE"
+	"no CUDA-capable device"
+)
+for msg in "${skip_msgs[@]}"; do
+	write_ffmpeg_msg_stub "$msg"
+	set +e
+	FFMPEG_BIN="$FFMPEG_STUB" "$ENCODE_CHECK" >"${LOG_DIR}/encode-must-skip.log" 2>&1
+	ec=$?
+	set -e
+	if [[ "$ec" -eq 2 ]] && grep -qi 'SKIP:.*no GPU' "${LOG_DIR}/encode-must-skip.log"; then
+		pass "no GPU SKIP for: ${msg}"
+	else
+		fail "expected SKIP exit 2 for '${msg}' (got ${ec}); log: $(tr '\n' ' ' <"${LOG_DIR}/encode-must-skip.log")"
+	fi
+done
 
 # --- 7) REQUIRE_NVENC_ENCODE=1 turns SKIP into verify failure ---
 OK_PORT=$((PORT + 3))

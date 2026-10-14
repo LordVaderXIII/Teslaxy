@@ -33,9 +33,11 @@ fi
 
 printf '%s\n' "$out" >&2
 
-# No driver / no device — caller may SKIP (or FAIL if REQUIRE_NVENC_ENCODE=1).
-if printf '%s\n' "$out" | grep -Eqi \
-	'Cannot load libcuda\.so|libcuda\.so\.1|no CUDA-capable device|CUDA_ERROR_NO_DEVICE|No NVENC capable devices|GPU device|does not support|Driver does not support|nvidia driver|NVENC not available|OpenEncodeSessionEx failed'; then
+# Missing driver / no CUDA device only — caller may SKIP (or FAIL if
+# REQUIRE_NVENC_ENCODE=1). Broader NVENC init errors (OOM, unsupported
+# features, API version, OpenEncodeSessionEx, etc.) must FAIL (exit 1).
+if printf '%s\n' "$out" | grep -Eq \
+	'Cannot load libcuda\.so\.1|CUDA_ERROR_NO_DEVICE|no CUDA-capable device'; then
 	echo "SKIP: h264_nvenc encode unavailable (no GPU driver/device injected)" >&2
 	exit 2
 fi
