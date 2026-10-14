@@ -67,6 +67,15 @@ if [[ "$HTTP" -eq 1 ]]; then
     exit 1
   fi
 
+  # Retention writes always require JWT + CSRF, even when AUTH_ENABLED=false.
+  PASS="$(grep -oE 'Auto-generated admin password: [0-9a-f]+' "$FIX/server.log" | awk '{print $NF}' | tail -1 || true)"
+  TOKEN=""
+  if [[ -n "$PASS" ]]; then
+    TOKEN="$(curl -sf -X POST "http://127.0.0.1:18080/api/login" \
+      -H 'Content-Type: application/json' \
+      -d "{\"username\":\"admin\",\"password\":\"$PASS\"}" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))')"
+  fi
+
   {
     echo "GET /ping"
     curl -sf "http://127.0.0.1:18080/ping"
@@ -77,11 +86,21 @@ if [[ "$HTTP" -eq 1 ]]; then
     echo "GET /api/retention/settings"
     curl -sf "http://127.0.0.1:18080/api/retention/settings"
     echo
-    echo "POST /api/retention/run dry_run"
-    curl -sf -X POST "http://127.0.0.1:18080/api/retention/run" \
-      -H 'Content-Type: application/json' \
-      -d '{"dry_run":true}'
+    echo "POST /api/retention/run without auth (expect 401)"
+    curl -s -o /tmp/ret_unauth.out -w "%{http_code}" -X POST "http://127.0.0.1:18080/api/retention/run" \
+      -H 'Content-Type: application/json' -d '{"dry_run":true}'
     echo
+    if [[ -n "$TOKEN" ]]; then
+      echo "POST /api/retention/run dry_run (authed)"
+      curl -sf -X POST "http://127.0.0.1:18080/api/retention/run" \
+        -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer $TOKEN" \
+        -H 'X-Requested-With: XMLHttpRequest' \
+        -d '{"dry_run":true}'
+      echo
+    else
+      echo "SKIP authed run (could not parse admin password from server log)"
+    fi
   } | tee "$ART/verify-retention-http.log"
 fi
 

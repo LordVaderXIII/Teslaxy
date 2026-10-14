@@ -50,19 +50,38 @@ type RetentionReport struct {
 	Errors           []string             `json:"errors"`
 }
 
+type fileRef struct {
+	vfID     uint
+	path     string
+	size     int64
+	dev      uint64
+	ino      uint64
+	fresh    bool // recent mtime: counts toward size, not deletable
+	identity bool
+}
+
+type clipEval struct {
+	clip       models.Clip
+	files      []fileRef
+	deletable  []fileRef
+	bytes      int64 // unique-inode deletable bytes for this clip
+	protected  bool
+	tombstone  bool // soft-deleted pending recovery
+}
+
 // RetentionService prunes old / oversized footage under FOOTAGE_PATH.
 type RetentionService struct {
 	DB          *gorm.DB
 	ConfigPath  string
 	FootagePath string
 
-	mu          sync.Mutex
-	cfg         RetentionConfig
-	stopCh      chan struct{}
-	nowFn       func() time.Time
-	lstatFn     func(string) (os.FileInfo, error)
-	removeFn    func(string) error
-	readDirFn   func(string) ([]os.DirEntry, error)
+	mu       sync.Mutex // config + serializes Run
+	clipMu   sync.Mutex // coordinates protect vs prune
+	cfg      RetentionConfig
+	stopCh   chan struct{}
+	nowFn    func() time.Time
+	resolveFn func(root, path string) (string, os.FileInfo, error)
+	unlinkFn  func(root, path string) (int64, error)
 }
 
 func NewRetentionService(db *gorm.DB, footagePath, configPath string) *RetentionService {
@@ -81,9 +100,8 @@ func NewRetentionService(db *gorm.DB, footagePath, configPath string) *Retention
 		cfg:         cfg,
 		stopCh:      make(chan struct{}),
 		nowFn:       time.Now,
-		lstatFn:     os.Lstat,
-		removeFn:    os.Remove,
-		readDirFn:   os.ReadDir,
+		resolveFn:   resolveUnderRootNoFollow,
+		unlinkFn:    unlinkUnderRootNoFollow,
 	}
 }
 
@@ -95,6 +113,9 @@ func (s *RetentionService) Config() RetentionConfig {
 
 func (s *RetentionService) SetConfig(cfg RetentionConfig) error {
 	normalizeRetentionConfig(&cfg)
+	if err := ValidateRetentionConfig(cfg); err != nil {
+		return err
+	}
 	if strings.TrimSpace(cfg.FootagePath) == "" {
 		cfg.FootagePath = s.FootagePath
 	}
@@ -123,19 +144,19 @@ func (s *RetentionService) ReloadConfig() error {
 	return nil
 }
 
+// WithClipLock runs fn while holding the protect/prune coordination lock.
+func (s *RetentionService) WithClipLock(fn func()) {
+	s.clipMu.Lock()
+	defer s.clipMu.Unlock()
+	fn()
+}
+
 // IsClipProtected returns true for user-flagged clips and Tesla SavedClips.
 func IsClipProtected(clip models.Clip) bool {
 	if clip.Protected {
 		return true
 	}
 	return strings.EqualFold(clip.Event, "Saved")
-}
-
-type clipEval struct {
-	clip      models.Clip
-	paths     []string
-	bytes     int64
-	protected bool
 }
 
 // Run executes one retention pass using the current config.
@@ -147,15 +168,14 @@ func (s *RetentionService) Run() (*RetentionReport, error) {
 }
 
 // RunWithConfig executes one pass with an explicit config (does not persist it).
-// Dry-run never deletes files or DB rows. When Enabled is false and DryRun is
-// false, the report is empty. DryRun alone still evaluates candidates.
 func (s *RetentionService) RunWithConfig(cfg RetentionConfig) (*RetentionReport, error) {
 	normalizeRetentionConfig(&cfg)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	footagePath := cfg.FootagePath
 	if strings.TrimSpace(footagePath) == "" {
-		s.mu.Lock()
 		footagePath = s.FootagePath
-		s.mu.Unlock()
 	}
 
 	report := &RetentionReport{
@@ -183,69 +203,29 @@ func (s *RetentionService) RunWithConfig(cfg RetentionConfig) (*RetentionReport,
 	}
 	report.FootageRoot = root
 
-	var clips []models.Clip
-	if err := s.DB.Preload("VideoFiles").Preload("Telemetry").Find(&clips).Error; err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("load clips: %v", err))
-		report.FinishedAt = s.nowFn().UTC()
-		logRetentionReport(report)
-		return report, err
-	}
-
-	minAge := cfg.MinFileAge()
-	now := s.nowFn()
-	evals := make([]clipEval, 0, len(clips))
-	var totalBytes int64
-
-	for _, clip := range clips {
-		ev := clipEval{clip: clip, protected: IsClipProtected(clip)}
-		for _, vf := range clip.VideoFiles {
-			safePath, skip, ok := s.safeDeletablePath(root, vf.FilePath, minAge, now)
-			if !ok {
-				if skip.Reason != "" {
-					skip.ClipID = clip.ID
-					report.Skipped = append(report.Skipped, skip)
-				}
-				continue
-			}
-			info, err := s.lstatFn(safePath)
-			if err != nil {
-				report.Skipped = append(report.Skipped, RetentionSkip{
-					ClipID: clip.ID,
-					Path:   safePath,
-					Reason: "stat_failed",
-				})
-				continue
-			}
-			ev.paths = append(ev.paths, safePath)
-			ev.bytes += info.Size()
+	doDelete := cfg.Enabled && !cfg.DryRun
+	if doDelete {
+		if err := s.completePendingDeletes(root, cfg, report); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("pending recovery: %v", err))
 		}
-		totalBytes += ev.bytes
-		evals = append(evals, ev)
 	}
+
+	evals, totalBytes, skips := s.evaluateLiveClips(root, cfg)
+	report.Skipped = append(report.Skipped, skips...)
 	report.TotalBytesBefore = totalBytes
 
-	sort.SliceStable(evals, func(i, j int) bool {
-		ti, tj := evals[i].clip.Timestamp, evals[j].clip.Timestamp
-		if ti.Equal(tj) {
-			return evals[i].clip.ID < evals[j].clip.ID
-		}
-		return ti.Before(tj)
-	})
-
-	selected := selectRetentionCandidates(evals, cfg, now, totalBytes)
+	selected := selectRetentionCandidates(evals, cfg, s.nowFn(), totalBytes)
 	report.Candidates = selected
 
-	doDelete := cfg.Enabled && !cfg.DryRun
 	var bytesFreed int64
 	for _, cand := range selected {
 		if !doDelete {
 			bytesFreed += cand.Bytes
 			continue
 		}
-		freed, err := s.pruneClip(root, cand)
+		freed, err := s.pruneClip(root, cand, cfg)
 		if err != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("clip %d: %v", cand.ClipID, err))
-			// Still count successfully removed bytes from a partial pass.
 			bytesFreed += freed
 			continue
 		}
@@ -269,12 +249,121 @@ func (s *RetentionService) RunWithConfig(cfg RetentionConfig) (*RetentionReport,
 	return report, nil
 }
 
+func (s *RetentionService) evaluateLiveClips(root string, cfg RetentionConfig) ([]clipEval, int64, []RetentionSkip) {
+	var clips []models.Clip
+	if err := s.DB.Preload("VideoFiles").Find(&clips).Error; err != nil {
+		return nil, 0, []RetentionSkip{{Reason: "load_clips_failed"}}
+	}
+
+	minAge := cfg.MinFileAge()
+	now := s.nowFn()
+	evals := make([]clipEval, 0, len(clips))
+	skips := []RetentionSkip{}
+	seenInodes := map[string]bool{}
+	var totalBytes int64
+
+	for _, clip := range clips {
+		ev := clipEval{clip: clip, protected: IsClipProtected(clip)}
+		seenPaths := map[string]bool{}
+		for _, vf := range clip.VideoFiles {
+			abs, info, reason, ok := s.classifyPath(root, vf.FilePath, minAge, now)
+			if !ok {
+				if reason != "" {
+					skips = append(skips, RetentionSkip{ClipID: clip.ID, Path: vf.FilePath, Reason: reason})
+				}
+				continue
+			}
+			if seenPaths[abs] {
+				continue
+			}
+			seenPaths[abs] = true
+
+			ref := fileRef{vfID: vf.ID, path: abs, size: info.Size()}
+			if dev, ino, idOK := fileIdentity(info); idOK {
+				ref.dev, ref.ino, ref.identity = dev, ino, true
+				key := fmt.Sprintf("%d:%d", dev, ino)
+				if !seenInodes[key] {
+					seenInodes[key] = true
+					totalBytes += ref.size
+				}
+			} else {
+				totalBytes += ref.size
+			}
+			if reason == "recent_mtime" {
+				ref.fresh = true
+				skips = append(skips, RetentionSkip{ClipID: clip.ID, Path: abs, Reason: "recent_mtime"})
+			}
+			ev.files = append(ev.files, ref)
+			if !ref.fresh && !ev.protected {
+				ev.deletable = append(ev.deletable, ref)
+			}
+		}
+		ev.bytes = uniqueInodeBytes(ev.deletable)
+		evals = append(evals, ev)
+	}
+	return evals, totalBytes, skips
+}
+
+func uniqueInodeBytes(files []fileRef) int64 {
+	seen := map[string]bool{}
+	var sum int64
+	for _, f := range files {
+		if f.identity {
+			key := fmt.Sprintf("%d:%d", f.dev, f.ino)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+		} else {
+			if seen[f.path] {
+				continue
+			}
+			seen[f.path] = true
+		}
+		sum += f.size
+	}
+	return sum
+}
+
+func (s *RetentionService) classifyPath(root, filePath string, minAge time.Duration, now time.Time) (abs string, info os.FileInfo, reason string, ok bool) {
+	abs, info, err := s.resolveFn(root, filePath)
+	if err != nil {
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "outside_root"):
+			return "", nil, "outside_root", false
+		case strings.Contains(msg, "symlink"):
+			return "", nil, "symlink", false
+		case strings.Contains(msg, "missing"):
+			return "", nil, "missing", false
+		case strings.Contains(msg, "is_directory"):
+			return "", nil, "is_directory", false
+		case strings.Contains(msg, "empty_path"):
+			return "", nil, "empty_path", false
+		default:
+			return "", nil, "resolve_failed", false
+		}
+	}
+	if minAge > 0 && now.Sub(info.ModTime()) < minAge {
+		return abs, info, "recent_mtime", true // still counts toward size
+	}
+	return abs, info, "", true
+}
+
 func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.Time, totalBytes int64) []RetentionCandidate {
 	maxAgeCutoff := time.Time{}
 	if cfg.MaxAgeDays > 0 {
 		maxAgeCutoff = now.AddDate(0, 0, -cfg.MaxAgeDays)
 	}
 	maxBytes := cfg.MaxSizeBytes()
+
+	sort.SliceStable(evals, func(i, j int) bool {
+		ti, tj := evals[i].clip.Timestamp, evals[j].clip.Timestamp
+		if ti.Equal(tj) {
+			return evals[i].clip.ID < evals[j].clip.ID
+		}
+		return ti.Before(tj)
+	})
 
 	ageIDs := map[uint]bool{}
 	sizeIDs := map[uint]bool{}
@@ -283,7 +372,7 @@ func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.T
 	projected := totalBytes
 
 	for _, ev := range evals {
-		if ev.protected || len(ev.paths) == 0 {
+		if ev.protected || len(ev.deletable) == 0 {
 			continue
 		}
 		if cfg.MaxAgeDays > 0 && ev.clip.Timestamp.Before(maxAgeCutoff) {
@@ -299,7 +388,7 @@ func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.T
 			if projected <= maxBytes {
 				break
 			}
-			if ev.protected || len(ev.paths) == 0 || selectedSet[ev.clip.ID] {
+			if ev.protected || len(ev.deletable) == 0 || selectedSet[ev.clip.ID] {
 				continue
 			}
 			sizeIDs[ev.clip.ID] = true
@@ -307,12 +396,6 @@ func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.T
 			selectedSet[ev.clip.ID] = true
 			projected -= ev.bytes
 		}
-		// Clips already selected for age also count as size when the post-age
-		// projected total was still over the cap before they were removed.
-		// Label age-selected clips as age+size when size pressure remains after
-		// removing only non-age candidates would be insufficient — simpler rule:
-		// if we entered this block, every selected clip contributed to relieving
-		// the cap. Mark age clips as age+size; pure size stay size.
 		for id := range ageIDs {
 			if selectedSet[id] {
 				sizeIDs[id] = true
@@ -333,6 +416,10 @@ func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.T
 		case hasAge:
 			reason = "age"
 		}
+		paths := make([]string, 0, len(ev.deletable))
+		for _, f := range ev.deletable {
+			paths = append(paths, f.path)
+		}
 		out = append(out, RetentionCandidate{
 			ClipID:    ev.clip.ID,
 			Event:     ev.clip.Event,
@@ -340,41 +427,82 @@ func selectRetentionCandidates(evals []clipEval, cfg RetentionConfig, now time.T
 			Timestamp: ev.clip.Timestamp,
 			Reason:    reason,
 			Bytes:     ev.bytes,
-			FilePaths: append([]string(nil), ev.paths...),
+			FilePaths: paths,
 		})
 	}
 	return out
 }
 
-func (s *RetentionService) pruneClip(root string, cand RetentionCandidate) (int64, error) {
-	var clip models.Clip
-	if err := s.DB.Preload("VideoFiles").Preload("Telemetry").First(&clip, cand.ClipID).Error; err != nil {
-		return 0, err
-	}
-	if IsClipProtected(clip) {
-		return 0, fmt.Errorf("refusing to prune protected clip")
-	}
+func (s *RetentionService) pruneClip(root string, cand RetentionCandidate, cfg RetentionConfig) (int64, error) {
+	s.clipMu.Lock()
+	defer s.clipMu.Unlock()
 
-	// Soft-delete DB rows first so the library stays consistent if file IO fails mid-way.
+	minAge := cfg.MinFileAge()
+	now := s.nowFn()
+
 	tx := s.DB.Begin()
 	if tx.Error != nil {
 		return 0, tx.Error
 	}
-	for i := range clip.VideoFiles {
-		if err := tx.Delete(&clip.VideoFiles[i]).Error; err != nil {
-			tx.Rollback()
-			return 0, err
-		}
-	}
-	if clip.Telemetry.ID != 0 {
-		if err := tx.Delete(&clip.Telemetry).Error; err != nil {
-			tx.Rollback()
-			return 0, err
-		}
-	}
-	if err := tx.Delete(&clip).Error; err != nil {
+
+	var clip models.Clip
+	if err := tx.Preload("VideoFiles").Preload("Telemetry").First(&clip, cand.ClipID).Error; err != nil {
 		tx.Rollback()
 		return 0, err
+	}
+	if IsClipProtected(clip) {
+		tx.Rollback()
+		return 0, fmt.Errorf("refusing to prune protected clip")
+	}
+
+	// Soft-delete only the selected video files that still pass safety + freshness.
+	selected := map[string]bool{}
+	for _, p := range cand.FilePaths {
+		selected[filepath.Clean(p)] = true
+	}
+	var toDelete []models.VideoFile
+	for _, vf := range clip.VideoFiles {
+		abs, info, reason, ok := s.classifyPath(root, vf.FilePath, minAge, now)
+		if !ok || reason == "recent_mtime" {
+			continue
+		}
+		if !selected[filepath.Clean(abs)] && !selected[filepath.Clean(vf.FilePath)] {
+			continue
+		}
+		_ = info
+		toDelete = append(toDelete, vf)
+	}
+	if len(toDelete) == 0 {
+		tx.Rollback()
+		return 0, fmt.Errorf("no deletable files remaining")
+	}
+
+	for i := range toDelete {
+		if err := tx.Delete(&toDelete[i]).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+	}
+
+	// Soft-delete clip+telemetry only when no live video files remain.
+	var liveVF int
+	if err := tx.Model(&models.VideoFile{}).Where("clip_id = ?", clip.ID).Count(&liveVF).Error; err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+	clipSoftDeleted := false
+	if liveVF == 0 {
+		if clip.Telemetry.ID != 0 {
+			if err := tx.Delete(&clip.Telemetry).Error; err != nil {
+				tx.Rollback()
+				return 0, err
+			}
+		}
+		if err := tx.Delete(&clip).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
+		clipSoftDeleted = true
 	}
 	if err := tx.Commit().Error; err != nil {
 		return 0, err
@@ -382,43 +510,38 @@ func (s *RetentionService) pruneClip(root string, cand RetentionCandidate) (int6
 
 	var freed int64
 	var fileErrs []string
-	for _, p := range cand.FilePaths {
-		// minAge=0 on delete: candidate already passed the freshness check at selection.
-		safePath, skip, ok := s.safeDeletablePath(root, p, 0, s.nowFn())
-		if !ok {
-			fileErrs = append(fileErrs, fmt.Sprintf("%s: %s", p, skip.Reason))
-			continue
-		}
-		info, err := s.lstatFn(safePath)
+	seenInodes := map[string]bool{}
+	for _, vf := range toDelete {
+		n, err := s.unlinkSelected(root, vf, minAge, now, seenInodes)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue
+			fileErrs = append(fileErrs, fmt.Sprintf("%s: %v", vf.FilePath, err))
+			// Restore soft-deleted row so partial prune keeps DB for remaining files.
+			_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("id = ?", vf.ID).Update("deleted_at", nil).Error
+			continue
+		}
+		freed += n
+		if err := s.DB.Unscoped().Delete(&models.VideoFile{}, vf.ID).Error; err != nil {
+			fileErrs = append(fileErrs, fmt.Sprintf("hard-delete videofile %d: %v", vf.ID, err))
+		}
+	}
+
+	if clipSoftDeleted {
+		// If any selected file failed and was restored, undelete the clip too.
+		var stillLive int
+		_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("clip_id = ? AND deleted_at IS NULL", clip.ID).Count(&stillLive)
+		var stillPending int
+		_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("clip_id = ? AND deleted_at IS NOT NULL", clip.ID).Count(&stillPending)
+		if stillLive > 0 {
+			_ = s.DB.Unscoped().Model(&models.Clip{}).Where("id = ?", clip.ID).Update("deleted_at", nil).Error
+			_ = s.DB.Unscoped().Model(&models.Telemetry{}).Where("clip_id = ?", clip.ID).Update("deleted_at", nil).Error
+		} else if stillPending == 0 {
+			if err := s.DB.Unscoped().Where("clip_id = ?", clip.ID).Delete(&models.Telemetry{}).Error; err != nil {
+				fileErrs = append(fileErrs, fmt.Sprintf("hard-delete telemetry: %v", err))
 			}
-			fileErrs = append(fileErrs, err.Error())
-			continue
+			if err := s.DB.Unscoped().Delete(&models.Clip{}, clip.ID).Error; err != nil {
+				fileErrs = append(fileErrs, fmt.Sprintf("hard-delete clip: %v", err))
+			}
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			fileErrs = append(fileErrs, fmt.Sprintf("%s: symlink", safePath))
-			continue
-		}
-		size := info.Size()
-		if err := s.removeFn(safePath); err != nil && !os.IsNotExist(err) {
-			fileErrs = append(fileErrs, err.Error())
-			continue
-		}
-		freed += size
-	}
-
-	if clip.SourceDir != "" && (strings.EqualFold(clip.Event, "Sentry") || strings.EqualFold(clip.Event, "Saved")) {
-		if err := s.removeEmptyEventDir(root, clip.SourceDir); err != nil {
-			fileErrs = append(fileErrs, err.Error())
-		}
-	}
-
-	if len(fileErrs) == 0 {
-		s.DB.Unscoped().Where("clip_id = ?", clip.ID).Delete(&models.VideoFile{})
-		s.DB.Unscoped().Where("clip_id = ?", clip.ID).Delete(&models.Telemetry{})
-		s.DB.Unscoped().Delete(&models.Clip{}, clip.ID)
 	}
 
 	if len(fileErrs) > 0 {
@@ -427,91 +550,99 @@ func (s *RetentionService) pruneClip(root string, cand RetentionCandidate) (int6
 	return freed, nil
 }
 
-func (s *RetentionService) removeEmptyEventDir(root, sourceDir string) error {
-	candidate := sourceDir
-	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(root, sourceDir)
-	}
-	abs, err := filepath.Abs(filepath.Clean(candidate))
-	if err != nil {
-		return err
-	}
-	if !pathInsideRoot(abs, root) {
-		return fmt.Errorf("event dir outside root: %s", abs)
-	}
-	info, err := s.lstatFn(abs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+func (s *RetentionService) unlinkSelected(root string, vf models.VideoFile, minAge time.Duration, now time.Time, seenInodes map[string]bool) (int64, error) {
+	abs, info, reason, ok := s.classifyPath(root, vf.FilePath, minAge, now)
+	if !ok {
+		if reason == "missing" {
+			return 0, nil
 		}
-		return err
+		return 0, fmt.Errorf("%s", reason)
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("skip symlink event dir: %s", abs)
+	if reason == "recent_mtime" {
+		return 0, fmt.Errorf("recent_mtime")
 	}
-	if !info.IsDir() {
-		return nil
+	dev, ino, idOK := fileIdentity(info)
+	key := abs
+	if idOK {
+		key = fmt.Sprintf("%d:%d", dev, ino)
 	}
-	entries, err := s.readDirFn(abs)
+	if seenInodes[key] {
+		// Already unlinked via hardlink sibling this pass.
+		return 0, nil
+	}
+	freed, err := s.unlinkFn(root, abs)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	for _, e := range entries {
-		p := filepath.Join(abs, e.Name())
-		fi, err := s.lstatFn(p)
-		if err != nil {
-			continue
-		}
-		if fi.Mode()&os.ModeSymlink != 0 || fi.IsDir() {
-			continue
-		}
-		_ = s.removeFn(p)
-	}
-	entries, err = s.readDirFn(abs)
-	if err != nil {
-		return err
-	}
-	if len(entries) == 0 {
-		return s.removeFn(abs)
-	}
-	return nil
+	seenInodes[key] = true
+	return freed, nil
 }
 
-// safeDeletablePath ensures the path is under root, is not a symlink, and is not freshly written.
-// It never follows symlinks (Lstat only).
-func (s *RetentionService) safeDeletablePath(root, filePath string, minAge time.Duration, now time.Time) (string, RetentionSkip, bool) {
-	if strings.TrimSpace(filePath) == "" {
-		return "", RetentionSkip{Reason: "empty_path"}, false
+// completePendingDeletes finishes soft-deleted video files left by a prior crash.
+func (s *RetentionService) completePendingDeletes(root string, cfg RetentionConfig, report *RetentionReport) error {
+	s.clipMu.Lock()
+	defer s.clipMu.Unlock()
+
+	var pending []models.VideoFile
+	if err := s.DB.Unscoped().Where("deleted_at IS NOT NULL").Find(&pending).Error; err != nil {
+		return err
 	}
-	cleaned := filepath.Clean(filePath)
-	if !filepath.IsAbs(cleaned) {
-		cleaned = filepath.Join(root, cleaned)
-	}
-	abs, err := filepath.Abs(cleaned)
-	if err != nil {
-		return "", RetentionSkip{Path: filePath, Reason: "abs_failed"}, false
-	}
-	if !pathInsideRoot(abs, root) {
-		return "", RetentionSkip{Path: abs, Reason: "outside_root"}, false
+	minAge := cfg.MinFileAge()
+	now := s.nowFn()
+	seenInodes := map[string]bool{}
+	clipIDs := map[uint]bool{}
+
+	for _, vf := range pending {
+		clipIDs[vf.ClipID] = true
+		// Skip if parent clip became protected after the soft-delete.
+		var clip models.Clip
+		if err := s.DB.Unscoped().First(&clip, vf.ClipID).Error; err == nil && IsClipProtected(clip) {
+			_ = s.DB.Unscoped().Model(&vf).Update("deleted_at", nil).Error
+			_ = s.DB.Unscoped().Model(&models.Clip{}).Where("id = ?", clip.ID).Update("deleted_at", nil).Error
+			continue
+		}
+		abs, info, reason, ok := s.classifyPath(root, vf.FilePath, minAge, now)
+		if !ok {
+			if reason == "missing" {
+				if err := s.DB.Unscoped().Delete(&models.VideoFile{}, vf.ID).Error; err != nil {
+					report.Errors = append(report.Errors, fmt.Sprintf("hard-delete missing vf %d: %v", vf.ID, err))
+				}
+				continue
+			}
+			report.Skipped = append(report.Skipped, RetentionSkip{ClipID: vf.ClipID, Path: vf.FilePath, Reason: reason})
+			continue
+		}
+		if reason == "recent_mtime" {
+			report.Skipped = append(report.Skipped, RetentionSkip{ClipID: vf.ClipID, Path: abs, Reason: "recent_mtime"})
+			continue
+		}
+		_ = info
+		freed, err := s.unlinkSelected(root, vf, minAge, now, seenInodes)
+		if err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("pending vf %d: %v", vf.ID, err))
+			continue
+		}
+		report.BytesFreed += freed
+		if err := s.DB.Unscoped().Delete(&models.VideoFile{}, vf.ID).Error; err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("hard-delete pending vf %d: %v", vf.ID, err))
+		}
 	}
 
-	info, err := s.lstatFn(abs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", RetentionSkip{Path: abs, Reason: "missing"}, false
+	for id := range clipIDs {
+		var live int
+		_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("clip_id = ? AND deleted_at IS NULL", id).Count(&live)
+		var pend int
+		_ = s.DB.Unscoped().Model(&models.VideoFile{}).Where("clip_id = ? AND deleted_at IS NOT NULL", id).Count(&pend)
+		if live == 0 && pend == 0 {
+			if err := s.DB.Unscoped().Where("clip_id = ?", id).Delete(&models.Telemetry{}).Error; err != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("hard-delete telemetry clip %d: %v", id, err))
+			}
+			if err := s.DB.Unscoped().Delete(&models.Clip{}, id).Error; err != nil {
+				report.Errors = append(report.Errors, fmt.Sprintf("hard-delete clip %d: %v", id, err))
+			}
 		}
-		return "", RetentionSkip{Path: abs, Reason: "lstat_failed"}, false
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return "", RetentionSkip{Path: abs, Reason: "symlink"}, false
-	}
-	if info.IsDir() {
-		return "", RetentionSkip{Path: abs, Reason: "is_directory"}, false
-	}
-	if minAge > 0 && now.Sub(info.ModTime()) < minAge {
-		return "", RetentionSkip{Path: abs, Reason: "recent_mtime"}, false
-	}
-	return abs, RetentionSkip{}, true
+	return nil
 }
 
 func logRetentionReport(report *RetentionReport) {

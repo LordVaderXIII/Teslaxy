@@ -34,7 +34,6 @@ func SetupRoutes(r *gin.Engine) {
 	{
 		api.GET("/clips", getClips)
 		api.GET("/clips/:id", getClipDetails)
-		api.POST("/clips/:id/protect", setClipProtected)
 		api.GET("/library", getLibrary)
 		api.GET("/library/files", getLibraryFiles)
 		// Apply CORS only to video serving to support 3D textures (crossOrigin)
@@ -49,10 +48,11 @@ func SetupRoutes(r *gin.Engine) {
 		api.GET("/export/:jobID", getExportStatus)
 		api.GET("/downloads/:filename", downloadExport)
 
-		// Footage retention
+		// Footage retention (reads follow AUTH_ENABLED; writes always require auth + CSRF)
 		api.GET("/retention/settings", getRetentionSettings)
-		api.PUT("/retention/settings", putRetentionSettings)
-		api.POST("/retention/run", postRetentionRun)
+		api.PUT("/retention/settings", RequireAuthAlways(), MutationGuard(), putRetentionSettings)
+		api.POST("/retention/run", RequireAuthAlways(), MutationGuard(), postRetentionRun)
+		api.POST("/clips/:id/protect", RequireAuthAlways(), MutationGuard(), setClipProtected)
 	}
 }
 

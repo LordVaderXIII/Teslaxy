@@ -102,7 +102,9 @@ Settings also persist in `$CONFIG_PATH/retention.json` and via:
 
 **Protection:** Tesla `SavedClips` (`event=Saved`) and any clip with `protected=true` are never pruned.
 
-**Safety:** Paths outside `FOOTAGE_PATH` are refused, symlinks are not followed, and recently written files are skipped. Soft-delete in `teslacam.db` happens before file removal so a partial IO failure cannot re-surface deleted clips in the library.
+**Safety:** Deletes walk every path component with `openat(O_NOFOLLOW)` / `unlinkat` and refuse symlinked parents. Only selected clip files are removed (not whole event folders). Recently written files are skipped. Soft-delete happens before unlink; pending tombstones are finished on the next run and the scanner will not recreate them. Partial failures keep DB rows for files that remain on disk.
+
+**Auth:** Retention/protect write APIs always require a Bearer token (even if `AUTH_ENABLED=false`), `Content-Type: application/json`, a CSRF header (`X-Requested-With` or `X-Teslaxy-CSRF`), and a same-origin `Origin`/`Referer` when those headers are present.
 
 **Defaults rationale:** 90 days keeps a useful Sentry/Recent history; ~300 GB leaves headroom on a share that is already near capacity (e.g. Valhalla at ~91% full). Start with `RETENTION_DRY_RUN=true` and inspect logs before enabling deletes. Destructive prune requires a writable `/footage` mount.
 

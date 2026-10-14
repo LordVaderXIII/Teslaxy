@@ -24,13 +24,14 @@ Preconditions: fixture footage only; do not point at Valhalla unless explicitly 
 
 - Unit coverage: `cd backend && go test ./services/ -count=1 -run Retention`
 - Fixture dry-run: `cd backend && go run ./cmd/retention-dry-run`
-- HTTP dry-run (server launched per `SKILL.md`):  
-  `curl -sf -X POST http://127.0.0.1:18080/api/retention/run -H 'Content-Type: application/json' -d '{"dry_run":true}'`
+- HTTP dry-run (server launched per `SKILL.md`): obtain a JWT via `/api/login`, then:
+  `curl -sf -X POST http://127.0.0.1:18080/api/retention/run -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -H 'X-Requested-With: XMLHttpRequest' -d '{"dry_run":true}'`
 - Proof: report has `"dry_run":true`, `"deleted":[]`, and fixture files still exist on disk. Save JSON under `/opt/cursor/artifacts/retention-dry-run.json`.
 
 ## Gotchas
 
 - Docker compose mounts footage `:ro` by default — destructive prune needs a writable mount.
-- Dry-run with `enabled=false` still evaluates when `dry_run=true` is forced on the run request.
-- Symlinks under the footage tree are skipped (never followed).
+- Write endpoints always need Bearer auth + CSRF header, even when `AUTH_ENABLED=false`.
+- Malformed `dry_run` (string/number) returns HTTP 400 and must not delete.
+- Symlinked parent directories are refused (`openat` no-follow); only selected files are unlinked.
 - Files with mtime newer than `min_file_age_minutes` (default 15) are skipped as in-progress writes.

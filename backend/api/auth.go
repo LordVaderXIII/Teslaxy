@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -94,27 +95,92 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		tokenString := ""
-		authHeader := c.GetHeader("Authorization")
-		if authHeader != "" {
-			tokenString = strings.TrimPrefix(authHeader, "Bearer ")
-		} else {
-			// Fallback to query parameter for <img> and <video> tags
-			tokenString = c.Query("token")
-		}
-
-		if tokenString == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		if !requireBearerToken(c) {
 			return
 		}
-
-		if valid, _ := validateToken(tokenString); !valid {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			return
-		}
-
 		c.Next()
 	}
+}
+
+// RequireAuthAlways demands a valid Bearer JWT even when AUTH_ENABLED is false.
+// Used for destructive retention/protect write endpoints.
+func RequireAuthAlways() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !requireBearerToken(c) {
+			return
+		}
+		c.Next()
+	}
+}
+
+func requireBearerToken(c *gin.Context) bool {
+	tokenString := ""
+	authHeader := c.GetHeader("Authorization")
+	if authHeader != "" {
+		tokenString = strings.TrimPrefix(authHeader, "Bearer ")
+	} else {
+		tokenString = c.Query("token")
+	}
+	if tokenString == "" {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return false
+	}
+	if valid, _ := validateToken(tokenString); !valid {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		return false
+	}
+	return true
+}
+
+// MutationGuard rejects cross-origin state changes and non-JSON write bodies.
+// Complements RequireAuthAlways for CSRF/origin protection on retention writes.
+func MutationGuard() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ct := c.GetHeader("Content-Type")
+		if ct != "" && !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+			c.AbortWithStatusJSON(http.StatusUnsupportedMediaType, gin.H{"error": "Content-Type must be application/json"})
+			return
+		}
+		origin := strings.TrimSpace(c.GetHeader("Origin"))
+		if origin != "" {
+			if !sameOrigin(origin, c.Request) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "origin not allowed"})
+				return
+			}
+		}
+		referer := strings.TrimSpace(c.GetHeader("Referer"))
+		if origin == "" && referer != "" {
+			if !sameOrigin(referer, c.Request) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "referer not allowed"})
+				return
+			}
+		}
+		// Require a custom header so simple cross-site form posts cannot mutate state.
+		if c.GetHeader("X-Requested-With") == "" && c.GetHeader("X-Teslaxy-CSRF") == "" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "missing CSRF header"})
+			return
+		}
+		c.Next()
+	}
+}
+
+func sameOrigin(originOrReferer string, r *http.Request) bool {
+	u, err := url.Parse(originOrReferer)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	host := r.Host
+	if host == "" {
+		return false
+	}
+	reqScheme := "http"
+	if r.TLS != nil {
+		reqScheme = "https"
+	}
+	if xf := r.Header.Get("X-Forwarded-Proto"); xf == "https" || xf == "http" {
+		reqScheme = xf
+	}
+	return strings.EqualFold(u.Scheme, reqScheme) && strings.EqualFold(u.Host, host)
 }
 
 func checkRateLimit(ip string) bool {

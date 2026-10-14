@@ -11,8 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Protection for Tesla SavedClips and user-flagged clips (`protected` on `Clip`; `POST /api/clips/:id/protect`).
 - Dry-run mode with structured JSON logging of candidates and bytes that would be freed.
 - Config via env (`RETENTION_*`), `$CONFIG_PATH/retention.json`, and `GET`/`PUT` `/api/retention/settings`; manual `POST /api/retention/run`.
-- Safety: refuse paths outside `FOOTAGE_PATH`, never follow symlinks, skip recent mtimes; soft-delete DB rows before unlinking files.
 - `go run ./cmd/retention-dry-run` fixture harness and `.cursor/skills/verify-teslaxy` verification skill.
+
+### Security
+- Retention deletes only selected clip files via `openat`/`unlinkat` with `O_NOFOLLOW` / `AT_SYMLINK_NOFOLLOW` (symlinked parents refused); never wipes event folders.
+- Write endpoints (`PUT /api/retention/settings`, `POST /api/retention/run`, `POST /api/clips/:id/protect`) always require a Bearer JWT plus CSRF (`X-Requested-With` or `X-Teslaxy-CSRF`) and same-origin checks, even when `AUTH_ENABLED=false`.
+- `dry_run` must be a JSON boolean (malformed → 400). Unknown `RETENTION_DRY_RUN` env values keep dry-run ON.
+- Protect vs prune is serialized; protection is re-checked inside the deletion transaction.
+- Soft-deleted pending rows are recovered on the next run; the scanner will not recreate them.
+- Config numerics are clamped; size accounting includes fresh files and dedupes paths/hardlinks. Partial prune keeps DB rows for files that remain.
 
 ## [0.2.4] - 2026-10-14
 ### Fixed
