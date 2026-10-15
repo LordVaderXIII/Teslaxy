@@ -8,7 +8,18 @@ import "sync"
 // The scanner takes the read lock around indexing/inserts.
 var mediaOpMu sync.RWMutex
 
-func lockMediaWrite() { mediaOpMu.Lock() }
+// mediaReadLockedHook runs after the scanner acquires the read lock.
+// Tests use it to prove reconcile waits out an in-flight index. Nil in production.
+var mediaReadLockedHook func()
+
+func lockMediaWrite()   { mediaOpMu.Lock() }
 func unlockMediaWrite() { mediaOpMu.Unlock() }
-func lockMediaRead()    { mediaOpMu.RLock() }
-func unlockMediaRead()  { mediaOpMu.RUnlock() }
+
+func lockMediaRead() {
+	mediaOpMu.RLock()
+	if mediaReadLockedHook != nil {
+		mediaReadLockedHook()
+	}
+}
+
+func unlockMediaRead() { mediaOpMu.RUnlock() }

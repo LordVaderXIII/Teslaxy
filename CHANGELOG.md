@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-10-14
+### Fixed
+- Retention recovery only unlinks soft-deletes it marked (`retention_pending`); reconcile tombstones for restored 1h-old Sentry/Recent footage are left alone.
+- Scanner event indexing no longer re-acquires the media read lock under `ScanAll` (avoids RWMutex deadlock when reconcile is queued).
+- Reconcile confirmation after restart requires a fresh in-process monotonic observation window; backdated JSON/`mtime` and wall-clock jumps no longer authorize deletes.
+- Failed confirmation clears persist a cancel marker and bind observations to the pending file inode so replayed confirmations cannot authorize after restart.
+- Soft-delete applies only on confirmed ENOENT (EACCES/ELOOP/late restore spare the row); a rescan clears non-retention tombstones when files return.
+- `forgetPendingObservation` / pending maps are always mutated under `reconcilePendingMu` (clean under `-race`).
+
+### Added
+- `retention_pending` on `Clip` / `VideoFile` (AutoMigrate) to distinguish retention prune markers from reconcile tombstones.
+
+## [0.3.2] - 2026-10-14
+### Fixed
+- Soft-delete of missing footage requires a persisted, time-separated confirmation (or explicit operator purge); a missing mount still refuses forever, and same-inode empty / SavedClips outages no longer wipe the library on first sighting.
+- Pending reconcile confirmation rejects missing/null/future `first_seen`, mismatched file/clip ID arrays, and symlink-substituted pending paths or temp files.
+- Failed confirmation clears propagate as errors and invalidate canceled state so a restored library cannot silently reuse a mature pending purge.
+- Candidates restored between collection and delete are re-stat'd and dropped from the purge set.
+- Confirmation timing uses process-local monotonic observation plus pending-file mtime (Lstat), not unchecked wall-clock JSON alone.
+- Scanner walk no longer aborts the whole library when one subdirectory is unreadable.
+- Recent clip fallback no longer attaches to a Sentry/Saved clip that shares the same timestamp.
+- Deleting the first Recent minute and scanning again no longer duplicates the remaining footage.
+- A moved directory tree is scanned recursively; concurrent Recent scans are idempotent; clip cleanup is scoped to the requested root.
+- Concurrent `scanDir` on the same event directory no longer creates duplicate clips.
+- The scanner holds the media read lock while indexing so reconcile cannot delete clips mid-scan.
+
+### Added
+- Exported `services.ReconcileMissing` / `PurgeMissingFootage` plus `media_coord.go` lock helpers shared with retention.
+- `POST /api/scanner/purge-missing` (auth + CSRF) as the operator entry for `ScannerService.PurgeMissing`.
+- `.cursor/skills/verify-teslaxy/` `features/scanner.md` proofs.
+
+### Security
+- Pending purge state is read/written with `O_NOFOLLOW` (directory and file) so symlink swaps cannot authorize deletes or overwrite unrelated files via the temp path.
+
 ## [0.3.1] - 2026-10-14
 ### Fixed
 - Prod Docker runtime switches from Alpine+gcompat to `debian:bookworm-slim` (glibc) so the pinned BtbN linux64 ffmpeg binary actually executes; Alpine could pass the tarball sha256 and still fail `h264_nvenc` because the binary would not run.
@@ -38,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thumbnail duration lookups share only the in-flight ffprobe. A replaced file is measured again, so a stale duration no longer rejects a valid seek with HTTP 400. A caller whose context is cancelled returns without waiting out that shared probe.
 - A cancelled or timed-out NVENC probe is not stored as "no GPU". The next request runs the probe again.
 - Thumbnail ffmpeg writes a private temp file and renames it into the cache, so concurrent misses cannot publish a partial JPEG.
+
 
 ## [0.2.3] - 2026-10-05
 ### Fixed
