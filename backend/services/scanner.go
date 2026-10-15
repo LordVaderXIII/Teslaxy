@@ -766,6 +766,17 @@ func (s *ScannerService) processRecentGroupLocked(filePaths []string) {
 			found = true
 		}
 
+		// Restored footage: revive the Recent clip that owned these files
+		// before reconcile tombstoned them, so its ID and protection survive.
+		// Creating a fresh clip here would let clearReconcileVideoTombstone
+		// move the video rows onto an unprotected copy that retention may prune.
+		if !found {
+			if restored, ok := s.clearReconcileRecentClipTombstone(pathsInClipGroup(clipGroup)); ok {
+				clip = restored
+				found = true
+			}
+		}
+
 		// Merge Strategy:
 		// We look for any Recent clip that ends just before `minTime`.
 		// Lookback window matches the 5s split logic (Start-to-Start ~ 65s).
@@ -907,16 +918,65 @@ func (s *ScannerService) clearReconcileClipTombstone(sourceDir string) (models.C
 	if err != nil {
 		return models.Clip{}, false
 	}
-	if err := s.DB.Unscoped().Model(&clip).
-		Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error; err != nil {
-		log.Printf("clearReconcileClipTombstone: clip %d: %v", clip.ID, err)
+	if !s.reviveClipTombstone(&clip) {
 		return models.Clip{}, false
+	}
+	return clip, true
+}
+
+// clearReconcileRecentClipTombstone finds the Recent clip that owned one of
+// paths before reconcile soft-deleted its VideoFile rows and revives it. Recent
+// clips have no event.json directory identity, so the tombstoned video rows are
+// the only link back to the original owner (and its Protected flag).
+func (s *ScannerService) clearReconcileRecentClipTombstone(paths []string) (models.Clip, bool) {
+	if len(paths) == 0 {
+		return models.Clip{}, false
+	}
+	var vfs []models.VideoFile
+	err := s.DB.Unscoped().
+		Where("file_path IN (?) AND deleted_at IS NOT NULL AND retention_pending = ?", paths, false).
+		Order("timestamp asc").
+		Find(&vfs).Error
+	if err != nil || len(vfs) == 0 {
+		return models.Clip{}, false
+	}
+	seen := map[uint]struct{}{}
+	for _, vf := range vfs {
+		if _, dup := seen[vf.ClipID]; dup {
+			continue
+		}
+		seen[vf.ClipID] = struct{}{}
+		var clip models.Clip
+		err := s.DB.Unscoped().
+			Where("id = ? AND event = ? AND retention_pending = ?", vf.ClipID, "Recent", false).
+			First(&clip).Error
+		if err != nil {
+			continue
+		}
+		if clip.DeletedAt == nil {
+			// Owner is still live; reuse it rather than minting a duplicate.
+			return clip, true
+		}
+		if s.reviveClipTombstone(&clip) {
+			return clip, true
+		}
+	}
+	return models.Clip{}, false
+}
+
+// reviveClipTombstone clears a reconcile soft-delete on clip (and its
+// telemetry) in place, keeping ID, Protected and every other column.
+func (s *ScannerService) reviveClipTombstone(clip *models.Clip) bool {
+	if err := s.DB.Unscoped().Model(clip).
+		Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error; err != nil {
+		log.Printf("reviveClipTombstone: clip %d: %v", clip.ID, err)
+		return false
 	}
 	_ = s.DB.Unscoped().Model(&models.Telemetry{}).Where("clip_id = ?", clip.ID).
 		Update("deleted_at", nil).Error
 	clip.DeletedAt = nil
 	clip.RetentionPending = false
-	return clip, true
+	return true
 }
 
 // clearReconcileVideoTombstone undeletes a non-retention soft-deleted VideoFile
