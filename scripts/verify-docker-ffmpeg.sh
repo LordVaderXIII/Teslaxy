@@ -19,6 +19,16 @@ PING_DEADLINE_SEC="${PING_DEADLINE_SEC:-60}"
 # Default 1: a no-GPU nvenc SKIP fails the script. Explicit opt-out (0/false/no)
 # is required to allow SKIP on GPU-less hosts. Unset or empty → require.
 REQUIRE_NVENC_ENCODE="${REQUIRE_NVENC_ENCODE:-1}"
+# Bound for the in-container nvenc encode probe (seconds). PING_DEADLINE_SEC
+# only covers the /ping poll; a hung probe container must not stall forever.
+# SIGTERM at the limit, SIGKILL after the grace. A timeout is a FAIL.
+NVENC_PROBE_TIMEOUT_SEC="${NVENC_PROBE_TIMEOUT_SEC:-120}"
+NVENC_PROBE_KILL_GRACE_SEC="${NVENC_PROBE_KILL_GRACE_SEC:-5}"
+# Explicit GPU declaration forwarded to check-ffmpeg-nvenc-encode.sh. Unset
+# means "probe"; 0 is the only way a host without nvidia-smi may SKIP.
+TESLAXY_NVENC_FORCE_GPU="${TESLAXY_NVENC_FORCE_GPU:-}"
+NVENC_SMI_TIMEOUT_SEC="${NVENC_SMI_TIMEOUT_SEC:-5}"
+NVENC_SMI_KILL_GRACE_SEC="${NVENC_SMI_KILL_GRACE_SEC:-1}"
 # Extra docker run flags for GPU (e.g. --gpus all or --runtime=nvidia).
 NVENC_DOCKER_GPU_ARGS="${NVENC_DOCKER_GPU_ARGS:-}"
 NVIDIA_VISIBLE_DEVICES="${NVIDIA_VISIBLE_DEVICES:-all}"
@@ -87,10 +97,14 @@ curl_get() {
 		"$url"
 }
 
+PROBE_NAME="teslaxy-nvenc-probe-$$-$RANDOM"
+
 cleanup() {
 	if [[ -n "${CID:-}" ]]; then
 		docker rm -f "$CID" >/dev/null 2>&1 || true
 	fi
+	# A probe container that outlived its timeout must not linger.
+	docker rm -f "$PROBE_NAME" >/dev/null 2>&1 || true
 	# Delete only the mktemp dir we created — never a caller-supplied FIX.
 	if [[ -n "${OWNED_FIX:-}" ]]; then
 		rm -rf "$OWNED_FIX"
@@ -107,11 +121,24 @@ docker run --rm --entrypoint /usr/local/share/teslaxy/check-ffmpeg-nvenc.sh "$IM
 echo "==> nvenc encode probe inside image"
 # Listing h264_nvenc is not enough — missing NVIDIA_* env / toolkit yields
 # "Cannot load libcuda.so.1" only when encoding. Exit 2 = SKIP (no GPU).
+if ! command -v timeout >/dev/null 2>&1; then
+	echo "ERROR: timeout(1) missing; cannot bound the nvenc encode probe" >&2
+	exit 1
+fi
+probe_env=(
+	-e NVIDIA_VISIBLE_DEVICES="$NVIDIA_VISIBLE_DEVICES"
+	-e NVIDIA_DRIVER_CAPABILITIES="$NVIDIA_DRIVER_CAPABILITIES"
+	-e NVENC_SMI_TIMEOUT_SEC="$NVENC_SMI_TIMEOUT_SEC"
+	-e NVENC_SMI_KILL_GRACE_SEC="$NVENC_SMI_KILL_GRACE_SEC"
+)
+if [[ -n "$TESLAXY_NVENC_FORCE_GPU" ]]; then
+	probe_env+=(-e TESLAXY_NVENC_FORCE_GPU="$TESLAXY_NVENC_FORCE_GPU")
+fi
 set +e
 # shellcheck disable=SC2086
-encode_out="$(docker run --rm \
-	-e NVIDIA_VISIBLE_DEVICES="$NVIDIA_VISIBLE_DEVICES" \
-	-e NVIDIA_DRIVER_CAPABILITIES="$NVIDIA_DRIVER_CAPABILITIES" \
+encode_out="$(timeout -k "$NVENC_PROBE_KILL_GRACE_SEC" "$NVENC_PROBE_TIMEOUT_SEC" \
+	docker run --rm --name "$PROBE_NAME" \
+	"${probe_env[@]}" \
 	$NVENC_DOCKER_GPU_ARGS \
 	-v "$ROOT/scripts/check-ffmpeg-nvenc-encode.sh:/tmp/check-ffmpeg-nvenc-encode.sh:ro" \
 	--entrypoint /bin/sh \
@@ -123,6 +150,11 @@ printf '%s\n' "$encode_out"
 case "$encode_ec" in
 	0)
 		echo "OK: nvenc encode probe passed"
+		;;
+	124|137)
+		echo "ERROR: nvenc encode probe timed out after ${NVENC_PROBE_TIMEOUT_SEC}s (kill grace ${NVENC_PROBE_KILL_GRACE_SEC}s)" >&2
+		docker rm -f "$PROBE_NAME" >/dev/null 2>&1 || true
+		exit 1
 		;;
 	2)
 		case "$REQUIRE_NVENC_ENCODE" in
