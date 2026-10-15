@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-10-15
+Bundle of #239 (scanner reconcile) and #242 (nvenc verifier) plus the Codex round-2 findings on both.
+
+### Fixed
+- `scripts/check-ffmpeg-nvenc-encode.sh` SKIPs only on an explicitly recognised "no GPU" result (`TESLAXY_NVENC_FORCE_GPU=0`, or `nvidia-smi -L` printing exactly `No devices were found` with exit 0/6). `nvidia-smi` missing from `PATH`, whitespace, truncated `G`/`GU`/`GPU`/`GPU `, indented, garbage and mixed output exit 1, so `REQUIRE_NVENC_ENCODE=0` can no longer pass without encoding. Present requires every line to be `GPU <n>: <name>`.
+- The `nvidia-smi` probe and the in-container encode probe run under `timeout -k <grace>`; a SIGTERM-ignoring process ends by limit+grace and a timeout is FAIL. `verify-docker-ffmpeg.sh` bounds the probe `docker run` with `NVENC_PROBE_TIMEOUT_SEC` (120s, grace 5s), names the probe container for cleanup, and forwards `TESLAXY_NVENC_FORCE_GPU` / `NVENC_SMI_*` into it.
+- Restoring tombstoned Recent footage revives the original clip (same ID, `Protected` kept) instead of minting an unprotected copy that retention could prune. Sentry/Saved already kept their ID via `SourceDir`.
+- A restore that lands after reconcile's final Stat still tombstones one video and clip; the next rescan clears both for Sentry and Recent, protection included.
+- `ReconcileMissing` reads the cancel-block map under `reconcilePendingMu` (was racing `PendingConfirmRemaining`); tests use a locked helper instead of touching the map.
+
+### Added
+- GitHub Actions CI (`.github/workflows/ci.yml`): `go vet` + `go test -race`, the shell verifier suite (`scripts/test-verify-docker-ffmpeg-timeouts.sh`), frontend standalone checks + build, and `docker compose config` with the `teslaxy-net` IPAM pin asserted.
+- `scripts/test-verify-docker-ffmpeg-timeouts.sh` runs the real probe behind the stub docker (`STUB_ENCODE_REAL=1`), simulates SIGTERM-ignoring probes (`STUB_ENCODE_HANG`), and lists every failure with `KEEP_GOING=1`.
+
 ## [0.3.3] - 2026-10-14
 ### Fixed
 - `scripts/check-ffmpeg-nvenc-encode.sh` only SKIPs on positively confirmed GPU absence; missing/erroring/empty/partial/indented `nvidia-smi -L` results and probe timeouts are FAIL (exit 1). `nvidia-smi` is bounded with `timeout`.
