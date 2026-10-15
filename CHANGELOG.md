@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.3] - 2026-10-14
 ### Fixed
+- `scripts/check-ffmpeg-nvenc-encode.sh` only SKIPs on positively confirmed GPU absence; missing/erroring/empty/partial/indented `nvidia-smi -L` results and probe timeouts are FAIL (exit 1). `nvidia-smi` is bounded with `timeout`.
+- `scripts/verify-docker-ffmpeg.sh` defaults `REQUIRE_NVENC_ENCODE=1` (unset/empty require encode); allow SKIP only with an explicit opt-out (`0`/`false`/`no`).
 - Retention recovery only unlinks soft-deletes it marked (`retention_pending`); reconcile tombstones for restored 1h-old Sentry/Recent footage are left alone.
 - Scanner event indexing no longer re-acquires the media read lock under `ScanAll` (avoids RWMutex deadlock when reconcile is queued).
 - Reconcile confirmation after restart requires a fresh in-process monotonic observation window; backdated JSON/`mtime` and wall-clock jumps no longer authorize deletes.
@@ -19,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.2] - 2026-10-14
 ### Fixed
+- Docker Compose (and unRAID `docker run`) set `NVIDIA_VISIBLE_DEVICES=all` and `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility` so the NVIDIA toolkit injects `libcuda` / NVENC (without them, encode failed with `Cannot load libcuda.so.1` while `-encoders` still listed `h264_nvenc`).
+- `scripts/verify-docker-ffmpeg.sh` runs a one-second real `h264_nvenc` encode probe; SKIP is based on GPU presence (`/dev/nvidia*` / `nvidia-smi -L`) before encode, not ffmpeg error text. Compose and unRAID deploy default `REQUIRE_NVENC_ENCODE=1` so a SKIP fails on prod GPU hosts.
 - Soft-delete of missing footage requires a persisted, time-separated confirmation (or explicit operator purge); a missing mount still refuses forever, and same-inode empty / SavedClips outages no longer wipe the library on first sighting.
 - Pending reconcile confirmation rejects missing/null/future `first_seen`, mismatched file/clip ID arrays, and symlink-substituted pending paths or temp files.
 - Failed confirmation clears propagate as errors and invalidate canceled state so a restored library cannot silently reuse a mature pending purge.
