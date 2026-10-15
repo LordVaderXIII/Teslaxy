@@ -113,11 +113,43 @@ docker run -d \
   -e AUTH_ENABLED=false \
   -e GIN_MODE=release \
   -e JULES_SOURCE="$JULES_SOURCE" \
+  -e NVIDIA_VISIBLE_DEVICES=all \
+  -e NVIDIA_DRIVER_CAPABILITIES=compute,video,utility \
+  -e REQUIRE_NVENC_ENCODE=1 \
   $CPU_PINNING \
   --runtime=nvidia \
   "$IMAGE_TAG" > "$LOG_FILE" 2>&1 || { send_logs_to_jules "$(cat $LOG_FILE)"; echo "Error: Docker run failed. See $LOG_FILE"; exit 1; }
 
-# Step 8: Prune orphaned/dangling images
+# Step 8: GPU encode smoke — SKIP is a failure on prod (REQUIRE_NVENC_ENCODE=1).
+echo "Running nvenc encode smoke (REQUIRE_NVENC_ENCODE=1)..."
+ENCODE_SCRIPT="$REPO_PATH/scripts/check-ffmpeg-nvenc-encode.sh"
+if [ ! -f "$ENCODE_SCRIPT" ]; then
+  ENCODE_SCRIPT="$(cd "$(dirname "$0")" && pwd)/check-ffmpeg-nvenc-encode.sh"
+fi
+set +e
+ENCODE_OUT=$(docker run --rm \
+  --runtime=nvidia \
+  -e NVIDIA_VISIBLE_DEVICES=all \
+  -e NVIDIA_DRIVER_CAPABILITIES=compute,video,utility \
+  -v "$ENCODE_SCRIPT:/tmp/check-ffmpeg-nvenc-encode.sh:ro" \
+  --entrypoint /bin/sh \
+  "$IMAGE_TAG" \
+  /tmp/check-ffmpeg-nvenc-encode.sh 2>&1)
+ENCODE_EC=$?
+set -e
+echo "$ENCODE_OUT"
+if [ "$ENCODE_EC" -eq 2 ]; then
+  echo "Error: nvenc encode SKIP on prod GPU host (REQUIRE_NVENC_ENCODE=1)" >&2
+  send_logs_to_jules "$ENCODE_OUT"
+  exit 1
+fi
+if [ "$ENCODE_EC" -ne 0 ]; then
+  echo "Error: nvenc encode smoke failed (exit $ENCODE_EC)" >&2
+  send_logs_to_jules "$ENCODE_OUT"
+  exit "$ENCODE_EC"
+fi
+
+# Step 9: Prune orphaned/dangling images
 docker image prune -f --filter "dangling=true" || { echo "Warning: Prune failed, but update complete"; }
 
 echo "Update complete. Check logs: docker logs $CONTAINER_NAME"

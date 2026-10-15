@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-10-15
+Bundle of #239 (scanner reconcile) and #242 (nvenc verifier) plus the Codex round-2 findings on both.
+
+### Fixed
+- `scripts/check-ffmpeg-nvenc-encode.sh` SKIPs only on an explicitly recognised "no GPU" result (`TESLAXY_NVENC_FORCE_GPU=0`, or `nvidia-smi -L` printing exactly `No devices were found` with exit 0/6). `nvidia-smi` missing from `PATH`, whitespace, truncated `G`/`GU`/`GPU`/`GPU `, indented, garbage and mixed output exit 1, so `REQUIRE_NVENC_ENCODE=0` can no longer pass without encoding. Present requires every line to be `GPU <n>: <name>`.
+- The `nvidia-smi` probe and the in-container encode probe run under `timeout -k <grace>`; a SIGTERM-ignoring process ends by limit+grace and a timeout is FAIL. `verify-docker-ffmpeg.sh` bounds the probe `docker run` with `NVENC_PROBE_TIMEOUT_SEC` (120s, grace 5s), names the probe container for cleanup, and forwards `TESLAXY_NVENC_FORCE_GPU` / `NVENC_SMI_*` into it.
+- Restoring tombstoned Recent footage revives the original clip (same ID, `Protected` kept) instead of minting an unprotected copy that retention could prune. Sentry/Saved already kept their ID via `SourceDir`.
+- A restore that lands after reconcile's final Stat still tombstones one video and clip; the next rescan clears both for Sentry and Recent, protection included.
+- `ReconcileMissing` reads the cancel-block map under `reconcilePendingMu` (was racing `PendingConfirmRemaining`); tests use a locked helper instead of touching the map.
+
+### Added
+- GitHub Actions CI (`.github/workflows/ci.yml`): `go vet` + `go test -race`, the shell verifier suite (`scripts/test-verify-docker-ffmpeg-timeouts.sh`), frontend standalone checks + build, and `docker compose config` with the `teslaxy-net` IPAM pin asserted.
+- `scripts/test-verify-docker-ffmpeg-timeouts.sh` runs the real probe behind the stub docker (`STUB_ENCODE_REAL=1`), simulates SIGTERM-ignoring probes (`STUB_ENCODE_HANG`), and lists every failure with `KEEP_GOING=1`.
+
+## [0.3.3] - 2026-10-14
+### Fixed
+- `scripts/check-ffmpeg-nvenc-encode.sh` only SKIPs on positively confirmed GPU absence; missing/erroring/empty/partial/indented `nvidia-smi -L` results and probe timeouts are FAIL (exit 1). `nvidia-smi` is bounded with `timeout`.
+- `scripts/verify-docker-ffmpeg.sh` defaults `REQUIRE_NVENC_ENCODE=1` (unset/empty require encode); allow SKIP only with an explicit opt-out (`0`/`false`/`no`).
+- Retention recovery only unlinks soft-deletes it marked (`retention_pending`); reconcile tombstones for restored 1h-old Sentry/Recent footage are left alone.
+- Scanner event indexing no longer re-acquires the media read lock under `ScanAll` (avoids RWMutex deadlock when reconcile is queued).
+- Reconcile confirmation after restart requires a fresh in-process monotonic observation window; backdated JSON/`mtime` and wall-clock jumps no longer authorize deletes.
+- Failed confirmation clears persist a cancel marker and bind observations to the pending file inode so replayed confirmations cannot authorize after restart.
+- Soft-delete applies only on confirmed ENOENT (EACCES/ELOOP/late restore spare the row); a rescan clears non-retention tombstones when files return.
+- `forgetPendingObservation` / pending maps are always mutated under `reconcilePendingMu` (clean under `-race`).
+
+### Added
+- `retention_pending` on `Clip` / `VideoFile` (AutoMigrate) to distinguish retention prune markers from reconcile tombstones.
+
+## [0.3.2] - 2026-10-14
+### Fixed
+- Docker Compose (and unRAID `docker run`) set `NVIDIA_VISIBLE_DEVICES=all` and `NVIDIA_DRIVER_CAPABILITIES=compute,video,utility` so the NVIDIA toolkit injects `libcuda` / NVENC (without them, encode failed with `Cannot load libcuda.so.1` while `-encoders` still listed `h264_nvenc`).
+- `scripts/verify-docker-ffmpeg.sh` runs a one-second real `h264_nvenc` encode probe; SKIP is based on GPU presence (`/dev/nvidia*` / `nvidia-smi -L`) before encode, not ffmpeg error text. Compose and unRAID deploy default `REQUIRE_NVENC_ENCODE=1` so a SKIP fails on prod GPU hosts.
+- Soft-delete of missing footage requires a persisted, time-separated confirmation (or explicit operator purge); a missing mount still refuses forever, and same-inode empty / SavedClips outages no longer wipe the library on first sighting.
+- Pending reconcile confirmation rejects missing/null/future `first_seen`, mismatched file/clip ID arrays, and symlink-substituted pending paths or temp files.
+- Failed confirmation clears propagate as errors and invalidate canceled state so a restored library cannot silently reuse a mature pending purge.
+- Candidates restored between collection and delete are re-stat'd and dropped from the purge set.
+- Confirmation timing uses process-local monotonic observation plus pending-file mtime (Lstat), not unchecked wall-clock JSON alone.
+- Scanner walk no longer aborts the whole library when one subdirectory is unreadable.
+- Recent clip fallback no longer attaches to a Sentry/Saved clip that shares the same timestamp.
+- Deleting the first Recent minute and scanning again no longer duplicates the remaining footage.
+- A moved directory tree is scanned recursively; concurrent Recent scans are idempotent; clip cleanup is scoped to the requested root.
+- Concurrent `scanDir` on the same event directory no longer creates duplicate clips.
+- The scanner holds the media read lock while indexing so reconcile cannot delete clips mid-scan.
+
+### Added
+- Exported `services.ReconcileMissing` / `PurgeMissingFootage` plus `media_coord.go` lock helpers shared with retention.
+- `POST /api/scanner/purge-missing` (auth + CSRF) as the operator entry for `ScannerService.PurgeMissing`.
+- `.cursor/skills/verify-teslaxy/` `features/scanner.md` proofs.
+
+### Security
+- Pending purge state is read/written with `O_NOFOLLOW` (directory and file) so symlink swaps cannot authorize deletes or overwrite unrelated files via the temp path.
+
 ## [0.3.1] - 2026-10-14
 ### Fixed
 - Prod Docker runtime switches from Alpine+gcompat to `debian:bookworm-slim` (glibc) so the pinned BtbN linux64 ffmpeg binary actually executes; Alpine could pass the tarball sha256 and still fail `h264_nvenc` because the binary would not run.
@@ -38,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thumbnail duration lookups share only the in-flight ffprobe. A replaced file is measured again, so a stale duration no longer rejects a valid seek with HTTP 400. A caller whose context is cancelled returns without waiting out that shared probe.
 - A cancelled or timed-out NVENC probe is not stored as "no GPU". The next request runs the probe again.
 - Thumbnail ffmpeg writes a private temp file and renames it into the cache, so concurrent misses cannot publish a partial JPEG.
+
 
 ## [0.2.3] - 2026-10-05
 ### Fixed

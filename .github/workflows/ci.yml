@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Go vet + race tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: go vet
+        run: go vet ./...
+      - name: go test -race
+        run: go test -race ./... -count=1
+
+  scripts:
+    name: Shell verifier suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: |
+          bash -n scripts/verify-docker-ffmpeg.sh
+          bash -n scripts/test-verify-docker-ffmpeg-timeouts.sh
+          bash -n scripts/verify-retention.sh
+          bash -n scripts/deploy_unraid.sh
+          sh -n scripts/check-ffmpeg-nvenc.sh
+          sh -n scripts/check-ffmpeg-nvenc-encode.sh
+      # Binds loopback sockets for the hang / HTTP mocks and runs the real
+      # nvenc probe script behind a stubbed docker; no daemon or GPU needed.
+      - name: verify-docker-ffmpeg timeouts + nvenc probe suite
+        run: bash scripts/test-verify-docker-ffmpeg-timeouts.sh
+
+  frontend:
+    name: Frontend checks + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Standalone checks
+        run: |
+          for f in tests/*.mjs; do
+            echo "== $f"
+            node "$f"
+          done
+      - name: Build
+        run: npm run build
+
+  compose:
+    name: Docker compose config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose config
+        run: docker compose -f docker/docker-compose.yml config
+      - name: Pinned IPAM subnet stays outside 192.168.3.0/24 and 192.168.86.0/24
+        run: |
+          rendered="$(docker compose -f docker/docker-compose.yml config)"
+          echo "$rendered" | grep -q 'subnet: 172.16.242.0/24' || { echo "teslaxy-net subnet pin changed" >&2; exit 1; }
+          if echo "$rendered" | grep -Eq 'subnet: 192\.168\.(3|86)\.'; then
+            echo "forbidden subnet in compose network" >&2; exit 1
+          fi

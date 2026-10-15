@@ -84,14 +84,15 @@ func TestRetentionTelemetryDeleteFailureRecoversOnRestart(t *testing.T) {
 	writeFixtureFile(t, path, 1024, now.Add(-time.Hour))
 	clip := seedClip(t, db, "Recent", old, false, filepath.Join(root, "RecentClips"), map[string]string{"Front": path})
 
-	// Simulate crash after last VF hard-delete: clip+telemetry soft-deleted, files gone.
+	// Simulate crash after last VF hard-delete: retention-marked clip+telemetry soft-deleted, files gone.
 	var vfs []models.VideoFile
 	db.Where("clip_id = ?", clip.ID).Find(&vfs)
 	for i := range vfs {
 		_ = db.Delete(&vfs[i])
 		_ = db.Unscoped().Delete(&models.VideoFile{}, vfs[i].ID)
 	}
-	_ = db.Delete(&clip)
+	_ = db.Model(&models.Clip{}).Where("id = ?", clip.ID).Update("retention_pending", true)
+	_ = db.Where("id = ?", clip.ID).Delete(&models.Clip{})
 	_ = os.Remove(path)
 	var tel models.Telemetry
 	if err := db.Unscoped().Where("clip_id = ?", clip.ID).First(&tel).Error; err != nil {

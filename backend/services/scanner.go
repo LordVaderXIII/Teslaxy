@@ -2,7 +2,9 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -33,6 +35,12 @@ type ScannerService struct {
 	mu           sync.Mutex
 	pendingFiles map[string][]string    // Key is Directory Path
 	timers       map[string]*time.Timer // Key is Directory Path
+
+	// Per-directory scan locks prevent duplicate Clip rows when debounce and
+	// event.json both trigger scanDir on the same path (L3).
+	dirLocks sync.Map // map[string]*sync.Mutex
+
+	reconcileTimer *time.Timer
 }
 
 var (
@@ -40,6 +48,15 @@ var (
 	// Standard: 2019-01-21_14-15-20-front.mp4
 	// With MS:  2019-01-21_14-15-20_123456-front.mp4 (or _front.mp4)
 	fileRegex = regexp.MustCompile(`(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})(?:[_-]\d+)?[_-]([a-zA-Z0-9_]+)\.mp4$`)
+
+	// recentIndexMu serializes Recent find-or-create. The media lock is a
+	// read lock, so concurrent ScanAll calls would otherwise all pass the
+	// "does this clip exist?" check and insert duplicate rows.
+	recentIndexMu sync.Mutex
+
+	// reconcileDebounce is the fsnotify Remove/Rename debounce before the
+	// first ReconcileMissing pass. Tests may lower it.
+	reconcileDebounce = 2 * time.Second
 )
 
 func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
@@ -74,6 +91,9 @@ func (s *ScannerService) Start() {
 				if event.Op&fsnotify.Create == fsnotify.Create {
 					s.handleFileCreate(event.Name)
 				}
+				if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+					s.scheduleReconcile()
+				}
 			case err, ok := <-s.Watcher.Errors:
 				if !ok {
 					return
@@ -88,8 +108,12 @@ func (s *ScannerService) Start() {
 		fmt.Println("Error adding watcher path:", err)
 	}
 
-	// Also watch subdirectories
+	// Also watch subdirectories (skip unreadable paths; do not abort the walk)
 	filepath.Walk(s.FootagePath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Printf("Skipping unreadable path while watching %s: %v", path, err)
+			return nil
+		}
 		if info != nil && info.IsDir() {
 			s.Watcher.Add(path)
 		}
@@ -100,10 +124,26 @@ func (s *ScannerService) Start() {
 func (s *ScannerService) handleFileCreate(path string) {
 	filename := filepath.Base(path)
 
-	// Check if it's a new directory (need to watch it)
+	// Check if it's a new directory (need to watch it and scan existing files — M2)
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		fmt.Println("New directory detected, watching:", path)
-		s.Watcher.Add(path)
+		if s.Watcher != nil {
+			_ = s.Watcher.Add(path)
+			// Nested dirs inside a moved/copied tree must be watched too.
+			filepath.Walk(path, func(p string, fi os.FileInfo, e error) error {
+				if e != nil {
+					log.Printf("Skipping unreadable path while watching %s: %v", p, e)
+					return nil
+				}
+				if fi != nil && fi.IsDir() {
+					_ = s.Watcher.Add(p)
+				}
+				return nil
+			})
+		}
+		// Pre-populated trees never emit per-file Create events. Walk nested
+		// event directories; scanning only the outer folder drops them.
+		go s.scanTree(path)
 		return
 	}
 
@@ -164,6 +204,40 @@ func (s *ScannerService) processPending(dirPath string) {
 }
 
 func (s *ScannerService) scanDir(dirPath string) {
+	lockMediaRead()
+	defer unlockMediaRead()
+	s.scanDirLocked(dirPath)
+}
+
+// scanTree indexes root and every nested directory. A moved TeslaCam tree
+// contains event folders below the directory the watcher reports.
+func (s *ScannerService) scanTree(root string) {
+	lockMediaRead()
+	defer unlockMediaRead()
+	s.scanTreeLocked(root)
+}
+
+func (s *ScannerService) scanTreeLocked(root string) {
+	var dirs []string
+	_ = filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
+		if err != nil {
+			log.Printf("Skipping unreadable path while scanning %s: %v", p, err)
+			return nil
+		}
+		if fi != nil && fi.IsDir() {
+			dirs = append(dirs, p)
+		}
+		return nil
+	})
+	for _, d := range dirs {
+		s.scanDirLocked(d)
+	}
+}
+
+func (s *ScannerService) scanDirLocked(dirPath string) {
+	unlock := s.lockDir(dirPath)
+	defer unlock()
+
 	// Check for event.json to determine type
 	isEvent := false
 	eventJsonPath := filepath.Join(dirPath, "event.json")
@@ -192,11 +266,75 @@ func (s *ScannerService) scanDir(dirPath string) {
 
 	if len(filePaths) > 0 {
 		if isEvent {
-			s.processEventGroup(dirPath, filePaths)
+			// Caller already holds the media read lock; do not re-RLock
+			// (queued writers + nested RLock deadlocks under Go's RWMutex).
+			s.processEventGroupLocked(dirPath, filePaths)
 		} else {
-			s.processRecentGroup(filePaths)
+			s.processRecentGroupLocked(filePaths)
 		}
 	}
+}
+
+// lockDir serializes scanDir/processEventGroup work for one directory (L3).
+func (s *ScannerService) lockDir(dirPath string) func() {
+	v, _ := s.dirLocks.LoadOrStore(dirPath, &sync.Mutex{})
+	m := v.(*sync.Mutex)
+	m.Lock()
+	return m.Unlock
+}
+
+// reconcileStateDir is where pending delete-all confirmation is persisted.
+func (s *ScannerService) reconcileStateDir() string {
+	if p := os.Getenv("CONFIG_PATH"); p != "" {
+		return p
+	}
+	return "."
+}
+
+// scheduleReconcile debounces filesystem removals into ReconcileMissing (M1).
+func (s *ScannerService) scheduleReconcile() {
+	s.scheduleReconcileAfter(reconcileDebounce)
+}
+
+// scheduleReconcileAfter runs ReconcileMissing once after d. Used for the
+// initial debounce and for pending-confirm retries after the min interval.
+func (s *ScannerService) scheduleReconcileAfter(d time.Duration) {
+	if d < 0 {
+		d = 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reconcileTimer != nil {
+		s.reconcileTimer.Stop()
+	}
+	s.reconcileTimer = time.AfterFunc(d, s.runReconcile)
+}
+
+// runReconcile is the watcher/ScanAll shared entry for ReconcileMissing.
+// When confirmation is pending it schedules another attempt after the remaining wait.
+func (s *ScannerService) runReconcile() {
+	_, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{
+		StateDir: s.reconcileStateDir(),
+	})
+	if errors.Is(err, ErrReconcilePendingConfirm) {
+		remain := PendingConfirmRemaining(s.reconcileStateDir(), s.FootagePath)
+		if remain <= 0 {
+			remain = time.Second
+		}
+		log.Printf("ReconcileMissing pending confirm; retry in %s", remain.Round(time.Millisecond))
+		s.scheduleReconcileAfter(remain)
+		return
+	}
+	if err != nil {
+		log.Printf("ReconcileMissing after remove: %v", err)
+	}
+}
+
+// PurgeMissing is the explicit operator purge path: soft-delete missing
+// VideoFiles and empty Clips under the footage root in one pass. The root
+// must still exist (a missing mount is refused).
+func (s *ScannerService) PurgeMissing() (ReconcileResult, error) {
+	return PurgeMissingFootage(s.DB, s.FootagePath, s.reconcileStateDir())
 }
 
 func (s *ScannerService) ScanAll() {
@@ -204,12 +342,17 @@ func (s *ScannerService) ScanAll() {
 	start := time.Now()
 
 	// 1. Map files
-	eventDirs := make(map[string][]string)
+	eventDirs := make(map[string]struct{})
 	var recentFiles []string
 
-	err := filepath.Walk(s.FootagePath, func(path string, info os.FileInfo, err error) error {
+	// H1: never abort the whole library scan because one subdirectory is unreadable.
+	_ = filepath.Walk(s.FootagePath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			log.Printf("Skipping unreadable path %s: %v", path, err)
+			return nil
+		}
+		if info == nil {
+			return nil
 		}
 		if !info.IsDir() && strings.HasSuffix(info.Name(), ".mp4") {
 			if fileRegex.MatchString(info.Name()) {
@@ -226,7 +369,7 @@ func (s *ScannerService) ScanAll() {
 				}
 
 				if isEvent {
-					eventDirs[dir] = append(eventDirs[dir], path)
+					eventDirs[dir] = struct{}{}
 				} else {
 					recentFiles = append(recentFiles, path)
 				}
@@ -235,30 +378,46 @@ func (s *ScannerService) ScanAll() {
 		return nil
 	})
 
-	if err != nil {
-		fmt.Println("Error walking path:", err)
-		return
-	}
+	// 2-3. Index while holding the media read lock so ReconcileMissing (write
+	// lock) cannot delete rows this scan is inserting. Unlock before reconcile.
+	func() {
+		lockMediaRead()
+		defer unlockMediaRead()
 
-	// 2. Process Event Groups (Parallel)
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 5)
+		var wg sync.WaitGroup
+		semaphore := make(chan struct{}, 5)
 
-	for dir, files := range eventDirs {
-		wg.Add(1)
-		semaphore <- struct{}{}
-		go func(d string, f []string) {
-			defer wg.Done()
-			defer func() { <-semaphore }()
-			s.processEventGroup(d, f)
-		}(dir, files)
-	}
-	wg.Wait()
+		for dir := range eventDirs {
+			wg.Add(1)
+			semaphore <- struct{}{}
+			go func(d string) {
+				defer wg.Done()
+				defer func() { <-semaphore }()
+				// scanDirLocked: ScanAll already holds the read lock.
+				s.scanDirLocked(d)
+			}(dir)
+		}
+		wg.Wait()
 
-	// 3. Process Recent Files (Single Batch)
-	if len(recentFiles) > 0 {
-		fmt.Printf("Processing %d recent files...\n", len(recentFiles))
-		s.processRecentGroup(recentFiles)
+		if len(recentFiles) > 0 {
+			fmt.Printf("Processing %d recent files...\n", len(recentFiles))
+			s.processRecentGroupLocked(recentFiles)
+		}
+	}()
+
+	// 4. Reconcile missing footage (M1). Soft-delete only after a persisted,
+	// time-separated confirmation (or explicit PurgeMissing). Shared with retention (#238).
+	if _, err := ReconcileMissing(s.DB, s.FootagePath, ReconcileOpts{
+		StateDir: s.reconcileStateDir(),
+	}); errors.Is(err, ErrReconcilePendingConfirm) {
+		remain := PendingConfirmRemaining(s.reconcileStateDir(), s.FootagePath)
+		if remain <= 0 {
+			remain = time.Second
+		}
+		log.Printf("ReconcileMissing after scan pending confirm; retry in %s", remain.Round(time.Millisecond))
+		s.scheduleReconcileAfter(remain)
+	} else if err != nil {
+		log.Printf("ReconcileMissing after scan: %v", err)
 	}
 
 	fmt.Printf("Scan complete in %v.\n", time.Since(start))
@@ -308,6 +467,15 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	}
 	lockMediaRead()
 	defer unlockMediaRead()
+	s.processEventGroupLocked(dirPath, filePaths)
+}
+
+// processEventGroupLocked indexes one event directory. Caller must already hold
+// the media read lock (ScanAll / scanDirLocked) or call processEventGroup.
+func (s *ScannerService) processEventGroupLocked(dirPath string, filePaths []string) {
+	if len(filePaths) == 0 {
+		return
+	}
 
 	// Parse Metadata
 	var city string
@@ -421,19 +589,24 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	var clip models.Clip
 	if err := s.DB.Where("source_dir = ?", dirPath).First(&clip).Error; err != nil {
 		if gorm.IsRecordNotFoundError(err) {
-			// Do not recreate a soft-deleted (pending prune) event directory.
+			// Do not recreate a retention-pending prune tombstone.
 			if s.isPendingDeleteSourceDir(dirPath) {
 				return
 			}
-			clip = models.Clip{
-				Timestamp:      minTime,
-				Event:          eventType,
-				City:           city,
-				Reason:         eventReason,
-				EventTimestamp: eventJsonTimestamp,
-				SourceDir:      dirPath, // <-- Critical: stable identity from Tesla's folder structure
+			// Clear a reconcile-only soft-delete so restored footage is visible again.
+			if restored, ok := s.clearReconcileClipTombstone(dirPath); ok {
+				clip = restored
+			} else {
+				clip = models.Clip{
+					Timestamp:      minTime,
+					Event:          eventType,
+					City:           city,
+					Reason:         eventReason,
+					EventTimestamp: eventJsonTimestamp,
+					SourceDir:      dirPath, // <-- Critical: stable identity from Tesla's folder structure
+				}
+				s.DB.Create(&clip)
 			}
-			s.DB.Create(&clip)
 		}
 	} else {
 		// Update existing using event.json as the source of truth
@@ -476,6 +649,36 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	s.aggregateTelemetry(&clip, files, estLat, estLon)
 }
 
+func pathsInClipGroup(clipGroup [][]fileInfo) []string {
+	var paths []string
+	for _, segment := range clipGroup {
+		for _, f := range segment {
+			paths = append(paths, f.path)
+		}
+	}
+	return paths
+}
+
+// findRecentClipByFilePaths returns the live Recent clip that already owns one
+// of paths. A Sentry/Saved clip with the same timestamp is not a match (H2).
+func (s *ScannerService) findRecentClipByFilePaths(paths []string) (models.Clip, bool) {
+	if len(paths) == 0 {
+		return models.Clip{}, false
+	}
+	var vf models.VideoFile
+	if err := s.DB.Where("file_path IN (?)", paths).First(&vf).Error; err != nil {
+		return models.Clip{}, false
+	}
+	var clip models.Clip
+	if err := s.DB.First(&clip, vf.ClipID).Error; err != nil {
+		return models.Clip{}, false
+	}
+	if clip.Event != "Recent" {
+		return models.Clip{}, false
+	}
+	return clip, true
+}
+
 // processRecentGroup groups flat RecentClips into logical multi-minute drives using time heuristics.
 //
 // This is the secondary (less reliable) grouping path. RecentClips often lack event.json,
@@ -487,6 +690,15 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 	}
 	lockMediaRead()
 	defer unlockMediaRead()
+	s.processRecentGroupLocked(filePaths)
+}
+
+func (s *ScannerService) processRecentGroupLocked(filePaths []string) {
+	if len(filePaths) == 0 {
+		return
+	}
+	recentIndexMu.Lock()
+	defer recentIndexMu.Unlock()
 
 	timezone := determineTimezone(0, 0)
 
@@ -542,7 +754,28 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 		minTime := clipGroup[0][0].timestamp
 
 		var clip models.Clip
-		var found bool = false
+		found := false
+
+		// Idempotency: a live Recent clip that already owns one of these files
+		// wins, even when its timestamp is an earlier minute that has since
+		// been deleted. Matching only `event = Recent AND timestamp = minTime`
+		// misses that clip and inserts a second copy of the remaining footage.
+		// H2: never reuse a non-Recent clip that happens to share a timestamp.
+		if existing, ok := s.findRecentClipByFilePaths(pathsInClipGroup(clipGroup)); ok {
+			clip = existing
+			found = true
+		}
+
+		// Restored footage: revive the Recent clip that owned these files
+		// before reconcile tombstoned them, so its ID and protection survive.
+		// Creating a fresh clip here would let clearReconcileVideoTombstone
+		// move the video rows onto an unprotected copy that retention may prune.
+		if !found {
+			if restored, ok := s.clearReconcileRecentClipTombstone(pathsInClipGroup(clipGroup)); ok {
+				clip = restored
+				found = true
+			}
+		}
 
 		// Merge Strategy:
 		// We look for any Recent clip that ends just before `minTime`.
@@ -550,17 +783,24 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 		startTime := minTime.Add(-65 * time.Second)
 
 		var lastVf models.VideoFile
-		if err := s.DB.Table("video_files").
-			Joins("JOIN clips ON video_files.clip_id = clips.id").
-			Where("clips.event = ? AND video_files.timestamp >= ? AND video_files.timestamp < ?", "Recent", startTime, minTime).
-			Order("video_files.timestamp desc").
-			First(&lastVf).Error; err == nil {
+		if !found {
+			if err := s.DB.Table("video_files").
+				Joins("JOIN clips ON video_files.clip_id = clips.id AND clips.deleted_at IS NULL").
+				Where("clips.event = ? AND video_files.deleted_at IS NULL AND video_files.timestamp >= ? AND video_files.timestamp < ?", "Recent", startTime, minTime).
+				Order("video_files.timestamp desc").
+				First(&lastVf).Error; err == nil {
 
-			s.DB.First(&clip, lastVf.ClipID)
-			found = true
-		} else if err := s.DB.Where("timestamp = ?", minTime).First(&clip).Error; err == nil {
-			// Idempotency: found the clip itself (maybe we are reprocessing)
-			found = true
+				if err := s.DB.First(&clip, lastVf.ClipID).Error; err == nil && clip.Event == "Recent" {
+					found = true
+				}
+			}
+		}
+		if !found {
+			if err := s.DB.Where("event = ? AND timestamp = ?", "Recent", minTime).First(&clip).Error; err == nil {
+				// Idempotency: only match a live Recent clip (H2). GORM soft-delete
+				// adds deleted_at IS NULL so soft-deleted rows are not reused.
+				found = true
+			}
 		}
 
 		if !found {
@@ -614,42 +854,153 @@ func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
 		cameraName = normalizeCameraName(cameraName)
 
 		var vf models.VideoFile
-		if err := s.DB.Where("clip_id = ? AND camera = ? AND file_path = ?", clip.ID, cameraName, f.path).First(&vf).Error; gorm.IsRecordNotFoundError(err) {
-			// Re-check tombstone + existence under the same conditions after the lookup.
-			if s.isPendingDeletePath(f.path) {
-				continue
-			}
-			if _, err := os.Stat(f.path); err != nil {
-				continue
-			}
-			vf = models.VideoFile{
-				ClipID:    clip.ID,
-				Camera:    cameraName,
-				FilePath:  f.path,
-				Timestamp: f.timestamp,
-			}
-			s.DB.Create(&vf)
+		// One live row per path. Keying only on clip_id lets a second clip
+		// insert the same file again after the first Recent minute is gone.
+		err := s.DB.Where("file_path = ?", f.path).First(&vf).Error
+		if err == nil {
+			continue
+		}
+		if !gorm.IsRecordNotFoundError(err) {
+			log.Printf("addFilesToClip: lookup %s: %v", f.path, err)
+			continue
+		}
+		// Reconcile tombstone for a path that exists again: clear and reuse.
+		if s.clearReconcileVideoTombstone(f.path, clip.ID, cameraName, f.timestamp) {
+			continue
+		}
+		// Re-check retention tombstone + existence under the same conditions after the lookup.
+		if s.isPendingDeletePath(f.path) {
+			continue
+		}
+		if _, err := os.Stat(f.path); err != nil {
+			continue
+		}
+		vf = models.VideoFile{
+			ClipID:    clip.ID,
+			Camera:    cameraName,
+			FilePath:  f.path,
+			Timestamp: f.timestamp,
+		}
+		if err := s.DB.Create(&vf).Error; err != nil {
+			log.Printf("addFilesToClip: create %s: %v", f.path, err)
 		}
 	}
 }
 
 // isPendingDeletePath is true when retention soft-deleted a VideoFile for this path.
 // The scanner must not recreate rows for files still awaiting unlink / hard-delete.
+// Reconcile-only tombstones (retention_pending=false) are not pending deletes.
 func (s *ScannerService) isPendingDeletePath(path string) bool {
 	var n int
 	s.DB.Unscoped().Model(&models.VideoFile{}).
-		Where("file_path = ? AND deleted_at IS NOT NULL", path).
+		Where("file_path = ? AND deleted_at IS NOT NULL AND retention_pending = ?", path, true).
 		Count(&n)
 	return n > 0
 }
 
-// isPendingDeleteSourceDir is true when a soft-deleted Clip still owns this event directory.
+// isPendingDeleteSourceDir is true when retention still owns a soft-deleted clip
+// for this event directory (awaiting unlink / hard-delete).
 func (s *ScannerService) isPendingDeleteSourceDir(dir string) bool {
 	var n int
 	s.DB.Unscoped().Model(&models.Clip{}).
-		Where("source_dir = ? AND deleted_at IS NOT NULL", dir).
+		Where("source_dir = ? AND deleted_at IS NOT NULL AND retention_pending = ?", dir, true).
 		Count(&n)
 	return n > 0
+}
+
+// clearReconcileClipTombstone undeletes a non-retention soft-deleted clip for
+// sourceDir so a rescan can restore visibility after footage returns.
+func (s *ScannerService) clearReconcileClipTombstone(sourceDir string) (models.Clip, bool) {
+	var clip models.Clip
+	err := s.DB.Unscoped().
+		Where("source_dir = ? AND deleted_at IS NOT NULL AND retention_pending = ?", sourceDir, false).
+		First(&clip).Error
+	if err != nil {
+		return models.Clip{}, false
+	}
+	if !s.reviveClipTombstone(&clip) {
+		return models.Clip{}, false
+	}
+	return clip, true
+}
+
+// clearReconcileRecentClipTombstone finds the Recent clip that owned one of
+// paths before reconcile soft-deleted its VideoFile rows and revives it. Recent
+// clips have no event.json directory identity, so the tombstoned video rows are
+// the only link back to the original owner (and its Protected flag).
+func (s *ScannerService) clearReconcileRecentClipTombstone(paths []string) (models.Clip, bool) {
+	if len(paths) == 0 {
+		return models.Clip{}, false
+	}
+	var vfs []models.VideoFile
+	err := s.DB.Unscoped().
+		Where("file_path IN (?) AND deleted_at IS NOT NULL AND retention_pending = ?", paths, false).
+		Order("timestamp asc").
+		Find(&vfs).Error
+	if err != nil || len(vfs) == 0 {
+		return models.Clip{}, false
+	}
+	seen := map[uint]struct{}{}
+	for _, vf := range vfs {
+		if _, dup := seen[vf.ClipID]; dup {
+			continue
+		}
+		seen[vf.ClipID] = struct{}{}
+		var clip models.Clip
+		err := s.DB.Unscoped().
+			Where("id = ? AND event = ? AND retention_pending = ?", vf.ClipID, "Recent", false).
+			First(&clip).Error
+		if err != nil {
+			continue
+		}
+		if clip.DeletedAt == nil {
+			// Owner is still live; reuse it rather than minting a duplicate.
+			return clip, true
+		}
+		if s.reviveClipTombstone(&clip) {
+			return clip, true
+		}
+	}
+	return models.Clip{}, false
+}
+
+// reviveClipTombstone clears a reconcile soft-delete on clip (and its
+// telemetry) in place, keeping ID, Protected and every other column.
+func (s *ScannerService) reviveClipTombstone(clip *models.Clip) bool {
+	if err := s.DB.Unscoped().Model(clip).
+		Updates(map[string]interface{}{"deleted_at": nil, "retention_pending": false}).Error; err != nil {
+		log.Printf("reviveClipTombstone: clip %d: %v", clip.ID, err)
+		return false
+	}
+	_ = s.DB.Unscoped().Model(&models.Telemetry{}).Where("clip_id = ?", clip.ID).
+		Update("deleted_at", nil).Error
+	clip.DeletedAt = nil
+	clip.RetentionPending = false
+	return true
+}
+
+// clearReconcileVideoTombstone undeletes a non-retention soft-deleted VideoFile
+// when the path exists again on disk. Returns true when a tombstone was cleared.
+func (s *ScannerService) clearReconcileVideoTombstone(path string, clipID uint, camera string, ts time.Time) bool {
+	var vf models.VideoFile
+	err := s.DB.Unscoped().
+		Where("file_path = ? AND deleted_at IS NOT NULL AND retention_pending = ?", path, false).
+		First(&vf).Error
+	if err != nil {
+		return false
+	}
+	updates := map[string]interface{}{
+		"deleted_at":        nil,
+		"retention_pending": false,
+		"clip_id":           clipID,
+		"camera":            camera,
+		"timestamp":         ts,
+	}
+	if err := s.DB.Unscoped().Model(&vf).Updates(updates).Error; err != nil {
+		log.Printf("clearReconcileVideoTombstone: vf %d: %v", vf.ID, err)
+		return false
+	}
+	return true
 }
 
 // aggregateTelemetry iterates through all 'Front' files in the clip, extracts SEI, and updates the Telemetry record.
