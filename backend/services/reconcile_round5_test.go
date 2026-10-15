@@ -61,7 +61,7 @@ func TestReconcileMissing_RejectsTamperedFirstSeen(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Restore a valid pending baseline each case.
 			forgetPendingObservation(filepath.Clean(mustAbs(t, tmpDir)), "")
-			delete(pendingClearBlocked, filepath.Clean(mustAbs(t, tmpDir)))
+			unblockPendingClearForTest(filepath.Clean(mustAbs(t, tmpDir)))
 			base := st
 			base.FirstSeen = time.Now().UTC()
 			if err := savePendingPurge(stateDir, &base); err != nil {
@@ -452,7 +452,7 @@ func TestReconcileMissing_ClockAnomaliesDoNotAuthorize(t *testing.T) {
 	t.Run("future", func(t *testing.T) {
 		// Re-seed pending.
 		forgetPendingObservation(filepath.Clean(mustAbs(t, tmpDir)), "")
-		delete(pendingClearBlocked, filepath.Clean(mustAbs(t, tmpDir)))
+		unblockPendingClearForTest(filepath.Clean(mustAbs(t, tmpDir)))
 		_ = os.Remove(path)
 		if _, err := ReconcileMissing(db, tmpDir, reconcileOpts(stateDir)); !errors.Is(err, ErrReconcilePendingConfirm) {
 			t.Fatalf("reseed: %v", err)

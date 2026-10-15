@@ -222,7 +222,7 @@ func ReconcileMissing(db *gorm.DB, root string, opts ReconcileOpts) (ReconcileRe
 	}
 
 	now := time.Now()
-	if pendingClearBlocked[absRoot] || cancelMarkerPresent(stateDir, absRoot) {
+	if cancelBlocked(stateDir, absRoot) {
 		// Failed clear / persisted cancel: never start or reuse confirmation.
 		return result, fmt.Errorf("%w (%s; prior confirmation clear failed)", ErrReconcilePendingCanceled, absRoot)
 	}
@@ -886,6 +886,14 @@ func clearPendingPurge(stateDir, absRoot string) error {
 	return nil
 }
 
+// cancelBlocked is the only unlocked-context reader of pendingClearBlocked;
+// every access to that map must hold reconcilePendingMu.
+func cancelBlocked(stateDir, absRoot string) bool {
+	reconcilePendingMu.Lock()
+	defer reconcilePendingMu.Unlock()
+	return cancelBlockedLocked(stateDir, absRoot)
+}
+
 func cancelBlockedLocked(stateDir, absRoot string) bool {
 	if pendingClearBlocked[absRoot] {
 		return true
@@ -1154,6 +1162,14 @@ func resetPendingObservationsForTest() {
 	defer reconcilePendingMu.Unlock()
 	pendingObservedAt = map[string]pendingObservation{}
 	pendingClearBlocked = map[string]bool{}
+}
+
+// unblockPendingClearForTest drops the in-process cancel block for absRoot
+// under the lock so tests never touch pendingClearBlocked directly. Tests only.
+func unblockPendingClearForTest(absRoot string) {
+	reconcilePendingMu.Lock()
+	defer reconcilePendingMu.Unlock()
+	delete(pendingClearBlocked, absRoot)
 }
 
 func candidateFingerprint(files []models.VideoFile, clips []models.Clip) string {
