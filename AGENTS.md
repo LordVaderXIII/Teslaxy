@@ -53,6 +53,11 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 - Expose port 80.
 - Prod runtime is `debian:bookworm-slim` (glibc), not Alpine. The pinned BtbN linux64 ffmpeg is a glibc binary and does not run under Alpine/`gcompat` (build-time `h264_nvenc` check exits 1). Backend builder is `golang:1.24-bookworm` so CGO matches. Keep the sha256 pin and run `scripts/check-ffmpeg-nvenc.sh` at build time (binary must execute, then list `h264_nvenc`). Smoke: `scripts/verify-docker-ffmpeg.sh`.
 
+### Offline suburb geocoding
+- `backend/services/geocode.go` nearest-neighbour over embedded GeoNames AU populated places (`backend/services/geodata/au_places_p.tsv.gz`, CC BY 4.0 — see `ATTRIBUTION.md`). No outbound GPS/geocode HTTP.
+- Tesla `event.json` city always wins. Coordinate-string cities matching `^-?\d+\.\d{4}, -?\d+\.\d{4}$` are replaced on scan/startup when a place is within 25 km. Regenerator: `scripts/generate-au-places.sh`.
+- `event.json` watcher debounces Creates/Writes (2s) and retries parse; `backfillIncompleteMetadata` runs at the end of `ScanAll`.
+
 ### Footage retention
 - Implemented in `backend/services/retention.go` (+ `retention_config.go`, `retention_path.go`, `retention_scheduler.go`).
 - Defaults: disabled, dry-run on, 90 days, 300 GB, 24h interval, 15m min file age.
