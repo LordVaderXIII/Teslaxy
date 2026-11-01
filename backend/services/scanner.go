@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +27,7 @@ type ScannerService struct {
 	DB           *gorm.DB
 	Watcher      *fsnotify.Watcher
 	SEIExtractor SEIExtractor
+	Geocoder     Geocoder // optional; nil skips reverse geocoding
 
 	// Incremental update state
 	mu           sync.Mutex
@@ -47,6 +47,7 @@ func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
 		FootagePath:  footagePath,
 		DB:           db,
 		SEIExtractor: ExtractSEI,
+		Geocoder:     NewOfflineGeocoder(),
 		pendingFiles: make(map[string][]string),
 		timers:       make(map[string]*time.Timer),
 	}
@@ -71,7 +72,9 @@ func (s *ScannerService) Start() {
 				if !ok {
 					return
 				}
-				if event.Op&fsnotify.Create == fsnotify.Create {
+				// Create and Write: Tesla may create an empty/partial event.json
+				// then write the body; we must not only watch Create.
+				if event.Op&(fsnotify.Create|fsnotify.Write) != 0 {
 					s.handleFileCreate(event.Name)
 				}
 			case err, ok := <-s.Watcher.Errors:
@@ -137,12 +140,23 @@ func (s *ScannerService) handleFileCreate(path string) {
 		return
 	}
 
-	// Case 2: event.json
+	// Case 2: event.json — debounce like videos so a half-written create
+	// is not scanned before Tesla finishes writing city/reason.
 	if strings.ToLower(filename) == "event.json" {
-		fmt.Println("event.json detected:", path)
 		dir := filepath.Dir(path)
-		// Trigger re-scan of the directory
-		go s.scanDir(dir)
+		fmt.Println("event.json detected, queued for processing:", path)
+
+		s.mu.Lock()
+		if _, ok := s.pendingFiles[dir]; !ok {
+			s.pendingFiles[dir] = nil
+		}
+		if t, ok := s.timers[dir]; ok {
+			t.Stop()
+		}
+		s.timers[dir] = time.AfterFunc(2*time.Second, func() {
+			s.processPending(dir)
+		})
+		s.mu.Unlock()
 	}
 }
 
@@ -261,6 +275,10 @@ func (s *ScannerService) ScanAll() {
 		s.processRecentGroup(recentFiles)
 	}
 
+	// Light startup sweep: re-read event.json for empty city/reason and
+	// offline-geocode coordinate-string cities.
+	s.backfillIncompleteMetadata()
+
 	fmt.Printf("Scan complete in %v.\n", time.Since(start))
 }
 
@@ -309,56 +327,30 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	lockMediaRead()
 	defer unlockMediaRead()
 
-	// Parse Metadata
+	// Parse Metadata (retry on half-written event.json)
 	var city string
+	var eventReason string
 	var estLat, estLon float64
 	var timezone *time.Location
 	var eventJsonTimestamp *time.Time // Timestamp from event.json
 
 	eventJsonPath := filepath.Join(dirPath, "event.json")
 	if _, err := os.Stat(eventJsonPath); err == nil {
-		content, err := os.ReadFile(eventJsonPath)
-		if err == nil {
-			var eventData struct {
-				Timestamp string      `json:"timestamp"`
-				City      string      `json:"city"`
-				Reason    string      `json:"reason"`
-				EstLat    interface{} `json:"est_lat"`
-				EstLon    interface{} `json:"est_lon"`
+		ev, err := readEventJSONFile(eventJsonPath)
+		if err != nil {
+			fmt.Printf("event.json unreadable for %s: %v\n", dirPath, err)
+		} else {
+			city = ev.City
+			eventReason = ev.Reason
+			estLat, estLon = ev.EstLat, ev.EstLon
+			if city == "" && ValidGeographicPoint(estLat, estLon) {
+				city = fmt.Sprintf("%.4f, %.4f", estLat, estLon)
 			}
-			if err := json.Unmarshal(content, &eventData); err == nil {
-				city = eventData.City
-
-				// Update Reason in Clip
-				if eventData.Reason != "" {
-					// We'll update the clip with this reason later
-				}
-
-				toFloat := func(v interface{}) float64 {
-					switch val := v.(type) {
-					case float64:
-						return val
-					case string:
-						f, _ := strconv.ParseFloat(val, 64)
-						return f
-					default:
-						return 0
-					}
-				}
-
-				estLat = toFloat(eventData.EstLat)
-				estLon = toFloat(eventData.EstLon)
-
-				if city == "" && ValidGeographicPoint(estLat, estLon) {
-					city = fmt.Sprintf("%.4f, %.4f", estLat, estLon)
-				}
-				timezone = determineTimezone(estLat, estLon)
-
-				if t, err := time.ParseInLocation("2006-01-02T15:04:05", eventData.Timestamp, timezone); err == nil {
-					eventJsonTimestamp = &t
-				} else if t, err := time.Parse(time.RFC3339, eventData.Timestamp); err == nil {
-					eventJsonTimestamp = &t
-				}
+			timezone = determineTimezone(estLat, estLon)
+			if t, err := time.ParseInLocation("2006-01-02T15:04:05", ev.Timestamp, timezone); err == nil {
+				eventJsonTimestamp = &t
+			} else if t, err := time.Parse(time.RFC3339, ev.Timestamp); err == nil {
+				eventJsonTimestamp = &t
 			}
 		}
 	}
@@ -404,17 +396,6 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 		eventType = "Saved"
 	}
 
-	// Helper to read reason
-	var eventReason string
-	if _, err := os.Stat(eventJsonPath); err == nil {
-		content, _ := os.ReadFile(eventJsonPath)
-		var ed struct {
-			Reason string `json:"reason"`
-		}
-		json.Unmarshal(content, &ed)
-		eventReason = ed.Reason
-	}
-
 	// === SOURCE OF TRUTH: event directory + event.json ===
 	// We now use SourceDir (the physical Tesla folder) as the stable primary key for a logical event.
 	// This prevents duplicate clips when rescanning and makes event.json the authoritative metadata source.
@@ -441,11 +422,17 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 		if clip.EventTimestamp == nil && eventJsonTimestamp != nil {
 			updates["event_timestamp"] = eventJsonTimestamp
 		}
-		if city != "" && clip.City == "" {
+		// Tesla's own city always wins over empty or coordinate-string cities.
+		if city != "" && !IsCoordinateCity(city) && (clip.City == "" || IsCoordinateCity(clip.City)) {
 			updates["city"] = city
+			clip.City = city
+		} else if city != "" && clip.City == "" {
+			updates["city"] = city
+			clip.City = city
 		}
 		if eventReason != "" && clip.Reason == "" {
 			updates["reason"] = eventReason
+			clip.Reason = eventReason
 		}
 		if clip.SourceDir == "" {
 			updates["source_dir"] = dirPath
@@ -454,6 +441,8 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 			s.DB.Model(&clip).Updates(updates)
 		}
 	}
+	// Reverse-geocode coordinate fallbacks (and empty cities with coordinates).
+	s.geocodeClipCity(&clip, estLat, estLon)
 
 	// Seed incident coordinates from event.json onto a single telemetry row.
 	// Reload TelemetryID in memory so aggregateTelemetry updates this row instead of creating another.
@@ -740,11 +729,13 @@ func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo,
 	}
 
 	// 5. Update City if missing — use the selected incident point, never (0,0).
+	// Tesla's own city (from event.json) always wins when already set to a real name.
 	if clip.City == "" && ValidGeographicPoint(lat, lon) {
 		newCity := fmt.Sprintf("%.4f, %.4f", lat, lon)
 		s.DB.Model(clip).Update("city", newCity)
 		clip.City = newCity
 	}
+	s.geocodeClipCity(clip, lat, lon)
 }
 
 func determineTimezone(lat, lon float64) *time.Location {
