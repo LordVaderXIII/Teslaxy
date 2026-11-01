@@ -135,7 +135,10 @@ const CameraView = React.memo(({
 });
 
 const DEFAULT_CAMERAS = ['Front', 'Left Pillar', 'Back', 'Right Pillar', 'Left Repeater', 'Right Repeater'];
-const MOSAIC_SECONDARY = ['Left Repeater', 'Right Repeater', 'Left Pillar', 'Right Pillar', 'Back'];
+/** Spatial mosaic: columns match where each camera points (driver view). No mirroring. */
+const MOSAIC_LEFT = ['Left Pillar', 'Left Repeater'] as const;
+const MOSAIC_MIDDLE = ['Front', 'Back'] as const;
+const MOSAIC_RIGHT = ['Right Pillar', 'Right Repeater'] as const;
 
 const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip, onOpenMap }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -614,10 +617,6 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
       return info ? info.segment : null;
   };
 
-  const secondaryCameras = useMemo(() => {
-      return MOSAIC_SECONDARY.map(name => name === activeCamera ? 'Front' : name);
-  }, [activeCamera]);
-
   const focusCamera = useCallback((camName: string) => {
       activeCameraRef.current = camName;
       setActiveCamera(camName);
@@ -641,6 +640,23 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
         <h2 className="desk-title" style={{ fontSize: 30, margin: '10px 0' }}>Select a clip to play</h2>
       </div>
     </div>
+  );
+
+  const renderMosaicTile = (camName: string, feature = false) => (
+      <CameraView
+          key={camName}
+          camName={camName}
+          className="h-full"
+          feature={feature}
+          seg={getCurrentSegment(camName)}
+          clip={clip}
+          quality={quality}
+          handlePlayerReady={handlePlayerReady}
+          releasePlayer={releasePlayer}
+          getUrl={getUrl}
+          onClick={() => focusCamera(camName)}
+          preload="metadata"
+      />
   );
 
   // Determine Incident Marker — amber tick from a real event_timestamp only.
@@ -741,37 +757,32 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
           </div>
       ) : (
           <div className={`desk-stage relative ${focused || isPhone ? 'is-focus' : ''}`}>
-              <CameraView
-                  camName={activeCamera}
-                  className="h-full"
-                  feature
-                  seg={getCurrentSegment(activeCamera)}
-                  clip={clip}
-                  quality={quality}
-                  handlePlayerReady={handlePlayerReady}
-                  releasePlayer={releasePlayer}
-                  getUrl={getUrl}
-                  onClick={() => focusCamera(activeCamera)}
-                  preload="metadata"
-              />
-              {showMosaic && (
-                <div className="desk-camera-grid">
-                  {secondaryCameras.map((camName) => (
-                      <CameraView
-                          key={camName}
-                          camName={camName}
-                          className="h-full"
-                          seg={getCurrentSegment(camName)}
-                          clip={clip}
-                          quality={quality}
-                          handlePlayerReady={handlePlayerReady}
-                          releasePlayer={releasePlayer}
-                          getUrl={getUrl}
-                          onClick={() => focusCamera(camName)}
-                          preload="metadata"
-                      />
-                  ))}
+              {showMosaic ? (
+                <div className="desk-camera-grid" data-mosaic-layout="spatial">
+                  <div className="desk-cam-col desk-cam-col-side" data-mosaic-col="left">
+                    {MOSAIC_LEFT.map((camName) => renderMosaicTile(camName))}
+                  </div>
+                  <div className="desk-cam-col desk-cam-col-mid" data-mosaic-col="middle">
+                    {MOSAIC_MIDDLE.map((camName) => renderMosaicTile(camName, camName === 'Front'))}
+                  </div>
+                  <div className="desk-cam-col desk-cam-col-side" data-mosaic-col="right">
+                    {MOSAIC_RIGHT.map((camName) => renderMosaicTile(camName))}
+                  </div>
                 </div>
+              ) : (
+                <CameraView
+                    camName={activeCamera}
+                    className="h-full"
+                    feature
+                    seg={getCurrentSegment(activeCamera)}
+                    clip={clip}
+                    quality={quality}
+                    handlePlayerReady={handlePlayerReady}
+                    releasePlayer={releasePlayer}
+                    getUrl={getUrl}
+                    onClick={() => focusCamera(activeCamera)}
+                    preload="metadata"
+                />
               )}
               {hudLayer}
           </div>
