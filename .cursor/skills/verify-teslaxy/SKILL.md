@@ -78,6 +78,7 @@ Write proof under `/opt/cursor/artifacts/` (survives cleanup):
 - `go-test-full.log` — full `go test ./...`
 - `retention-dry-run.json` — structured dry-run report
 - `verify-retention-http.log` — curl transcript when the server path was used
+- Library/geocode: `go test ./services/ -run 'OfflineGeocoder|HalfWritten|Backfill|TeslaCity'` and `node frontend/tests/format-reason-check.mjs`; optional 390×844 Library screenshots via Playwright + Chrome against the Launch fixture
 
 Proof standards: dry-run must leave fixture files intact; age/size/protect cases are covered by `go test ./services/ -run Retention`.
 

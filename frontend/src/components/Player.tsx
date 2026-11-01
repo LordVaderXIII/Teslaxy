@@ -17,6 +17,7 @@ import {
   shouldCorrectDrift,
   timelineDurationSeconds,
 } from '../utils/playbackTimeline.mjs';
+import { FormatReason } from '../utils/formatReason.mjs';
 
 const Scene3D = React.lazy(() => import('./Scene3D'));
 
@@ -659,7 +660,7 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
   const subtitle = [
       start.toLocaleDateString(),
       start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      clip.reason || clip.event,
+      FormatReason.label(clip.reason, clip.event),
   ].join(' · ');
   const focused = viewMode === 'focus';
   const incident = markers[0];

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-11-01
+### Added
+- Offline suburb reverse-geocoding for clips whose city is empty or a lat/lon fallback: embedded GeoNames Australia populated places (`feature class P`, gzip ~245 KB) with nearest-neighbour lookup. GPS stays on the LAN. Regenerator: `scripts/generate-au-places.sh`; attribution: `backend/services/geodata/ATTRIBUTION.md` (CC BY 4.0).
+- `FormatReason` short labels for Library/Player reason text (e.g. Object detected, Bump detected, Horn save, Saved manually) with 2-line wrapping and the raw Tesla reason in `title` / `aria-label`.
+
+### Fixed
+- Sentry/Saved `event.json` is debounced (2s) like video files and watched on Write as well as Create, so a half-written create no longer permanently leaves empty `city`/`reason`. Parse failures are logged and retried; a light startup sweep re-reads `event.json` for incomplete Sentry/Saved clips and backfills coordinate-string cities through the offline geocoder.
+
 ## [0.3.1] - 2026-10-14
 ### Fixed
 - Prod Docker runtime switches from Alpine+gcompat to `debian:bookworm-slim` (glibc) so the pinned BtbN linux64 ffmpeg binary actually executes; Alpine could pass the tarball sha256 and still fail `h264_nvenc` because the binary would not run.

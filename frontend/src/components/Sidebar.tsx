@@ -4,6 +4,7 @@ import Calendar from './Calendar';
 import { useClickOutside } from '../hooks/useClickOutside';
 import type { Clip, VideoFile } from '../utils/clipMerge';
 import { DEFAULT_CLIP_FILTERS, type ClipFilterState } from '../utils/clipFilters';
+import { FormatReason } from '../utils/formatReason.mjs';
 
 interface SidebarProps {
   clips: Clip[];
@@ -105,7 +106,8 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
   }, [clip.video_files, clip.event_timestamp, clip.preview_path, clip.preview_seek_seconds]);
 
   const start = clip.start_time || new Date(clip.timestamp);
-  const reason = clip.reason || clip.event;
+  const reasonRaw = FormatReason.raw(clip.reason, clip.event);
+  const reasonLabel = FormatReason.label(clip.reason, clip.event);
 
   return (
     <button
@@ -132,8 +134,12 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
           <span className="block mt-[5px] text-[16px] text-[var(--muted)] whitespace-nowrap overflow-hidden text-ellipsis">
             {start.toLocaleDateString()} · {start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-          <span className={`block mt-1 text-[16px] tracking-[0.08em] uppercase whitespace-nowrap overflow-hidden text-ellipsis ${clip.event === 'Sentry' ? 'text-[var(--sev-crit)]' : 'text-[var(--accent)]'}`}>
-            {reason.replaceAll('_', ' ')}
+          <span
+            title={reasonRaw}
+            aria-label={reasonRaw}
+            className={`block mt-1 text-[16px] tracking-[0.08em] uppercase leading-snug line-clamp-2 break-words ${clip.event === 'Sentry' ? 'text-[var(--sev-crit)]' : 'text-[var(--accent)]'}`}
+          >
+            {reasonLabel}
           </span>
        </div>
     </button>
