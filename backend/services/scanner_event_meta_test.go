@@ -148,6 +148,15 @@ func TestScanner_BackfillCoordinateCity(t *testing.T) {
 	}
 	db.Create(&c1)
 	db.Create(&c2)
+	// Stored city strings are not evidence of location. Use each clip's own telemetry.
+	for _, point := range []models.Telemetry{
+		{ClipID: c1.ID, Latitude: -34.8005, Longitude: 138.7207},
+		{ClipID: c2.ID, Latitude: -34.9450, Longitude: 138.6130},
+	} {
+		if err := db.Create(&point).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	scanner.backfillIncompleteMetadata()
 

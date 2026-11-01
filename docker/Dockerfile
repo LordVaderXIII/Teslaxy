@@ -43,12 +43,14 @@ COPY scripts/check-ffmpeg-nvenc.sh /usr/local/share/teslaxy/check-ffmpeg-nvenc.s
 # from the NVIDIA Container Toolkit at runtime.
 #
 # Source: https://github.com/BtbN/FFmpeg-Builds (GPL linux64 shared-free static tarball).
-# Release tag autobuild-2026-10-13-13-05, asset ffmpeg-n8.1.3-18-g46d899d7a0-linux64-gpl-8.1.tar.xz.
+# Release tag autobuild-2026-11-01-12-49, asset ffmpeg-n8.1.3-29-gad3b795b72-linux64-gpl-8.1.tar.xz.
 # SHA256 taken from that release's checksums.sha256 (and re-verified locally before pin).
+# Do not pin a mutable *-latest asset with a fixed hash; dated assets may need repinning
+# when upstream expires old autobuild releases.
 # linux64 = amd64 only — refuse other architectures rather than silently installing a bad binary.
 ARG TARGETARCH
-ARG FFMPEG_BTBN_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-13-13-05/ffmpeg-n8.1.3-18-g46d899d7a0-linux64-gpl-8.1.tar.xz"
-ARG FFMPEG_BTBN_SHA256="b3506f47a71a2f8cff8c0775112bf02a8a49035e3994232aa5f218058328e0e7"
+ARG FFMPEG_BTBN_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-11-01-12-49/ffmpeg-n8.1.3-29-gad3b795b72-linux64-gpl-8.1.tar.xz"
+ARG FFMPEG_BTBN_SHA256="378639650544dfca48e2a3f7b4e5da2071ca1d91a59b7588bd188f7219ea2d7b"
 RUN arch="${TARGETARCH:-}" \
 	&& if [ -z "$arch" ]; then arch="$(uname -m)"; fi \
 	&& case "$arch" in amd64|x86_64) ;; *) \

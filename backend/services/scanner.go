@@ -275,8 +275,7 @@ func (s *ScannerService) ScanAll() {
 		s.processRecentGroup(recentFiles)
 	}
 
-	// Light startup sweep: re-read event.json for empty city/reason and
-	// offline-geocode coordinate-string cities.
+	// Repair metadata from each clip's source, including previously backfilled cities.
 	s.backfillIncompleteMetadata()
 
 	fmt.Printf("Scan complete in %v.\n", time.Since(start))
