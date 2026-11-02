@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-11-01
+### Fixed
+- Startup metadata backfill now resolves every active clip from its own `event.json` coordinates, falling back to its own telemetry, never the stored city/coordinate string. Previously backfilled suburb names are repaired too; Tesla-supplied cities take precedence and unchanged metadata is not rewritten.
+- Added regression coverage for distinct per-clip suburbs, repeated scans/backfills, telemetry fallback, and present/missing `reason` fields. Reasons absent from the source remain empty.
+- Repinned the expired BtbN ffmpeg download to the verified 2026-11-01 autobuild and updated its SHA256 checksum.
+
 ## [0.4.0] - 2026-11-01
 ### Added
 - Offline suburb reverse-geocoding for clips whose city is empty or a lat/lon fallback: embedded GeoNames Australia populated places (`feature class P`, gzip ~245 KB) with nearest-neighbour lookup. GPS stays on the LAN. Regenerator: `scripts/generate-au-places.sh`; attribution: `backend/services/geodata/ATTRIBUTION.md` (CC BY 4.0).

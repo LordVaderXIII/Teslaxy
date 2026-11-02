@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jinzhu/gorm"
 	"teslaxy/models"
 )
 
@@ -90,15 +91,6 @@ func (s *ScannerService) geocodeClipCity(clip *models.Clip, lat, lon float64) {
 		return
 	}
 	if !ValidGeographicPoint(lat, lon) {
-		// Try parsing the coordinate-string city itself.
-		if IsCoordinateCity(clip.City) {
-			var parseLat, parseLon float64
-			if _, err := fmt.Sscanf(clip.City, "%f, %f", &parseLat, &parseLon); err == nil {
-				lat, lon = parseLat, parseLon
-			}
-		}
-	}
-	if !ValidGeographicPoint(lat, lon) {
 		return
 	}
 	name, err := s.Geocoder.Reverse(lat, lon)
@@ -109,70 +101,76 @@ func (s *ScannerService) geocodeClipCity(clip *models.Clip, lat, lon float64) {
 	clip.City = name
 }
 
-// backfillIncompleteMetadata re-reads event.json for Sentry/Saved clips with
-// empty city or reason, and geocodes any coordinate-looking cities. Called
-// once at the end of ScanAll (startup / full rescan).
+// backfillIncompleteMetadata repairs every active clip, including cities produced
+// by earlier backfills. Only event.json and this clip's telemetry supply location;
+// the stored city may contain stale coordinates or a stale geocoded name.
 func (s *ScannerService) backfillIncompleteMetadata() {
-	var eventClips []models.Clip
-	if err := s.DB.Where(
-		"(event = ? OR event = ?) AND source_dir != '' AND source_dir IS NOT NULL AND (city = '' OR city IS NULL OR reason = '' OR reason IS NULL)",
-		"Sentry", "Saved",
-	).Find(&eventClips).Error; err != nil {
-		fmt.Printf("backfill event metadata query error: %v\n", err)
-	} else {
-		for i := range eventClips {
-			s.backfillOneEventClip(&eventClips[i])
+	var after uint
+	for {
+		var clips []models.Clip
+		if err := s.DB.Where("id > ?", after).Order("id").Limit(256).
+			Preload("Telemetry", func(db *gorm.DB) *gorm.DB {
+				// Do not load full playback tracks during this startup sweep.
+				return db.Select("id, clip_id, latitude, longitude")
+			}).Find(&clips).Error; err != nil {
+			fmt.Printf("backfill metadata query error: %v\n", err)
+			return
 		}
-	}
-
-	var coordClips []models.Clip
-	// SQLite: pull candidates with a comma in city, then regex-filter in Go.
-	if err := s.DB.Where("city LIKE '%,%'").Find(&coordClips).Error; err != nil {
-		fmt.Printf("backfill coordinate city query error: %v\n", err)
-		return
-	}
-	for i := range coordClips {
-		clip := &coordClips[i]
-		if !IsCoordinateCity(clip.City) {
-			continue
+		if len(clips) == 0 {
+			return
 		}
-		var lat, lon float64
-		if _, err := fmt.Sscanf(clip.City, "%f, %f", &lat, &lon); err != nil {
-			continue
+		for i := range clips {
+			s.backfillClipMetadata(&clips[i])
 		}
-		s.geocodeClipCity(clip, lat, lon)
+		after = clips[len(clips)-1].ID
 	}
 }
 
-func (s *ScannerService) backfillOneEventClip(clip *models.Clip) {
-	if clip == nil || clip.SourceDir == "" {
-		return
-	}
-	eventPath := filepath.Join(clip.SourceDir, "event.json")
-	if _, err := os.Stat(eventPath); err != nil {
-		return
-	}
-	ev, err := readEventJSONFile(eventPath)
-	if err != nil {
-		fmt.Printf("backfill: still cannot parse %s: %v\n", eventPath, err)
-		return
+func (s *ScannerService) backfillClipMetadata(clip *models.Clip) {
+	var ev eventJSON
+	if clip.SourceDir != "" {
+		eventPath := filepath.Join(clip.SourceDir, "event.json")
+		if _, err := os.Stat(eventPath); err == nil {
+			var readErr error
+			ev, readErr = readEventJSONFile(eventPath)
+			if readErr != nil {
+				fmt.Printf("backfill: still cannot parse %s: %v\n", eventPath, readErr)
+				return // Do not overwrite an authoritative city while its source is unreadable.
+			}
+		} else if !os.IsNotExist(err) {
+			fmt.Printf("backfill: cannot stat %s: %v\n", eventPath, err)
+			return
+		}
 	}
 	updates := map[string]interface{}{}
-	if clip.City == "" && ev.City != "" {
-		updates["city"] = ev.City
-		clip.City = ev.City
-	}
 	if clip.Reason == "" && ev.Reason != "" {
 		updates["reason"] = ev.Reason
-		clip.Reason = ev.Reason
 	}
-	if clip.City == "" && ValidGeographicPoint(ev.EstLat, ev.EstLon) {
-		coordCity := fmt.Sprintf("%.4f, %.4f", ev.EstLat, ev.EstLon)
-		updates["city"] = coordCity
-		clip.City = coordCity
+	city := ev.City
+	if city == "" || IsCoordinateCity(city) {
+		lat, lon := ev.EstLat, ev.EstLon
+		if !ValidGeographicPoint(lat, lon) {
+			lat, lon = clip.Telemetry.Latitude, clip.Telemetry.Longitude
+		}
+		if ValidGeographicPoint(lat, lon) {
+			city = fmt.Sprintf("%.4f, %.4f", lat, lon)
+			if s.Geocoder != nil {
+				if name, err := s.Geocoder.Reverse(lat, lon); err == nil && name != "" {
+					city = name
+				}
+			}
+		} else {
+			city = "" // No trustworthy location: never interpret a stored coordinate string.
+		}
+	}
+	if city != "" && city != clip.City {
+		updates["city"] = city
 	}
 	if len(updates) > 0 {
-		s.DB.Model(clip).Updates(updates)
+		// Use a bare model: GORM v1 would otherwise auto-save the partially loaded
+		// Telemetry association and erase fields not selected by this sweep.
+		if err := s.DB.Model(&models.Clip{}).Where("id = ?", clip.ID).Updates(updates).Error; err != nil {
+			fmt.Printf("backfill clip %d metadata update error: %v\n", clip.ID, err)
+		}
 	}
-	s.geocodeClipCity(clip, ev.EstLat, ev.EstLon)
 }
