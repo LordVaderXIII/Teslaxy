@@ -325,7 +325,7 @@ button:disabled {
   flex: 1;
   min-height: 200px;
   display: grid;
-  grid-template-columns: minmax(0, 1.75fr) minmax(230px, 1fr);
+  grid-template-columns: 1fr;
   gap: 4px;
   background: var(--ghost);
   border: 1px solid var(--line);
@@ -337,16 +337,32 @@ button:disabled {
   grid-template-columns: 1fr;
 }
 
+/* Spatial mosaic: left | front/back | right — matches camera pointing. */
 .desk-camera-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr) minmax(0, 1fr);
   gap: 4px;
   min-height: 0;
+  height: 100%;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
 }
 
-.desk-camera-grid .desk-camera:last-child {
-  grid-column: span 2;
+.desk-cam-col {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Four side tiles share equal size (equal columns + equal rows). */
+.desk-cam-col-side {
+  grid-template-rows: 1fr 1fr;
+}
+
+/* Front (top) larger than Back (bottom); both wider than side tiles. */
+.desk-cam-col-mid {
+  grid-template-rows: minmax(0, 1.65fr) minmax(0, 1fr);
 }
 
 .desk-camera {
@@ -362,6 +378,13 @@ button:disabled {
   text-align: left;
   cursor: pointer;
   border-radius: 0;
+}
+
+/* Keep feeds as the camera sees them — never mirror/flip mosaic tiles. */
+.desk-camera video,
+.desk-camera .video-js,
+.desk-camera .vjs-tech {
+  transform: none !important;
 }
 
 .desk-camera.is-feature::after {

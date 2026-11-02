@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-11-02
+### Changed
+- Multi-camera mosaic uses a spatial 3-column layout (left pillar/repeater | front+rear | right pillar/repeater) so each tile sits where that camera points. Front is the largest tile; rear is smaller than front but larger than the equal side tiles. Feeds are not mirrored or flipped.
+
 ## [0.4.1] - 2026-11-01
 ### Fixed
 - Startup metadata backfill now resolves every active clip from its own `event.json` coordinates, falling back to its own telemetry, never the stored city/coordinate string. Previously backfilled suburb names are repaired too; Tesla-supplied cities take precedence and unchanged metadata is not rewritten.
