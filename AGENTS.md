@@ -55,7 +55,7 @@ Teslaxy is a self-hosted web application for viewing Tesla Sentry and Dashcam cl
 
 ### Offline suburb geocoding
 - `backend/services/geocode.go` nearest-neighbour over embedded GeoNames AU populated places (`backend/services/geodata/au_places_p.tsv.gz`, CC BY 4.0 — see `ATTRIBUTION.md`). No outbound GPS/geocode HTTP.
-- Tesla `event.json` city always wins. Coordinate-string cities matching `^-?\d+\.\d{4}, -?\d+\.\d{4}$` are replaced on scan/startup when a place is within 25 km. Regenerator: `scripts/generate-au-places.sh`.
+- Startup revisits all active clips, uses only each clip's own event coordinates or own telemetry, preserves Tesla city/reasons, and never re-saves partially selected telemetry associations. Regenerator: `scripts/generate-au-places.sh`.
 - `event.json` watcher debounces Creates/Writes (2s) and retries parse; `backfillIncompleteMetadata` runs at the end of `ScanAll`.
 
 ### Footage retention
