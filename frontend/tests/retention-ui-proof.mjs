@@ -9,6 +9,10 @@ const proof = new URL('../../.git/proof/', import.meta.url).pathname;
 await mkdir(proof, { recursive: true });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1080 }, recordVideo: { dir: proof, size: { width: 1440, height: 1080 } } });
 const page = await context.newPage();
+const settingsWrites = [];
+page.on('request', request => {
+  if (request.url().endsWith('/api/retention/settings') && request.method() === 'PUT') settingsWrites.push(request);
+});
 const pause = () => page.waitForTimeout(1000);
 try {
   await page.goto(base);
@@ -48,6 +52,12 @@ try {
     const settings = page.getByRole('dialog', { name: 'Retention & storage' });
     await expect(settings.getByRole('checkbox', { name: 'Enable retention', exact: true })).not.toBeChecked();
     await expect(settings.getByRole('checkbox', { name: 'Dry-run only', exact: true })).toBeChecked();
+    assert.equal(settingsWrites.length, 0, 'opening settings must not write or enable retention');
+    await settings.getByRole('checkbox', { name: 'Enable retention', exact: true }).check();
+    await settings.getByRole('checkbox', { name: 'Dry-run only', exact: true }).uncheck();
+    assert.equal(settingsWrites.length, 0, 'editing toggles must not save automatically');
+    await settings.getByRole('checkbox', { name: 'Enable retention', exact: true }).uncheck();
+    await settings.getByRole('checkbox', { name: 'Dry-run only', exact: true }).check();
     await settings.getByLabel('Max age (days)', { exact: true }).fill('45');
     await settings.getByLabel('Max size (GB)', { exact: true }).fill('200.5');
     const putPromise = page.waitForRequest(r => r.url().endsWith('/api/retention/settings') && r.method() === 'PUT');
@@ -58,6 +68,7 @@ try {
     await expect(settings.getByRole('status')).toHaveText('Settings saved.');
     await expect(settings.getByText(/Last dry-run:.*would delete/)).toBeVisible();
     await expect(settings.getByText(/Volume used/)).toBeVisible();
+    assert.equal(settingsWrites.length, 1);
     await pause();
     await page.screenshot({ path: `${proof}retention-storage.png` });
     const saved = await (await context.request.get(`${base}/api/retention/settings`)).json();

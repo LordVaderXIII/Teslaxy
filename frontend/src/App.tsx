@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } fr
 import Player from './components/Player'
 import Sidebar from './components/Sidebar'
 import VersionDisplay from './components/VersionDisplay'
+import RetentionPanel from './components/RetentionPanel'
 import { setClipProtected } from './utils/retentionApi.mjs'
 import { mergeClips } from './utils/clipMerge.mjs'
 import type { Clip } from './utils/clipMerge'
@@ -226,8 +227,11 @@ function App() {
             <span className="desk-brandname">TESLAXY</span>
             <span className="desk-brandline">// FOOTAGE DESK</span>
           </button>
-          <div className="desk-status" data-state={status} aria-live="polite">
+          <div className="flex items-center flex-wrap justify-end gap-3">
+          <RetentionPanel />
+          <div className="desk-status max-md:hidden" data-state={status} aria-live="polite">
             {statusLabel}
+          </div>
           </div>
         </div>
       </header>
