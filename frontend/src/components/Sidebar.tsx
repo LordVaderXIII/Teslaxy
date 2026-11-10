@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Filter, RefreshCw, Calendar as CalendarIcon, Map as MapIcon, Inbox } from 'lucide-react';
 import Calendar from './Calendar';
+import ProtectButton, { ProtectedBadge, type ProtectionProps } from './ProtectButton';
 import { useClickOutside } from '../hooks/useClickOutside';
 import type { Clip, VideoFile } from '../utils/clipMerge';
 import { DEFAULT_CLIP_FILTERS, type ClipFilterState } from '../utils/clipFilters';
 import { FormatReason } from '../utils/formatReason.mjs';
 
-interface SidebarProps {
+interface SidebarProps extends ProtectionProps {
   clips: Clip[];
   filteredClips: Clip[];
   filters: ClipFilterState;
@@ -22,7 +23,7 @@ interface SidebarProps {
   className?: string;
 }
 
-interface SidebarItemProps {
+interface SidebarItemProps extends ProtectionProps {
   clip: Clip;
   isSelected: boolean;
   onClipSelect: (clip: Clip) => void;
@@ -52,7 +53,7 @@ const ThumbnailImage = ({ src, clip }: { src: string; clip: Clip }) => {
   );
 };
 
-const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemProps) => {
+const SidebarItem = React.memo(({ clip, isSelected, onClipSelect, onProtect, protectionBusy }: SidebarItemProps) => {
   const thumbnailUrl = useMemo(() => {
     if (!clip.video_files || clip.video_files.length === 0) {
       if (clip.preview_path) {
@@ -110,11 +111,12 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
   const reasonLabel = FormatReason.label(clip.reason, clip.event);
 
   return (
+    <div className="border-b border-[var(--ghost)]">
     <button
       onClick={() => onClipSelect(clip)}
       aria-current={isSelected ? 'true' : undefined}
       className={`
-         w-full text-left outline-none
+         w-full text-left
          grid grid-cols-[66px_minmax(0,1fr)] gap-3 items-center
          px-[18px] py-[13px] min-h-[91px]
          border-0 border-l-[3px] border-b border-b-[var(--ghost)]
@@ -141,8 +143,13 @@ const SidebarItem = React.memo(({ clip, isSelected, onClipSelect }: SidebarItemP
           >
             {reasonLabel}
           </span>
+          {clip.protected && <ProtectedBadge />}
        </div>
     </button>
+    <div className="px-[18px] pb-3 flex justify-end">
+      <ProtectButton clip={clip} onProtect={onProtect} protectionBusy={protectionBusy} />
+    </div>
+    </div>
   );
 });
 
@@ -155,6 +162,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onDateSelect,
   selectedClipId,
   onClipSelect,
+  onProtect,
+  protectionBusy,
   onRefresh,
   onOpenMap,
   loading,
@@ -248,6 +257,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                    <div id="filter-dropdown" className="desk-popover flex flex-col gap-3">
                        <span className="desk-eyebrow">// FILTER EVENTS</span>
                        <h3 className="desk-title text-[22px] m-0">Show in library</h3>
+                       <label className="flex items-center gap-[11px] min-h-12 cursor-pointer">
+                         <input type="checkbox" checked={filters.protected} onChange={e => onFiltersChange({...filters, protected: e.target.checked})} className="h-5 w-5 accent-[var(--accent)]" />
+                         <span>Protected only</span>
+                       </label>
                        <label className="flex items-center gap-[11px] min-h-12 cursor-pointer text-[var(--ink-2)]">
                           <input
                               type="checkbox"
@@ -393,6 +406,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                     clip={clip}
                     isSelected={selectedClipId === clip.ID}
                     onClipSelect={onClipSelect}
+                    onProtect={onProtect}
+                    protectionBusy={protectionBusy}
                   />
                ))}
             </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } fr
 import Player from './components/Player'
 import Sidebar from './components/Sidebar'
 import VersionDisplay from './components/VersionDisplay'
+import { setClipProtected } from './utils/retentionApi.mjs'
 import { mergeClips } from './utils/clipMerge.mjs'
 import type { Clip } from './utils/clipMerge'
 import { DEFAULT_CLIP_FILTERS, filterClipsByDateAndReason, type ClipFilterState } from './utils/clipFilters'
@@ -33,6 +34,10 @@ function App() {
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date())
   const latestDetailIdRef = useRef<number | null>(null)
   const detailAbortRef = useRef<AbortController | null>(null)
+  const [protectionBusy, setProtectionBusy] = useState(false)
+  const [protectionError, setProtectionError] = useState<string | null>(null)
+  const protectionLockRef = useRef(false)
+  const protectionRevisionRef = useRef(0)
 
   const filteredClips = useMemo(
     () => filterClipsByDateAndReason(clips, selectedDate, filters),
@@ -109,7 +114,8 @@ function App() {
         setPlaybackError(message)
       }
 
-      setSelectedClip(next)
+      // Protection can change while the independent playback detail request is in flight.
+      setSelectedClip(current => current?.ID === next.ID ? { ...next, protected: current.protected } : current)
     })
   }, [])
 
@@ -125,12 +131,14 @@ function App() {
   }, [applyClip])
 
   const refreshClips = useCallback((autoSelectFirst = false) => {
+    const protectionRevision = protectionRevisionRef.current
     fetch('/api/library')
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch library')
         return res.json()
       })
       .then((data: { events?: LibraryEvent[] }) => {
+        if (protectionRevision !== protectionRevisionRef.current || protectionLockRef.current) return
         // Facets may be present but must not replace the row set. Client filters stay in clipFilters.ts.
         const events = Array.isArray(data?.events) ? data.events : []
         const ingested = events.map(libraryEventToClip)
@@ -156,6 +164,36 @@ function App() {
 
   useEffect(() => {
     refreshClips(true)
+  }, [refreshClips])
+
+  const handleProtect = useCallback(async (clip: { ID: number; protected?: boolean; member_ids?: number[] }) => {
+    if (protectionLockRef.current) return
+    protectionLockRef.current = true
+    protectionRevisionRef.current += 1
+    setProtectionBusy(true)
+    setProtectionError(null)
+    const ids = uniqueMemberIds(clip)
+    const desired = !clip.protected
+    const update = (value: boolean) => {
+      setClips(current => current.map(item => item.ID === clip.ID ? { ...item, protected: value } : item))
+      setSelectedClip(current => current?.ID === clip.ID ? { ...current, protected: value } : current)
+    }
+    update(desired)
+    try {
+      // Fallback merged events can contain several physical clips: protect every member.
+      const results = await Promise.allSettled(ids.map(id => setClipProtected(id, desired)))
+      if (results.some(result => result.status === 'rejected' || result.value.protected !== desired)) {
+        throw new Error('Protection could not be fully saved. Refresh and retry; some event members may have changed.')
+      }
+      update(desired)
+    } catch (error) {
+      update(clip.protected === true)
+      setProtectionError(error instanceof Error ? error.message : 'Protection could not be saved. Please retry.')
+    } finally {
+      protectionLockRef.current = false
+      setProtectionBusy(false)
+      refreshClips(false)
+    }
   }, [refreshClips])
 
   const handleRefresh = useCallback(() => {
@@ -204,6 +242,8 @@ function App() {
           onDateSelect={setSelectedDate}
           selectedClipId={selectedClip?.ID || null}
           onClipSelect={handleClipSelect}
+          onProtect={handleProtect}
+          protectionBusy={protectionBusy}
           onRefresh={handleRefresh}
           onOpenMap={openMap}
           loading={loading}
@@ -212,6 +252,7 @@ function App() {
         />
 
         <main className="desk-viewer" aria-label="Footage viewer">
+          {protectionError && <div role="alert" className="p-4 text-[var(--sev-crit)]">{protectionError}</div>}
           {fetchError && !selectedClip ? (
             <div className="desk-state">
               <div className="desk-state-inner">
@@ -239,7 +280,7 @@ function App() {
               </div>
             </div>
           ) : selectedClip ? (
-            <Player key={selectedClip.ID} clip={selectedClip} onOpenMap={openMap} />
+            <Player key={selectedClip.ID} clip={selectedClip} onOpenMap={openMap} onProtect={handleProtect} protectionBusy={protectionBusy} />
           ) : loading ? (
             <div className="desk-state">
               <div className="desk-state-inner">

@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] - 2026-11-10
 ### Added
+- Library and player protect/unprotect controls, protected badges and a protected-only filter. Library refresh preserves protection; fallback merged events write every member clip without hiding mixed protection states.
 - Backend support for the retention UI: flat settings fields plus bounded last-run/last-dry-run summaries persisted beside retention.json, estimated next-run time, and `/api/retention/storage` with Sentry/Recent/Saved logical bytes and footage volume used/free. No UI in this first hop.
 
 ### Changed

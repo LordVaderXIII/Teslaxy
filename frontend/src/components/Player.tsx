@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, Suspense, useCallback, useMemo } fr
 import VideoPlayer, { type VideoJsPlayer } from './VideoPlayer';
 import TelemetryOverlay from './TelemetryOverlay';
 import Timeline from './Timeline';
+import ProtectButton, { ProtectedBadge, type ProtectionProps } from './ProtectButton';
 import { Box, Layers, Settings } from 'lucide-react';
 import { useClickOutside } from '../hooks/useClickOutside';
 import {
@@ -29,6 +30,8 @@ interface VideoFile {
 
 interface Clip {
   ID: number;
+  protected?: boolean;
+  member_ids?: number[];
   video_files?: VideoFile[];
   telemetry?: {
     full_data_json?: string;
@@ -140,7 +143,7 @@ const MOSAIC_LEFT = ['Left Pillar', 'Left Repeater'] as const;
 const MOSAIC_MIDDLE = ['Front', 'Back'] as const;
 const MOSAIC_RIGHT = ['Right Pillar', 'Right Repeater'] as const;
 
-const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip, onOpenMap }) => {
+const Player: React.FC<ProtectionProps & { clip: Clip | null; onOpenMap?: () => void }> = ({ clip, onOpenMap, onProtect, protectionBusy }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [is3D, setIs3D] = useState(false);
@@ -697,13 +700,15 @@ const Player: React.FC<{ clip: Clip | null; onOpenMap?: () => void }> = ({ clip,
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--bg)] text-[var(--ink-2)] relative">
-      <div className="flex items-end justify-between gap-3 px-6 pt-5 pb-3 flex-none max-md:px-4 max-md:pt-4 max-md:items-start">
+      <div className="flex flex-wrap items-end justify-between gap-3 px-6 pt-5 pb-3 flex-none max-md:px-4 max-md:pt-4 max-md:items-start">
         <div className="min-w-0">
           <div className="desk-eyebrow">// {clip.event.toUpperCase()}</div>
+          {clip.protected && <ProtectedBadge />}
           <h2 className="desk-title text-[clamp(24px,2.5vw,35px)] leading-[1.1] my-1.5">{title}</h2>
           <div className="text-[16px] text-[var(--muted)]">{subtitle}</div>
         </div>
-        <div className="flex gap-2 items-center flex-none">
+        <div className="flex flex-wrap gap-2 items-center">
+          <ProtectButton clip={clip} onProtect={onProtect} protectionBusy={protectionBusy} selected />
           <div className="mode-tabs flex gap-1 max-md:hidden" role="group" aria-label="View mode">
             <button
               type="button"
