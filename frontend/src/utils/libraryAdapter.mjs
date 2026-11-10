@@ -36,6 +36,7 @@ export function clipMapPoint(clip) {
 export function libraryEventToClip(event) {
   const clip = {
     ID: event.id,
+    protected: event.protected === true,
     timestamp: event.timestamp,
     event: event.event,
     city: event.city,

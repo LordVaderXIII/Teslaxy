@@ -42,7 +42,8 @@ export function mergeClips(rawClips) {
         // Since we are comparing CLIP timestamps (start times), if they are continuous 1-min segments:
         // Diff should be ~60s.
         // If we set threshold to 65s, it allows standard continuity.
-        if (curr.event === prev.event && diffSeconds < 65 && diffSeconds >= 0) {
+        // Never hide different protection states behind a single representative.
+        if (curr.event === prev.event && !!curr.protected === !!prev.protected && diffSeconds < 65 && diffSeconds >= 0) {
             currentGroup.push(curr);
         } else {
             groups.push(currentGroup);

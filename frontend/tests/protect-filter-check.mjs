@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import ts from 'typescript';
+import { libraryEventToClip } from '../src/utils/libraryAdapter.mjs';
+import { mergeClips } from '../src/utils/clipMerge.mjs';
+
+const source = readFileSync(new URL('../src/utils/clipFilters.ts', import.meta.url), 'utf8');
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
+const { DEFAULT_CLIP_FILTERS, filterClipsByDateAndReason } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const date = new Date('2026-11-10T12:00:00Z');
+const fixture = (id, event, protectedValue, reason = '') => libraryEventToClip({ id, event, protected: protectedValue, reason, timestamp: date.toISOString(), city: 'Fixture' });
+const clips = [fixture(1, 'Recent', true), fixture(2, 'Saved', false, 'user_interaction_honk'), fixture(3, 'Sentry', true, 'sentry_aware_object_detection')];
+assert.equal(clips[0].protected, true, 'adapter must preserve protected');
+assert.equal(clips[1].protected, false);
+assert.equal(DEFAULT_CLIP_FILTERS.protected, false, 'default must show all clips');
+assert.deepEqual(filterClipsByDateAndReason(clips, date, DEFAULT_CLIP_FILTERS).map(c => c.ID), [1, 2, 3]);
+const onlyProtected = { ...DEFAULT_CLIP_FILTERS, protected: true };
+assert.deepEqual(filterClipsByDateAndReason(clips, date, onlyProtected).map(c => c.ID), [1, 3]);
+assert.deepEqual(filterClipsByDateAndReason(clips, date, { ...onlyProtected, recent: false }).map(c => c.ID), [3]);
+assert.deepEqual(filterClipsByDateAndReason(clips, date, { ...DEFAULT_CLIP_FILTERS, dashcamOther: false, dashcamHonk: false }).map(c => c.ID), [1, 3]);
+assert.deepEqual(filterClipsByDateAndReason(clips, date, { ...DEFAULT_CLIP_FILTERS, sentryOther: false, sentryObject: false }).map(c => c.ID), [1, 2]);
+assert.equal(filterClipsByDateAndReason(clips, new Date('2026-11-09T12:00:00Z'), onlyProtected).length, 0);
+const merged = mergeClips([fixture(4, 'Recent', true), fixture(5, 'Recent', true)]);
+assert.equal(merged[0].protected, true, 'merge must retain protection');
+assert.equal(mergeClips([fixture(6, 'Recent', false), fixture(7, 'Recent', true)]).length, 2, 'do not hide mixed protection behind one representative');
+console.log('protect-filter-check: PASS (adapter, merge, protected/date/reason filters)');
