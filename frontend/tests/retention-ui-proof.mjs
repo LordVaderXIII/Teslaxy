@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium, expect } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename } from 'node:fs/promises';
 
 // Run only against the operator-started, auth-off local fixture.
 const base = 'http://127.0.0.1:18080';
@@ -15,11 +15,16 @@ page.on('request', request => {
 });
 const pause = () => page.waitForTimeout(1000);
 try {
+  const fixtureLibrary = await (await context.request.get(`${base}/api/library`)).json();
+  assert.ok(fixtureLibrary.events.some(event => event.city === 'Fixture Saved'), 'refuse to mutate a non-fixture library');
   await page.goto(base);
   const library = page.getByRole('complementary', { name: 'Event library' });
   const viewer = page.getByRole('main', { name: 'Footage viewer' });
   const listProtect = library.getByRole('button', { name: /^Protect event / }).first();
   await expect(listProtect).toBeVisible({ timeout: 10000 });
+  await viewer.getByRole('button', { name: 'Play', exact: true }).click();
+  await page.waitForTimeout(2000);
+  await viewer.getByRole('button', { name: 'Pause', exact: true }).click();
   await pause();
   await listProtect.click();
   await expect(library.getByText('PROTECTED', { exact: true })).toHaveCount(1);
@@ -33,6 +38,7 @@ try {
   await page.getByRole('checkbox', { name: 'Protected only', exact: true }).check();
   await expect(library.getByRole('button', { name: /^Unprotect event / })).toHaveCount(1);
   await expect(library.getByRole('button', { name: /^Protect event / })).toHaveCount(0);
+  await pause();
   await page.getByRole('button', { name: 'Hide filters' }).click();
   await pause();
   await page.screenshot({ path: `${proof}protected-filter.png` });
@@ -85,11 +91,14 @@ try {
     await expect(settings.getByLabel('Max age (days)', { exact: true })).toHaveValue('45');
     await page.screenshot({ path: `${proof}retention-mobile.png` });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await settings.getByText(/Volume used/).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${proof}retention-mobile-storage.png` });
     await page.keyboard.press('Escape');
     await expect(settings).not.toBeVisible();
     console.log('retention-ui-proof: PASS (real fixture; list/player protect/unprotect; persisted badge/filter; settings PUT+CSRF; disabled/dry-run preserved; history/storage; mobile; focus/Escape)');
   }
 } finally {
   await context.close();
+  await rename(await page.video().path(), `${proof}retention-flow.webm`);
   await browser.close();
 }

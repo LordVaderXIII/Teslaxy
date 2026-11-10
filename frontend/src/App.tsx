@@ -150,6 +150,11 @@ function App() {
         const sorted = merged.reverse()
 
         setClips(sorted)
+        setSelectedClip(current => {
+          if (!current) return current
+          const authoritative = ingested.find(item => item.ID === current.ID)
+          return authoritative ? { ...current, protected: authoritative.protected } : current
+        })
         setFetchError(false)
         if (autoSelectFirst && sorted.length > 0) {
             applyClip(sorted[0])
