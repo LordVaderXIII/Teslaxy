@@ -85,6 +85,19 @@ func TestRetentionHTTPWorkflow(t *testing.T) {
 	if len(report.Candidates) != 0 {
 		t.Fatalf("protected clip was a candidate: %+v", report)
 	}
+	request("POST", "/api/clips/1/protect", `{"protected":false}`)
+	decode(request("GET", "/api/clips", ""), &clips)
+	if len(clips) != 1 || clips[0].Protected {
+		t.Fatalf("unprotect was not reflected in clips: %+v", clips)
+	}
+	decode(request("GET", "/api/library", ""), &library)
+	if len(library.Events) != 1 || library.Events[0].Protected {
+		t.Fatalf("unprotect was not reflected in library: %+v", library)
+	}
+	decode(request("POST", "/api/retention/run", `{"dry_run":true}`), &report)
+	if len(report.Candidates) != 1 || report.BytesFreed != 1024 || len(report.Deleted) != 0 {
+		t.Fatalf("unprotected clip was not restored as a dry-run candidate: %+v", report)
+	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +105,7 @@ func TestRetentionHTTPWorkflow(t *testing.T) {
 	if err != nil || cfg.Enabled || !cfg.DryRun {
 		t.Fatalf("workflow enabled deletes: %+v %v", cfg, err)
 	}
-	t.Log("auth-off HTTP workflow: PUT settings -> dry-run (1 candidate, 1024 bytes) -> restart -> GET status/storage -> protect -> clips/library protected -> dry-run (0 candidates); fixture intact, enabled=false dry_run=true")
+	t.Log("auth-off HTTP workflow: PUT settings -> dry-run (1 candidate, 1024 bytes) -> restart -> GET status/storage -> protect -> clips/library protected -> dry-run (0 candidates) -> unprotect -> clips/library unprotected -> dry-run (1 candidate); fixture intact, enabled=false dry_run=true")
 }
 
 func TestRetentionRejectedDestructiveWritesLeaveStateIntact(t *testing.T) {

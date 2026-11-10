@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Retention/protect writes work without a token when auth is disabled, but always require CSRF/origin checks and a direct loopback/RFC1918 client. Auth-enabled writes still require JWT. Forwarded IP headers remain untrusted; CGNAT and IPv6 ULA are not allowed LAN clients.
 - Settings PUT ignores footage_path. Compose and Unraid mounts are writable for opt-in retention, while shipped env remains RETENTION_ENABLED=false and RETENTION_DRY_RUN=true. No deployment or live remount.
+- Loopback HTTP regression proves protect/unprotect round-trips through clips/library and changes dry-run candidate selection without deleting fixture footage.
 
 ## [0.4.2] - 2026-11-02
 ### Changed
