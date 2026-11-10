@@ -6,6 +6,7 @@ export interface VideoFile {
 
 export interface Clip {
   ID: number;
+  protected?: boolean;
   timestamp: string;
   event: string;
   city: string;

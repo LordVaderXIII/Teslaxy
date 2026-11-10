@@ -42,7 +42,25 @@ func getRetentionSettings(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, svc.Config())
+	// Preserve the flat config contract; status is an additive bounded summary.
+	c.JSON(http.StatusOK, struct {
+		services.RetentionConfig
+		Status services.RetentionStatus `json:"status"`
+	}{svc.Config(), svc.Status()})
+}
+
+func getRetentionStorage(c *gin.Context) {
+	svc := getRetentionService()
+	if svc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "retention service not initialized"})
+		return
+	}
+	storage, err := svc.Storage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, storage)
 }
 
 func putRetentionSettings(c *gin.Context) {
@@ -63,6 +81,8 @@ func putRetentionSettings(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid retention settings"})
 		return
 	}
+	// Mount relocation is an operator concern, never a settings API mutation.
+	cfg.FootagePath = svc.Config().FootagePath
 	if err := services.ValidateRetentionConfig(cfg); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

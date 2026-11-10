@@ -58,6 +58,9 @@ func setupRetentionAPI(t *testing.T, authEnabled bool) (*gin.Engine, *services.R
 	SetRetentionService(svc)
 
 	r := gin.New()
+	if err := r.SetTrustedProxies(nil); err != nil {
+		t.Fatal(err)
+	}
 	SetupRoutes(r)
 	return r, svc, path, footage
 }
@@ -71,26 +74,23 @@ func authToken(t *testing.T) string {
 	return tok
 }
 
-func TestRetentionWritesRequireAuthWhenDisabled(t *testing.T) {
-	r, _, _, _ := setupRetentionAPI(t, false)
-	cases := []struct {
-		method, path string
-		body         string
-	}{
-		{"PUT", "/api/retention/settings", `{"enabled":false,"dry_run":true,"max_age_days":90,"max_size_gb":300,"interval_hours":24,"min_file_age_minutes":15}`},
-		{"POST", "/api/retention/run", `{"dry_run":true}`},
-		{"POST", "/api/clips/1/protect", `{"protected":true}`},
-	}
-	for _, tc := range cases {
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Requested-With", "XMLHttpRequest")
-		req.Host = "127.0.0.1:18080"
-		r.ServeHTTP(w, req)
-		if w.Code != http.StatusUnauthorized {
-			t.Fatalf("%s %s without token: got %d body=%s", tc.method, tc.path, w.Code, w.Body.String())
+func TestRetentionWritesAcceptCSRFWhenAuthDisabled(t *testing.T) {
+	r, svc, path, _ := setupRetentionAPI(t, false)
+	for _, tc := range retentionWrites {
+		w := retentionRequest(r, tc.method, tc.path, tc.body, "127.0.0.1:1234", "http://localhost", true, "")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s %s: got %d %s", tc.method, tc.path, w.Code, w.Body.String())
 		}
+	}
+	if svc.Config().Enabled || !svc.Config().DryRun || svc.Config().MaxAgeDays != 30 {
+		t.Fatalf("settings did not persist safely: %+v", svc.Config())
+	}
+	var clip models.Clip
+	if err := database.DB.First(&clip, 1).Error; err != nil || !clip.Protected {
+		t.Fatalf("protect did not take effect: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -111,6 +111,7 @@ func TestRetentionWritesRejectCrossOrigin(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Origin", "https://attacker.invalid")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.RemoteAddr = "127.0.0.1:1234"
 	req.Host = "127.0.0.1:18080"
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
@@ -135,6 +136,7 @@ func TestRetentionMalformedDryRunRejected(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+tok)
 		req.Header.Set("X-Requested-With", "XMLHttpRequest")
+		req.RemoteAddr = "127.0.0.1:1234"
 		req.Host = "127.0.0.1:18080"
 		r.ServeHTTP(w, req)
 		if w.Code != http.StatusBadRequest {
@@ -154,6 +156,7 @@ func TestRetentionValidDryRunWithAuth(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.RemoteAddr = "127.0.0.1:1234"
 	req.Host = "127.0.0.1:18080"
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -178,6 +181,7 @@ func TestRetentionPutRejectsHugeAge(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+	req.RemoteAddr = "127.0.0.1:1234"
 	req.Host = "127.0.0.1:18080"
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -192,6 +196,7 @@ func TestRetentionMissingCSRFRejected(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/retention/run", bytes.NewBufferString(`{"dry_run":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+tok)
+	req.RemoteAddr = "127.0.0.1:1234"
 	req.Host = "127.0.0.1:18080"
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {

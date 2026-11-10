@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-10
+### Added
+- Library and player protect/unprotect controls, protected badges and a protected-only filter. Library refresh preserves protection; fallback merged events write every member clip without hiding mixed protection states.
+- Retention settings and storage dialog in the footage desk: explicit save for age/size limits and enabled/dry-run toggles, last/next-run and dry-run candidate summaries, per-type footage bytes and volume used/free. Opening settings never writes configuration; settings PUT excludes footage_path and status.
+- Backend support for the retention UI: flat settings fields plus bounded last-run/last-dry-run summaries persisted beside retention.json, estimated next-run time, and `/api/retention/storage` with Sentry/Recent/Saved logical bytes and footage volume used/free. No UI in this first hop.
+
+### Changed
+- Library refresh also reconciles the selected player's protection badge without resetting playback. Access-denial tests cover optimistic rollback, preserved settings drafts and independently recoverable storage failures.
+- Retention/protect writes work without a token when auth is disabled, but always require CSRF/origin checks and a direct loopback/RFC1918 client. Auth-enabled writes still require JWT. Forwarded IP headers remain untrusted; CGNAT and IPv6 ULA are not allowed LAN clients.
+- Settings PUT ignores footage_path. Compose and Unraid mounts are writable for opt-in retention, while shipped env remains RETENTION_ENABLED=false and RETENTION_DRY_RUN=true. No deployment or live remount.
+- Loopback HTTP regression proves protect/unprotect round-trips through clips/library and changes dry-run candidate selection without deleting fixture footage.
+
 ## [0.4.2] - 2026-11-02
 ### Changed
 - Multi-camera mosaic uses a spatial 3-column layout (left pillar/repeater | front+rear | right pillar/repeater) so each tile sits where that camera points. Front is the largest tile; rear is smaller than front but larger than the equal side tiles. Feeds are not mirrored or flipped.

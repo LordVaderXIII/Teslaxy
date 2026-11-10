@@ -1,6 +1,7 @@
 import type { Clip } from './clipMerge';
 
 export interface ClipFilterState {
+  protected: boolean;
   recent: boolean;
   dashcamHonk: boolean;
   dashcamSaved: boolean;
@@ -11,6 +12,7 @@ export interface ClipFilterState {
 }
 
 export const DEFAULT_CLIP_FILTERS: ClipFilterState = {
+  protected: false,
   recent: true,
   dashcamHonk: true,
   dashcamSaved: true,
@@ -72,6 +74,7 @@ export function filterClipsByDateAndReason(
 ): Clip[] {
   const targetDateStr = selectedDate.toDateString();
   return clips.filter(
-    (clip) => clipDateKey(clip) === targetDateStr && matchesClipReasonFilter(clip, filters)
+    (clip) => clipDateKey(clip) === targetDateStr &&
+      (!filters.protected || clip.protected === true) && matchesClipReasonFilter(clip, filters)
   );
 }

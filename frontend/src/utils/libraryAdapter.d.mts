@@ -8,6 +8,7 @@ export function clipMapPoint(
 
 export interface LibraryEvent {
   id: number;
+  protected?: boolean;
   timestamp: string;
   event_timestamp?: string | null;
   event: string;

@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+
+const requests = [];
+globalThis.fetch = async (url, init) => {
+  requests.push({ url, ...init });
+  return { ok: true, json: async () => url.includes('/protect') ? { id: 7, protected: true } : JSON.parse(init.body) };
+};
+const { saveRetentionSettings, setClipProtected } = await import(pathToFileURL(new URL('../src/utils/retentionApi.mjs', import.meta.url).pathname));
+const settings = { enabled: false, dry_run: true, max_age_days: 45, max_size_gb: 200.5, interval_hours: 24, min_file_age_minutes: 15, footage_path: '/must-not-send', status: {} };
+await saveRetentionSettings(settings, 'fixture-token');
+const saved = requests[0];
+assert.equal(saved.url, '/api/retention/settings');
+assert.equal(saved.method, 'PUT');
+assert.equal(saved.mode, 'same-origin');
+assert.equal(saved.headers['Content-Type'], 'application/json');
+assert.equal(saved.headers['X-Requested-With'], 'XMLHttpRequest');
+assert.equal(saved.headers.Authorization, 'Bearer fixture-token');
+assert.deepEqual(JSON.parse(saved.body), { enabled: false, dry_run: true, max_age_days: 45, max_size_gb: 200.5, interval_hours: 24, min_file_age_minutes: 15 });
+await setClipProtected(7, true, '');
+assert.equal(requests[1].url, '/api/clips/7/protect');
+assert.equal(requests[1].method, 'POST');
+assert.equal(requests[1].headers.Authorization, undefined);
+assert.equal(requests[1].headers['X-Requested-With'], 'XMLHttpRequest');
+assert.deepEqual(JSON.parse(requests[1].body), { protected: true });
+globalThis.fetch = async () => ({ ok: false, status: 403 });
+await assert.rejects(saveRetentionSettings(settings, ''), /403/);
+console.log('retention-settings-check: PASS (allowlisted PUT, CSRF, bearer-only, protect, errors)');
