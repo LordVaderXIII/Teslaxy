@@ -186,9 +186,9 @@ function App() {
     }
     update(desired)
     try {
-      // Fallback merged events can contain several physical clips: protect every member.
-      const results = await Promise.allSettled(ids.map(id => setClipProtected(id, desired)))
-      if (results.some(result => result.status === 'rejected' || result.value.protected !== desired)) {
+      // Fallback merged events protect every member in one server transaction.
+      const result = await setClipProtected(clip.ID, desired, undefined, ids).catch(() => null)
+      if (!result || result.protected !== desired) {
         throw new Error('Protection could not be fully saved. Refresh and retry; some event members may have changed.')
       }
       update(desired)

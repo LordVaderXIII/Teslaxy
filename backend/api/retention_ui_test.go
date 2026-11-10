@@ -17,6 +17,7 @@ var retentionWrites = []struct{ method, path, body string }{
 	{"PUT", "/api/retention/settings", `{"enabled":false,"dry_run":true,"max_age_days":30,"max_size_gb":300,"interval_hours":24,"min_file_age_minutes":15}`},
 	{"POST", "/api/retention/run", `{"dry_run":true}`},
 	{"POST", "/api/clips/1/protect", `{"protected":true}`},
+	{"POST", "/api/clips/1/protect", `{"protected":true,"ids":[1]}`},
 }
 
 func retentionRequest(r http.Handler, method, path, body, remote, origin string, csrf bool, token string) *httptest.ResponseRecorder {
@@ -161,7 +162,7 @@ func TestRetentionSettingsStatusSurvivesRestart(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &settings); err != nil {
 		t.Fatal(err)
 	}
-	if settings.Enabled || !settings.DryRun || settings.Status.LastRun == nil || settings.Status.NextRun == nil || settings.Status.LastDryRun == nil {
+	if settings.Enabled || !settings.DryRun || settings.Status.LastRun == nil || settings.Status.NextRun != nil || settings.Status.LastDryRun == nil {
 		t.Fatalf("missing status or changed config: %s", w.Body.String())
 	}
 	dry := settings.Status.LastDryRun

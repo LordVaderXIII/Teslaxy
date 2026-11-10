@@ -181,9 +181,21 @@ func (s *RetentionService) Run() (*RetentionReport, error) {
 
 // RunWithConfig executes one pass with an explicit config (does not persist it).
 func (s *RetentionService) RunWithConfig(cfg RetentionConfig) (result *RetentionReport, runErr error) {
+	return s.runWithConfig(cfg, false)
+}
+
+func (s *RetentionService) runWithConfig(cfg RetentionConfig, scheduled bool) (result *RetentionReport, runErr error) {
 	normalizeRetentionConfig(&cfg)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Re-check the effective config under the same lock as SetConfig. A disable
+	// that wins this lock must prevent all scheduled work, including history.
+	if scheduled {
+		cfg = s.cfg
+		if !cfg.Enabled {
+			return nil, nil
+		}
+	}
 
 	footagePath := cfg.FootagePath
 	if strings.TrimSpace(footagePath) == "" {

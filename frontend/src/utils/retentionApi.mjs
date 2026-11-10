@@ -34,6 +34,8 @@ export function saveRetentionSettings(settings, token) {
   }, token);
 }
 
-export function setClipProtected(id, protectedValue, token) {
-  return request(`/api/clips/${id}/protect`, 'POST', { protected: protectedValue }, token);
+export function setClipProtected(id, protectedValue, token, ids) {
+  return request(`/api/clips/${id}/protect`, 'POST', {
+    protected: protectedValue, ...(ids === undefined ? {} : { ids }),
+  }, token);
 }
