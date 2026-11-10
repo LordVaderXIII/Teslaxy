@@ -100,6 +100,10 @@ func main() {
 					return
 				}
 			}
+			// Minimal container images may not have a MIME database for web manifests.
+			if cleanPath == "site.webmanifest" {
+				c.Header("Content-Type", "application/manifest+json")
+			}
 			c.FileFromFS(cleanPath, httpFS)
 			return
 		}
