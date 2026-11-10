@@ -1,0 +1,11 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#60a5fa" />
+      <stop offset="100%" stop-color="#9333ea" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" fill="#070806" />
+  <!-- The existing gradient T, outlined so icons do not depend on local fonts. -->
+  <path d="M30 28h68v19H75v53H53V47H30Z" fill="url(#grad)" />
+</svg>

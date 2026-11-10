@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-11-11
+### Fixed
+- Browser tabs and iOS home-screen bookmarks now use the Teslaxy name instead of the Vite scaffold title.
+- Added opaque dark-background icons from the existing gradient T mark for iOS, browser favicons and the web manifest. Refreshed the embedded frontend for local Go builds.
+
 ## [0.5.1] - 2026-11-10
 ### Fixed
 - Disabled retention skips startup and interval scans regardless of dry-run mode, records no scheduled run, and reports no next run. Explicit manual dry-runs and stored history remain available; settings toggles apply without restarting.

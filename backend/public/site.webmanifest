@@ -1,0 +1,12 @@
+{
+  "name": "Teslaxy",
+  "short_name": "Teslaxy",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#070806",
+  "background_color": "#070806",
+  "display": "standalone",
+  "start_url": "/"
+}
