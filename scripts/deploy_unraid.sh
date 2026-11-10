@@ -108,9 +108,11 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
   -p "$PORT_MAPPING" \
-  -v "$CLIPS_PATH":/footage:ro \
+  -v "$CLIPS_PATH":/footage:rw \
   -v "$REPO_PATH/config":/config \
   -e AUTH_ENABLED=false \
+  -e RETENTION_ENABLED=false \
+  -e RETENTION_DRY_RUN=true \
   -e GIN_MODE=release \
   -e JULES_SOURCE="$JULES_SOURCE" \
   $CPU_PINNING \

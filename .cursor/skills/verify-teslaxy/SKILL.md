@@ -54,22 +54,32 @@ Harness: plain HTTP (`curl`) against `127.0.0.1` (never a `.local` hostname).
 Retention settings / dry-run:
 
 ```bash
-curl -sf "http://127.0.0.1:18080/api/retention/settings"
+AUTH_HEADERS=()
+if [ "${AUTH_ENABLED:-false}" = true ]; then
+  : "${TESLAXY_TOKEN:?Set a valid JWT when AUTH_ENABLED=true}"
+  AUTH_HEADERS=(-H "Authorization: Bearer $TESLAXY_TOKEN")
+fi
+curl -sf "${AUTH_HEADERS[@]}" "http://127.0.0.1:18080/api/retention/settings"
 curl -sf -X POST "http://127.0.0.1:18080/api/retention/run" \
+  "${AUTH_HEADERS[@]}" -H 'X-Requested-With: XMLHttpRequest' \
+  -H 'Origin: http://127.0.0.1:18080' \
   -H 'Content-Type: application/json' \
   -d '{"dry_run":true}'
-curl -sf "http://127.0.0.1:18080/api/library"
+curl -sf "${AUTH_HEADERS[@]}" "http://127.0.0.1:18080/api/library"
 ```
 
 Protect a clip (replace `ID`):
 
 ```bash
 curl -sf -X POST "http://127.0.0.1:18080/api/clips/ID/protect" \
+  "${AUTH_HEADERS[@]}" -H 'X-Requested-With: XMLHttpRequest' \
+  -H 'Origin: http://127.0.0.1:18080' \
   -H 'Content-Type: application/json' \
   -d '{"protected":true}'
 ```
 
 Also see `features/retention.md` and helper `scripts/verify-retention.sh`.
+UI API regressions: `backend/api/retention_ui_test.go`, `retention_auth_test.go`, and `backend/services/retention_status_test.go` (auth-off LAN/CSRF, restart history, fixture storage, disabled safety).
 
 ## Evidence
 

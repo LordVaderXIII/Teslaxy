@@ -48,11 +48,12 @@ func SetupRoutes(r *gin.Engine) {
 		api.GET("/export/:jobID", getExportStatus)
 		api.GET("/downloads/:filename", downloadExport)
 
-		// Footage retention (reads follow AUTH_ENABLED; writes always require auth + CSRF)
+		// Retention reads follow AUTH_ENABLED; writes also require LAN + CSRF.
 		api.GET("/retention/settings", getRetentionSettings)
-		api.PUT("/retention/settings", RequireAuthAlways(), MutationGuard(), putRetentionSettings)
-		api.POST("/retention/run", RequireAuthAlways(), MutationGuard(), postRetentionRun)
-		api.POST("/clips/:id/protect", RequireAuthAlways(), MutationGuard(), setClipProtected)
+		api.GET("/retention/storage", getRetentionStorage)
+		api.PUT("/retention/settings", RetentionLANOnly(), MutationGuard(), putRetentionSettings)
+		api.POST("/retention/run", RetentionLANOnly(), MutationGuard(), postRetentionRun)
+		api.POST("/clips/:id/protect", RetentionLANOnly(), MutationGuard(), setClipProtected)
 	}
 }
 

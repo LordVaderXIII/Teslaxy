@@ -11,8 +11,8 @@ services:
       - "8080:80"
     volumes:
       # Mount your TeslaCam drive (RecentClips, SavedClips, SentryClips) here.
-      # Use :ro for browse-only. Switch to :rw when RETENTION_ENABLED deletes footage.
-      - /mnt/user/isos/TeslaCam:/footage:ro
+      # Writable for opt-in retention; env below still disables deletion. Use :ro for browse-only.
+      - /mnt/user/isos/TeslaCam:/footage:rw
       # Config storage (DB, Exports, Logs, retention.json)
       - ./config:/config
     environment:

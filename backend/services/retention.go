@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jinzhu/gorm"
+	"golang.org/x/sys/unix"
 	"teslaxy/models"
 )
 
@@ -75,11 +76,14 @@ type RetentionService struct {
 	ConfigPath  string
 	FootagePath string
 
-	mu     sync.Mutex // config + serializes Run
-	clipMu sync.Mutex // coordinates protect vs prune
-	cfg    RetentionConfig
-	stopCh chan struct{}
-	nowFn  func() time.Time
+	mu         sync.Mutex // config + serializes Run
+	clipMu     sync.Mutex // coordinates protect vs prune
+	cfg        RetentionConfig
+	stopCh     chan struct{}
+	nowFn      func() time.Time
+	status     RetentionStatus
+	firstRunAt time.Time
+	statfsFn   func(string, *unix.Statfs_t) error
 	// Optional test hooks; nil uses footageRoot methods.
 	resolveFn func(root *footageRoot, path string) (string, os.FileInfo, error)
 	unlinkFn  func(root *footageRoot, path string) (freed int64, removed bool, err error)
@@ -100,14 +104,17 @@ func NewRetentionService(db *gorm.DB, footagePath, configPath string) *Retention
 	if strings.TrimSpace(cfg.FootagePath) == "" {
 		cfg.FootagePath = footagePath
 	}
-	return &RetentionService{
+	s := &RetentionService{
 		DB:          db,
 		ConfigPath:  configPath,
 		FootagePath: cfg.FootagePath,
 		cfg:         cfg,
 		stopCh:      make(chan struct{}),
 		nowFn:       time.Now,
+		firstRunAt:  time.Now().UTC().Add(2 * time.Minute),
 	}
+	s.loadStatus()
+	return s
 }
 
 func (s *RetentionService) Config() RetentionConfig {
@@ -173,7 +180,7 @@ func (s *RetentionService) Run() (*RetentionReport, error) {
 }
 
 // RunWithConfig executes one pass with an explicit config (does not persist it).
-func (s *RetentionService) RunWithConfig(cfg RetentionConfig) (*RetentionReport, error) {
+func (s *RetentionService) RunWithConfig(cfg RetentionConfig) (result *RetentionReport, runErr error) {
 	normalizeRetentionConfig(&cfg)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,6 +199,15 @@ func (s *RetentionService) RunWithConfig(cfg RetentionConfig) (*RetentionReport,
 		Skipped:    []RetentionSkip{},
 		Errors:     []string{},
 	}
+	defer func() {
+		if err := s.recordReport(report); err != nil {
+			report.Errors = append(report.Errors, fmt.Sprintf("persist retention status: %v", err))
+			log.Printf("retention: persist status: %v", err)
+			if runErr == nil {
+				runErr = fmt.Errorf("persist retention status: %w", err)
+			}
+		}
+	}()
 
 	if !cfg.Enabled && !cfg.DryRun {
 		report.FinishedAt = s.nowFn().UTC()

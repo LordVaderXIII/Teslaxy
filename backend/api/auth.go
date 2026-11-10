@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -102,11 +103,13 @@ func AuthMiddleware() gin.HandlerFunc {
 	}
 }
 
-// RequireAuthAlways demands a valid Bearer JWT even when AUTH_ENABLED is false.
-// Used for destructive retention/protect write endpoints.
-func RequireAuthAlways() gin.HandlerFunc {
+// RetentionLANOnly restricts retention/protect writes to direct LAN clients.
+// TrustedProxies must remain nil: forwarded IP headers are not an identity.
+func RetentionLANOnly() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !requireBearerToken(c) {
+		ip := net.ParseIP(c.ClientIP())
+		if ip == nil || !(ip.IsLoopback() || (ip.To4() != nil && ip.IsPrivate())) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "retention writes require a LAN or loopback client"})
 			return
 		}
 		c.Next()
@@ -133,7 +136,7 @@ func requireBearerToken(c *gin.Context) bool {
 }
 
 // MutationGuard rejects cross-origin state changes and non-JSON write bodies.
-// Complements RequireAuthAlways for CSRF/origin protection on retention writes.
+// Complements AuthMiddleware and RetentionLANOnly on retention writes.
 func MutationGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ct := c.GetHeader("Content-Type")
