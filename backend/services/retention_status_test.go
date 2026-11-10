@@ -43,7 +43,7 @@ func TestRetentionDisabledSafetyAndPersistedSummary(t *testing.T) {
 				if status.LastDryRun == nil || status.LastDryRun.CandidateBytes != 4096 || status.LastDryRun.CandidateGiB != 4096.0/(1<<30) {
 					t.Fatalf("lost summary: %+v", status)
 				}
-				if status.NextRun == nil || !status.NextRun.Equal(report.FinishedAt.Add(24*time.Hour)) {
+				if status.NextRun != nil {
 					t.Fatalf("wrong next run: %+v", status)
 				}
 				cfg := svc.Config()

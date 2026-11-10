@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// Start launches the retention scheduler. It runs once shortly after boot,
-// then on IntervalHours. Mirrors the export/auth cleanup ticker pattern.
+// Start launches the retention scheduler. When enabled it runs shortly after
+// boot, then on IntervalHours. Disabled ticks do no retention work.
 func (s *RetentionService) Start() {
 	go s.loop()
 }
@@ -57,12 +57,12 @@ func (s *RetentionService) runScheduled(trigger string) {
 		log.Printf("retention: reload config before %s run: %v", trigger, err)
 	}
 	cfg := s.Config()
-	if !cfg.Enabled && !cfg.DryRun {
+	if !cfg.Enabled {
 		log.Printf("retention: skipping %s run (disabled)", trigger)
 		return
 	}
 	log.Printf("retention: starting %s run (enabled=%v dry_run=%v)", trigger, cfg.Enabled, cfg.DryRun)
-	if _, err := s.Run(); err != nil {
+	if _, err := s.runWithConfig(cfg, true); err != nil {
 		log.Printf("retention: %s run error: %v", trigger, err)
 	}
 }

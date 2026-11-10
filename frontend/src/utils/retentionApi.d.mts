@@ -24,4 +24,4 @@ export interface RetentionStorage {
 export function getRetentionSettings(token?: string): Promise<RetentionSettings>;
 export function getRetentionStorage(token?: string): Promise<RetentionStorage>;
 export function saveRetentionSettings(settings: RetentionSettings, token?: string): Promise<RetentionSettings>;
-export function setClipProtected(id: number, protectedValue: boolean, token?: string): Promise<{ id: number; protected: boolean }>;
+export function setClipProtected(id: number, protectedValue: boolean, token?: string, ids?: number[]): Promise<{ id: number; ids?: number[]; protected: boolean }>;

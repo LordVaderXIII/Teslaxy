@@ -28,7 +28,7 @@ type RetentionRunSummary struct {
 type RetentionStatus struct {
 	LastRun *RetentionRunSummary `json:"last_run"`
 	// NextRun is an estimate: last finished run + current interval, or boot + 2m.
-	// It is null when neither retention nor scheduled dry-runs are enabled.
+	// It is null when retention is disabled, regardless of dry-run mode.
 	NextRun    *time.Time           `json:"next_run"`
 	LastDryRun *RetentionRunSummary `json:"last_dry_run"`
 }
@@ -47,7 +47,7 @@ func (s *RetentionService) Status() RetentionStatus {
 		status.LastDryRun = &v
 	}
 	status.NextRun = nil
-	if s.cfg.Enabled || s.cfg.DryRun {
+	if s.cfg.Enabled {
 		next := s.firstRunAt
 		if status.LastRun != nil {
 			next = status.LastRun.FinishedAt.Add(s.cfg.Interval())

@@ -201,18 +201,52 @@ func setClipProtected(c *gin.Context) {
 		return
 	}
 
+	// The existing route remains valid for one clip. Optional ids adds merged
+	// members to the same transaction; the route's anchor is always included.
+	ids := []uint{uint(id)}
+	if value, present := raw["ids"]; present {
+		var members []uint
+		if err := json.Unmarshal(value, &members); err != nil || len(members) == 0 || len(members) > 1000 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ids must contain 1 to 1000 positive clip IDs"})
+			return
+		}
+		seen := map[uint]bool{uint(id): true}
+		for _, member := range members {
+			if member == 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid clip id"})
+				return
+			}
+			if !seen[member] {
+				ids = append(ids, member)
+				seen[member] = true
+			}
+		}
+	}
+
 	svc := getRetentionService()
 	apply := func() {
-		var clip models.Clip
-		if err := database.DB.First(&clip, id).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "clip not found"})
+		tx := database.DB.Begin()
+		if tx.Error != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not begin protection update"})
 			return
 		}
-		if err := database.DB.Model(&clip).Update("protected", protected).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		defer tx.Rollback()
+		for _, member := range ids {
+			var clip models.Clip
+			if err := tx.First(&clip, member).Error; err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "clip not found"})
+				return
+			}
+			if err := tx.Model(&clip).Update("protected", protected).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "could not update protection"})
+				return
+			}
+		}
+		if err := tx.Commit().Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not commit protection update"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"id": clip.ID, "protected": protected})
+		c.JSON(http.StatusOK, gin.H{"id": id, "ids": ids, "protected": protected})
 	}
 	if svc != nil {
 		svc.WithClipLock(apply)

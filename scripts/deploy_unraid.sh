@@ -103,12 +103,14 @@ fi
 docker rm "$CONTAINER_NAME" || true # Ignore if not exists
 
 # Step 7: Deploy new container with CPU pinning, GPU, and env vars
+# Read-only footage by default. Change :ro to :rw only when opting in to live
+# pruning (RETENTION_ENABLED=true and RETENTION_DRY_RUN=false).
 echo "Starting new container..."
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
   -p "$PORT_MAPPING" \
-  -v "$CLIPS_PATH":/footage:rw \
+  -v "$CLIPS_PATH":/footage:ro \
   -v "$REPO_PATH/config":/config \
   -e AUTH_ENABLED=false \
   -e RETENTION_ENABLED=false \

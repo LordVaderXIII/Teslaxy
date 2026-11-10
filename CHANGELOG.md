@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-11-10
+### Fixed
+- Disabled retention skips startup and interval scans regardless of dry-run mode, records no scheduled run, and reports no next run. Explicit manual dry-runs and stored history remain available; settings toggles apply without restarting.
+- Protecting or unprotecting a fallback merged event updates every member in one database transaction under the protect/prune lock, with rollback on any member failure.
+- Compose and Unraid footage mounts default to read-only again; writable mounts are an explicit opt-in for live pruning.
+- Documented the auth-off LAN trust boundary and the requirement to enable authentication on untrusted networks. No authentication model change.
+
 ## [0.5.0] - 2026-11-10
 ### Added
 - Library and player protect/unprotect controls, protected badges and a protected-only filter. Library refresh preserves protection; fallback merged events write every member clip without hiding mixed protection states.

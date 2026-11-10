@@ -98,15 +98,17 @@ Settings also persist in `$CONFIG_PATH/retention.json` and via:
 
 - `GET` / `PUT` `/api/retention/settings`
 - `POST` `/api/retention/run` with optional `{"dry_run":true}`
-- `POST` `/api/clips/:id/protect` with `{"protected":true}`
+- `POST` `/api/clips/:id/protect` with `{"protected":true}`; optional `"ids":[1,2]` updates the anchor and all listed members in one transaction (maximum 1000 listed IDs).
+
+With retention disabled, no startup or interval scan runs, and `status.next_run` is null. Explicit manual dry-runs still work without enabling retention; history remains readable. Settings changes take effect on the next scheduler tick without a restart.
 
 **Protection:** Tesla `SavedClips` (`event=Saved`) and any clip with `protected=true` are never pruned.
 
 **Safety:** Each prune pass opens `FOOTAGE_PATH` once with `O_DIRECTORY|O_NOFOLLOW` and keeps that directory fd; all resolves/unlinks use `openat`/`unlinkat` relative to it (so renaming the root to a symlink mid-pass cannot redirect deletes). Symlinked parents under the root are refused. Only selected clip file paths are unlinked (not whole event folders). Recently written files are skipped at selection and again at unlink. Soft-delete happens before unlink; pending soft-deleted video rows and orphan soft-deleted clip/telemetry rows are finished on the next run. Telemetry is hard-deleted before the clip row; a telemetry failure leaves the clip soft-deleted (and surfaces in `errors[]`) so the next pass can retry, and an orphan-telemetry sweep cleans stranded rows in fixed-size batches (so large backlogs past SQLite’s bind limit still drain, and a mid-sweep failure resumes on the next run). The scanner takes a shared media lock and re-stats before insert so it does not recreate rows for files removed during an in-flight prune. Partial failures keep DB rows for paths that remain on disk. Size-cap selection and freed estimates count a hardlinked inode only when every known DB link is selected; unlink reports freed bytes only when the last link is removed.
 
-**Auth:** Retention/protect write APIs always require a Bearer token (even if `AUTH_ENABLED=false`), `Content-Type: application/json`, a CSRF header (`X-Requested-With` or `X-Teslaxy-CSRF`), and a same-origin `Origin`/`Referer` when those headers are present.
+**Auth:** Retention/protect write APIs require `Content-Type: application/json`, a CSRF header (`X-Requested-With` or `X-Teslaxy-CSRF`), same-origin `Origin`/`Referer` checks when present, and a direct loopback/RFC1918 client. With `AUTH_ENABLED=false`, any LAN client passing these checks can change retention settings and protection without a token. Set `AUTH_ENABLED=true` (Bearer JWT required) if the LAN is untrusted, and never expose an auth-off instance publicly.
 
-**Defaults rationale:** 90 days keeps a useful Sentry/Recent history; ~300 GB leaves headroom on a share that is already near capacity (e.g. Valhalla at ~91% full). Start with `RETENTION_DRY_RUN=true` and inspect logs before enabling deletes. Destructive prune requires a writable `/footage` mount.
+**Defaults rationale:** 90 days keeps a useful Sentry/Recent history; ~300 GB leaves headroom on a share that is already near capacity. Start with an explicit manual dry-run and inspect its report before enabling deletes. Both deployment examples mount `/footage:ro` by default; opt in to `:rw` only for live pruning (`RETENTION_ENABLED=true`, `RETENTION_DRY_RUN=false`).
 
 ### GPU Support
 
