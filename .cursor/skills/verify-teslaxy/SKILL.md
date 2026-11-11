@@ -102,4 +102,6 @@ rm -rf "$FIX"
 
 ## Helpers
 
+- Telemetry/video timing: see `features/telemetry-sync.md` for private real-clip measurements, packet PTS verification, and before/after player proof.
+
 - `scripts/verify-retention.sh` — runs unit tests + fixture dry-run; optional `--http` launches the server path above and curls retention endpoints.

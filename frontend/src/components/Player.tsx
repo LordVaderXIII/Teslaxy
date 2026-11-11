@@ -35,6 +35,7 @@ interface Clip {
   video_files?: VideoFile[];
   telemetry?: {
     full_data_json?: string;
+    file_timing_json?: string;
     latitude?: number;
     longitude?: number;
   };
@@ -685,6 +686,7 @@ const Player: React.FC<ProtectionProps & { clip: Clip | null; onOpenMap?: () => 
   const incident = markers[0];
   const showMosaic = !is3D && !focused && !isPhone;
   const telemetryJson = clip.telemetry?.full_data_json;
+  const frontSegment = getSegmentAtTime('front', currentTime)?.segment;
   const hudLayer = telemetryJson ? (
     <div
       className="pointer-events-none absolute inset-0 z-50"
@@ -694,6 +696,9 @@ const Player: React.FC<ProtectionProps & { clip: Clip | null; onOpenMap?: () => 
         dataJson={telemetryJson}
         currentTime={currentTime}
         duration={totalDuration}
+        fileTimingJson={clip.telemetry?.file_timing_json}
+        frontFilePath={frontSegment?.file_path}
+        frontLocalTime={frontSegment ? currentTime - frontSegment.startTime : undefined}
       />
     </div>
   ) : null;

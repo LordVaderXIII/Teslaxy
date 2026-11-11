@@ -669,20 +669,22 @@ func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo,
 
 	// 2. Extract and Aggregate SEI
 	var aggregatedMeta []*pb.SeiMetadata
+	fileTiming := make([]TelemetryFileTiming, 0, len(frontFiles))
 
 	for _, f := range frontFiles {
 		meta, err := s.SEIExtractor(f.path)
+		boundary := TelemetryFileTiming{FilePath: f.path, FirstSampleIndex: len(aggregatedMeta)}
 		if err == nil && len(meta) > 0 {
+			boundary.SampleCount = len(meta)
+			boundary.SampleTimes, boundary.FrameDuration, _ = telemetryPacketTimes(f.path, meta)
 			aggregatedMeta = append(aggregatedMeta, meta...)
 		}
-	}
-
-	if len(aggregatedMeta) == 0 {
-		return
+		fileTiming = append(fileTiming, boundary)
 	}
 
 	// 3. Marshal to JSON
 	jsonData, _ := json.Marshal(aggregatedMeta)
+	timingData, _ := json.Marshal(fileTiming)
 
 	// 4. Create or Update Telemetry
 	var telemetry models.Telemetry
@@ -697,6 +699,7 @@ func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo,
 	// Update fields
 	telemetry.ClipID = clip.ID
 	telemetry.FullDataJson = string(jsonData)
+	telemetry.FileTimingJson = string(timingData)
 
 	var seiLat, seiLon float64
 	// Update summary fields from the middle of the *entire* clip (approx)
