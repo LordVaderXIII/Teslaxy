@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-11-11
+### Fixed
+- Compact the driving telemetry overlay so video stays the main view in the six-camera mosaic and Focus. Cap the desktop HUD instead of scaling it with the stage; keep a short, inset phone strip with driving state and indicators visible.
+- Add live-browser coverage measurements and layout regressions at 1920×1080, 2560×1440 and 390×844. Telemetry sampling, packet timestamps and overlay-clock logic are unchanged. Refresh the embedded frontend.
+
 ## [0.5.3] - 2026-11-11
 ### Fixed
 - Anchor telemetry to the front video file and each SEI packet's presentation time instead of stretching a whole event's frame sequence across the timeline. Preserve empty-file boundaries and hide the HUD outside verified SEI coverage. Existing flat telemetry remains compatible and explicitly approximate until the next scan.

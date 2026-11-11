@@ -59,7 +59,7 @@ for (const { width, height, mode } of cases) {
         : path === '/api/library/files' ? { files }
         : path === '/api/clips/1' ? detail
         : path === '/api/transcode/status' ? { encoder: 'fixture', hw_accel: false }
-        : path === '/api/version' ? { latestVersion: '0.5.3' } : {};
+        : path === '/api/version' ? { latestVersion: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version, releases: [] } : {};
       await route.fulfill({ json });
     });
     const errors = [];
@@ -89,13 +89,17 @@ for (const { width, height, mode } of cases) {
     await page.mouse.move(0, 0);
     await page.screenshot({ path: `${artifacts}proof/${phase}-${width}x${height}-${mode}.png` });
     const measurement = await page.evaluate(() => {
-      const hud = document.querySelector('.desk-hud').getBoundingClientRect();
+      const hudElement = document.querySelector('.desk-hud');
+      const hud = hudElement.getBoundingClientRect();
+      const visibleContent = [...hudElement.querySelectorAll('.desk-hud-gear, .desk-hud-speed, .desk-hud-unit, .desk-hud-ap, .desk-hud-sync, .desk-hud-steer, .desk-hud-track, .desk-hud-blink, .desk-hud-brake-icon, .desk-hud-wheel-wrap')]
+        .map(node => node.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0);
+      const contentFits = visibleContent.every(r => r.left >= hud.left && r.right <= hud.right && r.top >= hud.top && r.bottom <= hud.bottom);
       const stage = document.querySelector('.desk-stage').getBoundingClientRect();
       const front = document.querySelector('[aria-label="Focus Front camera"]').getBoundingClientRect();
       const box = r => ({ x: r.x, y: r.y, width: r.width, height: r.height, area: r.width * r.height });
       const intersection = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) *
         Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
-      return { hud: box(hud), front: box(front), stage: box(stage),
+      return { contentFits, hud: box(hud), front: box(front), stage: box(stage),
         frontPercent: hud.width * hud.height / (front.width * front.height) * 100,
         stagePercent: hud.width * hud.height / (stage.width * stage.height) * 100,
         frontCoveredPercent: intersection(hud, front) / (front.width * front.height) * 100,
@@ -109,6 +113,7 @@ for (const { width, height, mode } of cases) {
     console.log(`${phase} ${width}x${height} ${mode}: ${JSON.stringify(measurement)}`);
     expect(errors).toEqual([]);
     if (!baseline) {
+      expect(measurement.contentFits).toBe(true);
       expect(measurement.withinStage).toBe(true);
       expect(measurement.withinFront).toBe(true);
       expect(measurement.noPageOverflow).toBe(true);
