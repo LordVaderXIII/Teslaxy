@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bradfitz/latlong"
@@ -27,7 +28,9 @@ type ScannerService struct {
 	DB           *gorm.DB
 	Watcher      *fsnotify.Watcher
 	SEIExtractor SEIExtractor
-	Geocoder     Geocoder // optional; nil skips reverse geocoding
+	Geocoder     Geocoder   // optional; nil skips reverse geocoding
+	telemetryMu  sync.Mutex // serialize short telemetry transactions, not SEI extraction
+	scanRunning  atomic.Bool
 
 	// Incremental update state
 	mu           sync.Mutex
@@ -55,7 +58,7 @@ func NewScannerService(footagePath string, db *gorm.DB) *ScannerService {
 
 func (s *ScannerService) Start() {
 	// Initial scan
-	go s.ScanAll()
+	s.StartScan()
 
 	// Watch for changes
 	var err error
@@ -214,6 +217,30 @@ func (s *ScannerService) scanDir(dirPath string) {
 }
 
 func (s *ScannerService) ScanAll() {
+	if !s.scanRunning.CompareAndSwap(false, true) {
+		fmt.Println("Skipping full scan: already running")
+		return
+	}
+	s.scanAll()
+}
+
+// StartScan reserves the full-scan slot before starting background work.
+// Startup, synchronous callers and HTTP rescans share the same reservation.
+func (s *ScannerService) StartScan() bool {
+	if !s.scanRunning.CompareAndSwap(false, true) {
+		return false
+	}
+	go s.scanAll()
+	return true
+}
+
+// ScanRunning reports whether a full scan is reserved or executing.
+func (s *ScannerService) ScanRunning() bool {
+	return s.scanRunning.Load()
+}
+
+func (s *ScannerService) scanAll() {
+	defer s.scanRunning.Store(false)
 	fmt.Println("Starting full scan of", s.FootagePath)
 	start := time.Now()
 
@@ -413,10 +440,20 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 				EventTimestamp: eventJsonTimestamp,
 				SourceDir:      dirPath, // <-- Critical: stable identity from Tesla's folder structure
 			}
-			s.DB.Create(&clip)
+			if err := s.DB.Create(&clip).Error; err != nil {
+				fmt.Printf("Skipping event %s: create clip: %v\n", dirPath, err)
+				return
+			}
+		} else {
+			fmt.Printf("Skipping event %s: lookup clip: %v\n", dirPath, err)
+			return
 		}
 	} else {
 		// Update existing using event.json as the source of truth
+		if clip.ID == 0 {
+			fmt.Printf("Skipping event %s: zero clip ID\n", dirPath)
+			return
+		}
 		updates := map[string]interface{}{}
 		if clip.EventTimestamp == nil && eventJsonTimestamp != nil {
 			updates["event_timestamp"] = eventJsonTimestamp
@@ -437,8 +474,15 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 			updates["source_dir"] = dirPath
 		}
 		if len(updates) > 0 {
-			s.DB.Model(&clip).Updates(updates)
+			if err := s.DB.Model(&models.Clip{}).Where("id = ?", clip.ID).Updates(updates).Error; err != nil {
+				fmt.Printf("Skipping event %s: update clip: %v\n", dirPath, err)
+				return
+			}
 		}
+	}
+	if clip.ID == 0 {
+		fmt.Printf("Skipping event %s: zero clip ID\n", dirPath)
+		return
 	}
 	// Reverse-geocode coordinate fallbacks (and empty cities with coordinates).
 	s.geocodeClipCity(&clip, estLat, estLon)
@@ -446,14 +490,11 @@ func (s *ScannerService) processEventGroup(dirPath string, filePaths []string) {
 	// Seed incident coordinates from event.json onto a single telemetry row.
 	// Reload TelemetryID in memory so aggregateTelemetry updates this row instead of creating another.
 	if clip.TelemetryID == 0 && ValidGeographicPoint(estLat, estLon) {
-		telemetry := models.Telemetry{
-			ClipID:    clip.ID,
-			Latitude:  estLat,
-			Longitude: estLon,
-		}
-		if err := s.DB.Create(&telemetry).Error; err == nil {
-			s.DB.Model(&clip).Update("telemetry_id", telemetry.ID)
-			clip.TelemetryID = telemetry.ID
+		if err := s.writeClipTelemetry(&clip, func(row *models.Telemetry) {
+			row.Latitude, row.Longitude = estLat, estLon
+		}); err != nil {
+			fmt.Printf("Skipping event %s: seed telemetry: %v\n", dirPath, err)
+			return
 		}
 	}
 
@@ -538,17 +579,21 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 		startTime := minTime.Add(-65 * time.Second)
 
 		var lastVf models.VideoFile
-		if err := s.DB.Table("video_files").
+		err := s.DB.Table("video_files").
 			Joins("JOIN clips ON video_files.clip_id = clips.id").
-			Where("clips.event = ? AND video_files.timestamp >= ? AND video_files.timestamp < ?", "Recent", startTime, minTime).
+			Where("clips.deleted_at IS NULL AND clips.event = ? AND video_files.timestamp >= ? AND video_files.timestamp < ?", "Recent", startTime, minTime).
 			Order("video_files.timestamp desc").
-			First(&lastVf).Error; err == nil {
-
-			s.DB.First(&clip, lastVf.ClipID)
-			found = true
-		} else if err := s.DB.Where("timestamp = ?", minTime).First(&clip).Error; err == nil {
-			// Idempotency: found the clip itself (maybe we are reprocessing)
-			found = true
+			First(&lastVf).Error
+		if err == nil {
+			err = s.DB.First(&clip, lastVf.ClipID).Error
+			found = err == nil && clip.ID != 0
+		} else if gorm.IsRecordNotFoundError(err) {
+			err = s.DB.Where("timestamp = ? AND event = ?", minTime, "Recent").First(&clip).Error
+			found = err == nil && clip.ID != 0
+		}
+		if err != nil && !gorm.IsRecordNotFoundError(err) {
+			fmt.Printf("Skipping recent group %s: lookup clip: %v\n", minTime, err)
+			continue
 		}
 
 		if !found {
@@ -561,15 +606,25 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 				Event:     "Recent",
 				SourceDir: firstDir,
 			}
-			s.DB.Create(&clip)
+			if err := s.DB.Create(&clip).Error; err != nil {
+				fmt.Printf("Skipping recent group %s: create clip: %v\n", minTime, err)
+				continue
+			}
 		} else if clip.SourceDir == "" {
 			firstDir := ""
 			if len(clipGroup) > 0 && len(clipGroup[0]) > 0 {
 				firstDir = filepath.Dir(clipGroup[0][0].path)
 			}
-			s.DB.Model(&clip).Update("source_dir", firstDir)
+			if err := s.DB.Model(&models.Clip{}).Where("id = ?", clip.ID).Update("source_dir", firstDir).Error; err != nil {
+				fmt.Printf("Skipping recent group %s: update clip: %v\n", minTime, err)
+				continue
+			}
 		}
 
+		if clip.ID == 0 {
+			fmt.Printf("Skipping recent group %s: zero clip ID\n", minTime)
+			continue
+		}
 		// Flatten the clip group to get all files for telemetry aggregation
 		var allFiles []fileInfo
 
@@ -585,6 +640,10 @@ func (s *ScannerService) processRecentGroup(filePaths []string) {
 }
 
 func (s *ScannerService) addFilesToClip(clip models.Clip, files []fileInfo) {
+	if clip.ID == 0 {
+		fmt.Println("Skipping files: zero clip ID")
+		return
+	}
 	for _, f := range files {
 		if s.isPendingDeletePath(f.path) {
 			continue
@@ -645,6 +704,10 @@ func (s *ScannerService) isPendingDeleteSourceDir(dir string) bool {
 // Latitude/Longitude are the incident point: valid event.json (or an already-stored valid
 // incident point) wins over SEI, including SEI (0,0). This is not a playback track sample.
 func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo, eventLat, eventLon float64) {
+	if clip == nil || clip.ID == 0 {
+		fmt.Println("Skipping telemetry: zero clip ID")
+		return
+	}
 	var frontFiles []fileInfo
 
 	// 1. Filter for Front camera and Sort
@@ -664,6 +727,15 @@ func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo,
 	})
 
 	if len(frontFiles) == 0 {
+		// Missing cameras/coordinates must not leave a repaired clip pointing at
+		// zero or another clip's row. Preserve owned data; do not invent SEI.
+		if err := s.writeClipTelemetry(clip, func(row *models.Telemetry) {
+			if ValidGeographicPoint(eventLat, eventLon) {
+				row.Latitude, row.Longitude = eventLat, eventLon
+			}
+		}); err != nil {
+			fmt.Printf("Skipping clip %d telemetry: %v\n", clip.ID, err)
+		}
 		return
 	}
 
@@ -687,54 +759,50 @@ func (s *ScannerService) aggregateTelemetry(clip *models.Clip, files []fileInfo,
 	timingData, _ := json.Marshal(fileTiming)
 
 	// 4. Create or Update Telemetry
-	var telemetry models.Telemetry
+	var lat, lon float64
+	err := s.writeClipTelemetry(clip, func(telemetry *models.Telemetry) {
+		existingLat, existingLon := telemetry.Latitude, telemetry.Longitude
 
-	if clip.TelemetryID != 0 {
-		// Fetch existing
-		s.DB.First(&telemetry, clip.TelemetryID)
-	}
+		// Update fields
+		telemetry.ClipID = clip.ID
+		telemetry.FullDataJson = string(jsonData)
+		telemetry.FileTimingJson = string(timingData)
 
-	existingLat, existingLon := telemetry.Latitude, telemetry.Longitude
+		var seiLat, seiLon float64
+		// Update summary fields from the middle of the *entire* clip (approx)
+		mid := len(aggregatedMeta) / 2
+		if mid < len(aggregatedMeta) {
+			m := aggregatedMeta[mid]
+			telemetry.Speed = m.VehicleSpeedMps * 2.23694
+			telemetry.Gear = m.GearState.String()
+			seiLat = m.LatitudeDeg
+			seiLon = m.LongitudeDeg
+			telemetry.SteeringAngle = m.SteeringWheelAngle
+			telemetry.AutopilotState = m.AutopilotState.String()
+		}
 
-	// Update fields
-	telemetry.ClipID = clip.ID
-	telemetry.FullDataJson = string(jsonData)
-	telemetry.FileTimingJson = string(timingData)
+		incidentLat, incidentLon := eventLat, eventLon
+		if !ValidGeographicPoint(incidentLat, incidentLon) && ValidGeographicPoint(existingLat, existingLon) {
+			incidentLat, incidentLon = existingLat, existingLon
+		}
+		lat, lon = SelectIncidentPosition(incidentLat, incidentLon, seiLat, seiLon)
+		telemetry.Latitude = lat
+		telemetry.Longitude = lon
 
-	var seiLat, seiLon float64
-	// Update summary fields from the middle of the *entire* clip (approx)
-	mid := len(aggregatedMeta) / 2
-	if mid < len(aggregatedMeta) {
-		m := aggregatedMeta[mid]
-		telemetry.Speed = m.VehicleSpeedMps * 2.23694
-		telemetry.Gear = m.GearState.String()
-		seiLat = m.LatitudeDeg
-		seiLon = m.LongitudeDeg
-		telemetry.SteeringAngle = m.SteeringWheelAngle
-		telemetry.AutopilotState = m.AutopilotState.String()
-	}
-
-	incidentLat, incidentLon := eventLat, eventLon
-	if !ValidGeographicPoint(incidentLat, incidentLon) && ValidGeographicPoint(existingLat, existingLon) {
-		incidentLat, incidentLon = existingLat, existingLon
-	}
-	lat, lon := SelectIncidentPosition(incidentLat, incidentLon, seiLat, seiLon)
-	telemetry.Latitude = lat
-	telemetry.Longitude = lon
-
-	if telemetry.ID != 0 {
-		s.DB.Save(&telemetry)
-	} else {
-		s.DB.Create(&telemetry)
-		s.DB.Model(clip).Update("telemetry_id", telemetry.ID)
-		clip.TelemetryID = telemetry.ID
+	})
+	if err != nil {
+		fmt.Printf("Skipping clip %d telemetry: %v\n", clip.ID, err)
+		return
 	}
 
 	// 5. Update City if missing — use the selected incident point, never (0,0).
 	// Tesla's own city (from event.json) always wins when already set to a real name.
 	if clip.City == "" && ValidGeographicPoint(lat, lon) {
 		newCity := fmt.Sprintf("%.4f, %.4f", lat, lon)
-		s.DB.Model(clip).Update("city", newCity)
+		if err := s.DB.Model(&models.Clip{}).Where("id = ?", clip.ID).Update("city", newCity).Error; err != nil {
+			fmt.Printf("Clip %d city update: %v\n", clip.ID, err)
+			return
+		}
 		clip.City = newCity
 	}
 	s.geocodeClipCity(clip, lat, lon)

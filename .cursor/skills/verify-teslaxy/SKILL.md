@@ -102,6 +102,8 @@ rm -rf "$FIX"
 
 ## Helpers
 
+- Telemetry ownership and HTTP rescan: see `features/telemetry-id.md` for a workspace-local fixture, `/ping`, guarded `POST /api/scan`, and SQLite pointer checks. Use this targeted backend path instead of the full-suite commands above for telemetry fixes.
+
 - Telemetry/video timing: see `features/telemetry-sync.md` for private real-clip measurements, packet PTS verification, and before/after player proof.
 
 - `scripts/verify-retention.sh` — runs unit tests + fixture dry-run; optional `--http` launches the server path above and curls retention endpoints.

@@ -83,7 +83,7 @@ func readEventJSONFile(path string) (eventJSON, error) {
 // geocodeClipCity replaces empty or coordinate-string cities via the offline
 // suburb lookup. Failures leave the coordinate string (or empty) unchanged.
 func (s *ScannerService) geocodeClipCity(clip *models.Clip, lat, lon float64) {
-	if clip == nil || s.Geocoder == nil {
+	if clip == nil || clip.ID == 0 || s.Geocoder == nil {
 		return
 	}
 	need := clip.City == "" || IsCoordinateCity(clip.City)
@@ -97,7 +97,10 @@ func (s *ScannerService) geocodeClipCity(clip *models.Clip, lat, lon float64) {
 	if err != nil || name == "" {
 		return
 	}
-	s.DB.Model(clip).Update("city", name)
+	if err := s.DB.Model(&models.Clip{}).Where("id = ?", clip.ID).Update("city", name).Error; err != nil {
+		fmt.Printf("Clip %d geocode update: %v\n", clip.ID, err)
+		return
+	}
 	clip.City = name
 }
 

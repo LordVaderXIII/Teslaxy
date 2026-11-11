@@ -57,7 +57,14 @@ func InitDB() {
 	// gorm.io/gorm + separate migration files for full control.
 	// ============================================================
 
-	DB.AutoMigrate(&models.Clip{}, &models.VideoFile{}, &models.Telemetry{})
+	if err := DB.AutoMigrate(&models.Clip{}, &models.VideoFile{}, &models.Telemetry{}).Error; err != nil {
+		panic(fmt.Errorf("database migration: %w", err))
+	}
+	count, err := RepairSharedTelemetry(DB)
+	if err != nil {
+		panic(fmt.Errorf("repair shared telemetry: %w", err))
+	}
+	fmt.Printf("Telemetry pointer repair: cleared %d shared non-owner links\n", count)
 	fmt.Println("Database connection established and migrated (AutoMigrate complete)")
 }
 

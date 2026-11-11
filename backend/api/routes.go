@@ -53,6 +53,7 @@ func SetupRoutes(r *gin.Engine) {
 		api.GET("/retention/storage", getRetentionStorage)
 		api.PUT("/retention/settings", RetentionLANOnly(), MutationGuard(), putRetentionSettings)
 		api.POST("/retention/run", RetentionLANOnly(), MutationGuard(), postRetentionRun)
+		api.POST("/scan", RetentionLANOnly(), MutationGuard(), postScan)
 		api.POST("/clips/:id/protect", RetentionLANOnly(), MutationGuard(), setClipProtected)
 	}
 }
