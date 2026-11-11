@@ -10,11 +10,11 @@ type Clip struct {
 	UpdatedAt time.Time  `json:"-"`
 	DeletedAt *time.Time `sql:"index" json:"-"`
 
-	Timestamp      time.Time   `json:"timestamp" gorm:"index"`
-	EventTimestamp *time.Time  `json:"event_timestamp"` // Timestamp from event.json (primary source of truth for event start)
-	Event          string      `json:"event"`           // e.g., "Sentry", "Saved", "Recent"
-	City           string      `json:"city"`
-	Reason         string      `json:"reason"`
+	Timestamp      time.Time  `json:"timestamp" gorm:"index"`
+	EventTimestamp *time.Time `json:"event_timestamp"` // Timestamp from event.json (primary source of truth for event start)
+	Event          string     `json:"event"`           // e.g., "Sentry", "Saved", "Recent"
+	City           string     `json:"city"`
+	Reason         string     `json:"reason"`
 
 	// SourceDir is the stable identifier for a logical Tesla event.
 	// For SentryClips/SavedClips: the full path to the event directory (contains event.json)
@@ -57,5 +57,6 @@ type Telemetry struct {
 	Longitude      float64 `json:"longitude"`
 	SteeringAngle  float32 `json:"steering_angle"`
 	AutopilotState string  `json:"autopilot_state"`
-	FullDataJson   string  `json:"full_data_json"` // Store full protobuf dump if needed
+	FullDataJson   string  `json:"full_data_json"`   // Store full protobuf dump if needed
+	FileTimingJson string  `json:"file_timing_json"` // Additive per-front-file sample/PTS anchors; flat array stays compatible.
 }

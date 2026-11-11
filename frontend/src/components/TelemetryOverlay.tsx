@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { ArrowLeft, ArrowRight, CircleAlert } from 'lucide-react';
-import { telemetryIndex } from '../utils/telemetryIndex.mjs';
+import { telemetryIndex, type TelemetryFileTiming } from '../utils/telemetryIndex.mjs';
 import { pedalState } from '../utils/pedalState.mjs';
 
 interface TelemetryPoint {
@@ -21,9 +21,19 @@ interface TelemetryOverlayProps {
   dataJson: string;
   currentTime: number;
   duration: number;
+  fileTimingJson?: string;
+  frontFilePath?: string;
+  frontLocalTime?: number;
 }
 
-const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson, currentTime, duration }) => {
+const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson, currentTime, duration, fileTimingJson, frontFilePath, frontLocalTime }) => {
+  const files = useMemo<TelemetryFileTiming[] | undefined>(() => {
+    if (!fileTimingJson) return undefined;
+    try {
+      const parsed = JSON.parse(fileTimingJson);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }, [fileTimingJson]);
   // Memoize parsed data to avoid re-parsing on every render
   const data = useMemo<TelemetryPoint[]>(() => {
     try {
@@ -39,10 +49,10 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = React.memo(({ dataJson
   const { currentPoint, approximate } = useMemo(() => {
     if (data.length === 0 || duration <= 0) return { currentPoint: null, approximate: false };
 
-    const { index, approximate: approx } = telemetryIndex(data, currentTime, duration);
-    const clamped = Math.max(0, Math.min(data.length - 1, index));
-    return { currentPoint: data[clamped] ?? null, approximate: approx };
-  }, [currentTime, data, duration]);
+    const anchor = files ? { files, filePath: frontFilePath ?? '', localTime: frontLocalTime ?? NaN } : undefined;
+    const { index, approximate: approx } = telemetryIndex(data, currentTime, duration, anchor);
+    return { currentPoint: data[index] ?? null, approximate: approx };
+  }, [currentTime, data, duration, files, frontFilePath, frontLocalTime]);
 
   if (!currentPoint) return null;
 

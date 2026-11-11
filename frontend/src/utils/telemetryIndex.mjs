@@ -4,7 +4,25 @@
  * @param {number} duration
  * @returns {{ index: number, approximate: boolean }}
  */
-export function telemetryIndex(samples, currentTime, duration) {
+export function telemetryIndex(samples, currentTime, duration, anchor) {
+  // New scans carry packet PTS and explicit file boundaries. Never stretch a
+  // partial/empty SEI file or infer timing across a file boundary.
+  if (anchor?.files) {
+    const file = anchor.files.find(f => f.file_path === anchor.filePath);
+    const times = file?.sample_times;
+    const t = anchor.localTime;
+    const unavailable = { index: -1, approximate: true };
+    if (!file || !Number.isFinite(t) || t < 0 || !Array.isArray(times) ||
+        times.length !== file.sample_count || times.length === 0 ||
+        !(file.frame_duration > 0)) return unavailable;
+    const index = nearestIndexBySeq(times, t);
+    if (Math.abs(times[index] - t) > file.frame_duration) return unavailable;
+    const absolute = file.first_sample_index + index;
+    if (!Number.isInteger(absolute) || absolute < 0 || absolute >= (samples?.length ?? 0)) return unavailable;
+    return { index: absolute, approximate: false };
+  }
+  // Old flat arrays have no reliable anchor. Preserve the explicit approximate
+  // fallback until the next scan adds file timing, without adding a fudge offset.
   const length = samples?.length ?? 0;
   if (length === 0) {
     return { index: 0, approximate: false };
