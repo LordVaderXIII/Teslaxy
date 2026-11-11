@@ -78,7 +78,7 @@ func loadAdminCreds() {
 			panic(fmt.Sprintf("CRITICAL: Failed to generate random admin password: %v", err))
 		}
 		adminPass = hex.EncodeToString(bytes)
-		log.Printf("SECURITY NOTICE: ADMIN_PASS not set. Auto-generated admin password: %s", adminPass)
+		log.Print("SECURITY NOTICE: ADMIN_PASS not set. Generated an ephemeral admin credential; set ADMIN_PASS explicitly to enable a known login.")
 	}
 }
 

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-11-12
+### Fixed
+- Prevent failed clip lookups/creates and soft-deleted Recent lookbacks from causing unscoped telemetry or city updates. Telemetry writes check ownership, reload stale pointers, and atomically link each row to its own clip.
+- Automatically detach shared non-owner telemetry pointers after database migration, preserving the rightful owner and all clip, video and telemetry rows. The startup scan rebuilds detached pointers from each event's own footage and event.json.
+- Never log generated admin credentials; configure ADMIN_PASS explicitly for a known login.
+
+### Added
+- Guarded `POST /api/scan` starts a background full scan (202); concurrent requests or a running startup scan return 409. Uses the same authentication, LAN and mutation guards as retention writes. No UI changes.
+- Fixture regression tests and a telemetry-pointer verification guide.
+
 ## [0.5.4] - 2026-11-11
 ### Fixed
 - Compact the driving telemetry overlay so video stays the main view in the six-camera mosaic and Focus. Cap the desktop HUD instead of scaling it with the stage; keep a short, inset phone strip with driving state and indicators visible.
