@@ -594,21 +594,22 @@ button:disabled {
   }
 }
 
-/* Driving HUD.
-   Desktop keeps the previous 20rem / 3rem-speed / 4rem-wheel panel.
-   Phones collapse the same nodes into one full-width strip along the
-   top of the picture. Sizing lives here so an inline width cannot
-   force the panel back open. */
+/* Driving HUD: a compact instrument overlay, never a player-sized panel.
+   Cap its physical size even in Focus; phones keep a single short strip.
+   Reuse the telemetry nodes and leave the video/overlay clock alone. */
 .desk-hud {
   position: absolute;
-  top: 2rem;
+  top: 8px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;
   box-sizing: border-box;
-  width: 100%;
-  max-width: min(20rem, calc(100% - 24px));
-  padding: 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px;
+  width: 252px;
+  max-width: calc(100% - 16px);
+  padding: 6px;
   border-radius: 5px;
   border: 1px solid var(--line);
   background: var(--panel);
@@ -620,10 +621,11 @@ button:disabled {
 
 .desk-hud-row {
   display: flex;
+  grid-column: 1 / -1;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  margin: 0;
 }
 
 .desk-hud-gearbox,
@@ -634,21 +636,23 @@ button:disabled {
 }
 
 .desk-hud-gearbox {
-  gap: 0.5rem;
+  gap: 4px;
   flex: none;
 }
 
 .desk-hud-speedbox {
-  gap: 1rem;
+  gap: 6px;
   min-width: 0;
 }
 
 .desk-hud-speedcol {
-  flex-direction: column;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 2px;
 }
 
 .desk-hud-gear {
-  font-size: 1.25rem;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1;
   color: var(--muted);
@@ -659,6 +663,8 @@ button:disabled {
 }
 
 .desk-hud-brake-icon {
+  width: 14px;
+  height: 14px;
   color: var(--ghost);
   flex: none;
 }
@@ -668,6 +674,8 @@ button:disabled {
 }
 
 .desk-hud-blink {
+  width: 14px;
+  height: 14px;
   color: var(--ghost);
   flex: none;
 }
@@ -677,7 +685,7 @@ button:disabled {
 }
 
 .desk-hud-speed {
-  font-size: 3rem;
+  font-size: 24px;
   font-weight: 300;
   letter-spacing: -0.05em;
   line-height: 1;
@@ -686,14 +694,15 @@ button:disabled {
 .desk-hud-unit,
 .desk-hud-ap,
 .desk-hud-sync {
-  font-size: 16px;
+  font-size: 10px;
+  line-height: 12px;
   font-weight: 500;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .desk-hud-unit {
-  margin-top: 0.25rem;
+  margin-top: 0;
   color: var(--muted);
   font-weight: 500;
   letter-spacing: 0.05em;
@@ -705,8 +714,8 @@ button:disabled {
 
 .desk-hud-wheel {
   display: block;
-  width: 4rem;
-  height: 4rem;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
 }
 
@@ -716,8 +725,8 @@ button:disabled {
 
 .desk-hud-track {
   width: 100%;
-  height: 0.5rem;
-  margin-bottom: 0.5rem;
+  height: 4px;
+  margin: 0;
   border-radius: 3px;
   overflow: hidden;
   background: var(--ghost);
@@ -739,42 +748,40 @@ button:disabled {
 }
 
 .desk-hud-ap {
-  margin-top: 0.5rem;
+  grid-column: 1 / -1;
+  margin: 0;
   text-align: center;
   color: var(--accent);
   font-weight: 600;
 }
 
 .desk-hud-sync {
-  margin-top: 0.5rem;
+  margin: 0;
   text-align: center;
   color: var(--muted);
   font-weight: 600;
+}
+
+.desk-hud:has(.desk-hud-sync) .desk-hud-ap {
+  grid-column: auto;
 }
 
 @media (max-width: 767px) {
   /* One horizontal strip. Gear, steering, speed, brake, and accelerator
      are siblings on that line. No side column and no second row. */
   .desk-hud {
-    top: 0;
-    left: 0;
-    right: 0;
-    transform: none;
     display: flex;
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     box-sizing: border-box;
-    width: 100%;
-    max-width: none;
+    width: 300px;
+    max-width: calc(100% - 16px);
     height: 24px;
     min-height: 24px;
     max-height: 24px;
     padding: 0 6px;
-    border-radius: 0;
-    border-width: 0 0 1px;
-    overflow: hidden;
   }
 
   .desk-hud-row {
@@ -802,7 +809,8 @@ button:disabled {
   }
 
   .desk-hud-blink {
-    display: none;
+    width: 12px;
+    height: 12px;
   }
 
   .desk-hud-speed {
@@ -833,9 +841,9 @@ button:disabled {
   .desk-hud-track-brake {
     flex: 1 1 0;
     width: auto;
-    min-width: 56px;
+    min-width: 16px;
     max-width: none;
-    height: 10px;
+    height: 6px;
     margin: 0;
     box-shadow: inset 0 0 0 1px var(--sev-ok);
   }
@@ -846,7 +854,22 @@ button:disabled {
 
   .desk-hud-ap,
   .desk-hud-sync {
-    display: none;
+    font-size: 9px;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+
+  /* Legacy unanchored clips must still disclose approximate sync. */
+  .desk-hud:has(.desk-hud-sync) {
+    flex-wrap: wrap;
+    height: auto;
+    max-height: none;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .desk-hud-sync {
+    flex-basis: 100%;
   }
 }
 
